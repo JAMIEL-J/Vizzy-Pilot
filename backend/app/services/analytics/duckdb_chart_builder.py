@@ -11,6 +11,55 @@ import duckdb
 logger = logging.getLogger(__name__)
 
 
+# Semantic binary groups used for robust filter matching across text/numeric encodings.
+_POSITIVE_KEYWORDS = {
+    '1', '1.0', '1.00', 'yes', 'true', 'y', 'positive',
+    'churned', 'churn', 'exited', 'attrited', 'left',
+    'cancelled', 'canceled', 'defaulted', 'inactive'
+}
+_NEGATIVE_KEYWORDS = {
+    '0', '0.0', '0.00', 'no', 'false', 'n', 'negative',
+    'retained', 'stayed', 'active', 'performing'
+}
+
+
+def _normalize_filter_token(value: Any) -> str:
+    return str(value).strip().lower() if value is not None else ''
+
+
+def _binary_bucket(value: Any) -> Optional[str]:
+    """Map semantic binary values to '__pos__' / '__neg__' buckets."""
+    token = _normalize_filter_token(value)
+    if not token:
+        return None
+    if token in _POSITIVE_KEYWORDS:
+        return '__pos__'
+    if token in _NEGATIVE_KEYWORDS:
+        return '__neg__'
+    return None
+
+
+def _binary_sql_condition(column: str, bucket: str) -> str:
+    """Build SQL condition for semantic binary bucket, tolerant to numeric/text encodings."""
+    col_text = f'LOWER(TRIM(CAST("{column}" AS VARCHAR)))'
+    if bucket == '__pos__':
+        pos_list = ', '.join([f"'{v}'" for v in sorted(_POSITIVE_KEYWORDS)])
+        return f'({col_text} IN ({pos_list}) OR TRY_CAST("{column}" AS DOUBLE) = 1)'
+    neg_list = ', '.join([f"'{v}'" for v in sorted(_NEGATIVE_KEYWORDS)])
+    return f'({col_text} IN ({neg_list}) OR TRY_CAST("{column}" AS DOUBLE) = 0)'
+
+
+def _normalize_aggregation(aggregation: Optional[str], default: str = 'COUNT') -> str:
+    """Normalize aggregation aliases to SQL-safe canonical forms."""
+    agg = str(aggregation or default).strip().upper()
+    alias_map = {
+        'MEAN': 'AVG',
+        'AVERAGE': 'AVG',
+        'COUNT_DISTINCT': 'COUNT',
+    }
+    return alias_map.get(agg, agg)
+
+
 def build_filter_where_clause(
     filters: Dict[str, List[str]],
     target_column: Optional[str] = None,
@@ -27,19 +76,13 @@ def build_filter_where_clause(
 
     # Target value filter (Churned/Retained tabs)
     if target_column and target_value and target_value.lower() != "all":
-        target_norm = target_value.lower().strip()
+        target_norm = _normalize_filter_token(target_value)
+        target_bucket = _binary_bucket(target_norm)
 
-        # Binary target mapping
-        if target_norm in ['1', '1.0', 'yes', 'true', 'churned', 'exited', 'attrited', 'left']:
-            # Positive case
-            conditions.append(f'LOWER(CAST("{target_column}" AS VARCHAR)) IN (?, ?, ?, ?, ?, ?, ?, ?)')
-            params.extend(['1', '1.0', 'yes', 'true', 'churned', 'exited', 'attrited', 'left'])
-        elif target_norm in ['0', '0.0', 'no', 'false', 'retained', 'stayed', 'active']:
-            # Negative case
-            conditions.append(f'LOWER(CAST("{target_column}" AS VARCHAR)) IN (?, ?, ?, ?, ?, ?, ?)')
-            params.extend(['0', '0.0', 'no', 'false', 'retained', 'stayed', 'active'])
+        if target_bucket:
+            conditions.append(_binary_sql_condition(target_column, target_bucket))
         else:
-            conditions.append(f'LOWER(CAST("{target_column}" AS VARCHAR)) = ?')
+            conditions.append(f'LOWER(TRIM(CAST("{target_column}" AS VARCHAR))) = ?')
             params.append(target_norm)
 
     # Column filters
@@ -105,11 +148,31 @@ def build_filter_where_clause(
         # Combine scalar and range conditions for this column
         col_conditions = []
         if scalar_values:
-            placeholders = ','.join(['?'] * len(scalar_values))
-            col_conditions.append(
-                f'LOWER(TRIM(CAST("{column}" AS VARCHAR))) IN ({placeholders})'
-            )
-            params.extend(scalar_values)
+            # Semantic binary matching for values like yes/no/true/false/1/0/churned/retained.
+            # This is dynamic and column-agnostic (no hardcoded column names).
+            bucket_values = {_binary_bucket(v) for v in scalar_values}
+            bucket_values.discard(None)
+
+            if bucket_values:
+                if '__pos__' in bucket_values:
+                    col_conditions.append(_binary_sql_condition(column, '__pos__'))
+                if '__neg__' in bucket_values:
+                    col_conditions.append(_binary_sql_condition(column, '__neg__'))
+
+                # Keep any non-binary scalar values as exact matches.
+                exact_scalar_values = [v for v in scalar_values if _binary_bucket(v) is None]
+                if exact_scalar_values:
+                    placeholders = ','.join(['?'] * len(exact_scalar_values))
+                    col_conditions.append(
+                        f'LOWER(TRIM(CAST("{column}" AS VARCHAR))) IN ({placeholders})'
+                    )
+                    params.extend(exact_scalar_values)
+            else:
+                placeholders = ','.join(['?'] * len(scalar_values))
+                col_conditions.append(
+                    f'LOWER(TRIM(CAST("{column}" AS VARCHAR))) IN ({placeholders})'
+                )
+                params.extend(scalar_values)
 
         col_conditions.extend(range_conditions)
 
@@ -142,7 +205,7 @@ def build_chart_query(
     """
     dimension = chart_config.get('dimension')
     metric = chart_config.get('metric')
-    aggregation = (chart_config.get('aggregation') or 'COUNT').upper()
+    aggregation = _normalize_aggregation(chart_config.get('aggregation'), default='COUNT')
     chart_type = chart_config.get('type', 'bar')
     is_date = chart_config.get('is_date', False)
 
@@ -276,7 +339,7 @@ def build_kpi_query(
         (query, params) tuple for parameterized execution
     """
     column = kpi_config.get('column')
-    aggregation = (kpi_config.get('aggregation') or 'COUNT').upper()
+    aggregation = _normalize_aggregation(kpi_config.get('aggregation'), default='COUNT')
 
     where_clause, params = build_filter_where_clause(filters, target_column, target_value)
 

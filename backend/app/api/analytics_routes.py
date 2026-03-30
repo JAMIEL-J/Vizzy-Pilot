@@ -800,6 +800,7 @@ def get_dashboard_analytics(  # pyright: ignore
                     dim = full_chart["dimension"]
                     met = full_chart.get("metric")
                     agg = full_chart.get("aggregation", "sum")
+                    agg_norm = str(agg or "sum").strip().lower()
                     ctype = full_chart["type"]
                     
                     try:
@@ -808,11 +809,12 @@ def get_dashboard_analytics(  # pyright: ignore
                         if met == target_col or (not met and 'Churn' in title):
                             if ctype == 'stacked_bar' or ctype == 'stacked':
                                 manual_data = _get_stacked_churn_counts(df_filtered, target_col, dim)
-                            elif agg == 'count' or 'Volume' in title or 'Count' in title:
+                            elif agg_norm == 'count' or 'Volume' in title or 'Count' in title:
                                 manual_data = _get_churn_count_by_segment(df_filtered, target_col, dim)
                             else:
                                 # Default to Rate for Churn targets
-                                if pd.api.types.is_numeric_dtype(df[dim]) and df[dim].nunique() > 10:
+                                # FIX: Use df_filtered.nunique() not df.nunique() to check filtered data cardinality
+                                if pd.api.types.is_numeric_dtype(df_filtered[dim]) and df_filtered[dim].nunique() > 10:
                                     manual_data = _get_lifecycle_cohorts(df_filtered, dim, target_col)
                                 else:
                                     manual_data = _get_churn_rate_by_segment(df_filtered, target_col, dim)
@@ -878,7 +880,7 @@ def get_dashboard_analytics(  # pyright: ignore
                         # 4. Generic Fallback Re-aggregation (Numeric vs Distribution)
                         if not manual_data:
                             if met and pd.api.types.is_numeric_dtype(df[met]):
-                                if agg == 'mean':
+                                if agg_norm in {'mean', 'avg', 'average'}:
                                     manual_data = _safe_groupby_mean(df_filtered, dim, met)
                                 else:
                                     manual_data = _safe_groupby_sum(df_filtered, dim, met)
@@ -905,7 +907,32 @@ def get_dashboard_analytics(  # pyright: ignore
                             print(f"Final resort failed for {title}: {e}")
                             charts[slot] = {**full_chart, "data": []}
                 else:
-                    charts[slot] = {**full_chart, "data": []}
+                    # FIX: Handle charts WITHOUT dimensions (e.g., "Churn Overview" donut, "Churned/Retained" split)
+                    # These typically have metric=target_col and type=donut/pie
+                    met = full_chart.get("metric")
+                    ctype = full_chart["type"]
+                    
+                    try:
+                        manual_data = []
+                        # Target distribution charts: "Churn Overview", "Exit Distribution", etc.
+                        if (met == target_col or not met) and ctype in ('donut', 'pie'):
+                            # Re-aggregate target distribution from filtered data
+                            manual_data = _safe_value_counts(df_filtered, target_col, limit=10) if target_col and target_col in df_filtered.columns else []
+                            if manual_data and target_col:
+                                from app.services.analytics.chart_recommender import _format_categorical_value
+                                for d in manual_data:
+                                    d['name'] = _format_categorical_value(target_col, d['name'])
+                        else:
+                            # Generic fallback for other no-dimension charts
+                            charts[slot] = {**full_chart, "data": []}
+                        
+                        if manual_data:
+                            charts[slot] = {**full_chart, "data": manual_data}
+                        else:
+                            charts[slot] = {**full_chart, "data": []}
+                    except Exception as e:
+                        print(f"Error handling no-dimension chart {title}: {e}")
+                        charts[slot] = {**full_chart, "data": []}
         else:
             charts = charts_full
 
