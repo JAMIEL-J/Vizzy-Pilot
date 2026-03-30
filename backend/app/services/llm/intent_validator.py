@@ -32,6 +32,17 @@ def validate_intent(
     _validate_intent_type(intent)
     _validate_aggregation(intent, contract)
     
+    # Auto-correct common LLM hallucinated swaps (e.g. YoY revenue -> group_by: revenue, metric: year)
+    if intent.metric and intent.group_by and len(intent.group_by) > 0:
+        metric_lower = intent.metric.lower()
+        group_lower = intent.group_by[0].lower()
+        time_kws = ["year", "month", "day", "date", "quarter", "week"]
+        fin_kws = ["revenue", "profit", "income", "cost", "sales", "price", "amount", "budget", "count", "total",
+                   "los", "mortality", "readmission", "rate", "score", "charge", "billing", "admissions"]
+        if any(kw in metric_lower for kw in time_kws) and any(kw in group_lower for kw in fin_kws):
+            logger.info(f"Auto-correcting swapped metric/group_by: metric={intent.metric}, group_by={intent.group_by[0]}")
+            intent.metric, intent.group_by[0] = intent.group_by[0], intent.metric
+            
     # Resolve and validate columns with fuzzy matching
     intent = _resolve_and_validate_metric(intent, contract, available_columns)
     intent = _resolve_and_validate_group_by(intent, contract, available_columns)

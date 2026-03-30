@@ -28,6 +28,12 @@ EXCLUDE_PATTERNS = [
     'id', 'uuid', 'guid', 'key', 'index', 'row', 'unnamed'
 ]
 
+# Numeric columns that should NOT be treated as meaningful metrics
+NOISE_METRIC_PATTERNS = [
+    'room', 'bed', 'floor', 'ward_number', 'room_number', 'bed_number',
+    'zipcode', 'zip_code', 'postal_code', 'phone_number', 'ssn'
+]
+
 # Binary flags to exclude from KPIs (use only for segmentation)
 BINARY_FLAG_PATTERNS = [
     'senior', 'citizen', 'partner', 'dependent', 'flag', 'indicator',
@@ -208,7 +214,7 @@ def _is_date_column(df: pd.DataFrame, col: str) -> bool:
     if any(kw in col_lower for kw in exclude_keywords):
         return False
         
-    temporal_keywords = ['date', 'time', 'datetime', 'timestamp', 'created', 'updated', 'shipped', 'opened', 'closed', 'year', 'month', 'quarter', 'period']
+    temporal_keywords = ['date', 'time', 'datetime', 'timestamp', 'created', 'updated', 'shipped', 'opened', 'closed', 'year', 'month', 'quarter', 'period', 'discharge', 'admitted']
     if any(kw in col_lower for kw in temporal_keywords):
         import pandas as pd
         try:
@@ -337,9 +343,27 @@ def filter_columns(df: pd.DataFrame, domain: DomainType) -> ColumnClassification
         except Exception:
             pass
     
+    # ── PRE-COMPUTE: Domain-Protected Columns ──────────────────────────────
+    # Build a set of keywords from the domain schema's attr_* entries.
+    # Columns matching these are PROTECTED from the identifier exclusion check
+    # so that domain-critical dimensions (Hospital, Doctor, Diagnosis) survive.
+    domain_schema = DOMAIN_SCHEMAS.get(domain, {})
+    _domain_attr_kws = []
+    for key, kws in domain_schema.items():
+        if key.startswith('attr_'):
+            _domain_attr_kws.extend(kws)
+    # Also add universal healthcare keywords that should never be excluded
+    if domain == DomainType.HEALTHCARE:
+        _domain_attr_kws.extend(['hospital', 'doctor', 'physician', 'clinic', 'facility', 'provider', 'ward', 'department'])
+    
+    def _is_domain_protected(col_name: str) -> bool:
+        """Check if column matches any domain-critical attribute keyword."""
+        col_norm = col_name.lower().replace('_', '').replace('-', '').replace(' ', '')
+        return any(kw.replace('_', '').replace(' ', '') in col_norm for kw in _domain_attr_kws)
+    
     for col in df_typed.columns:
-        # Check exclusions first
-        if _is_identifier_column(df_typed, col):
+        # Check exclusions first — but SKIP for domain-protected columns
+        if _is_identifier_column(df_typed, col) and not _is_domain_protected(col):
             classification.excluded.append(col)
             continue
         
@@ -356,8 +380,12 @@ def filter_columns(df: pd.DataFrame, domain: DomainType) -> ColumnClassification
         # Classify remaining columns
         if df_typed[col].dtype in ['int64', 'float64', 'int32', 'float32']:
             # Numeric column
+            col_norm = col.lower().replace('_', '').replace('-', '').replace(' ', '')
+            is_noise_metric = any(p.replace('_', '') in col_norm for p in NOISE_METRIC_PATTERNS)
             if _is_binary_flag(df_typed, col):
                 classification.excluded.append(col)  # Exclude binary flags from metrics
+            elif is_noise_metric:
+                classification.excluded.append(col)  # Room/Bed numbers are not meaningful metrics
             else:
                 classification.metrics.append(col)
         else:
@@ -386,11 +414,19 @@ def filter_columns(df: pd.DataFrame, domain: DomainType) -> ColumnClassification
             customer_keywords = ['customername', 'customer_name', 'firstname', 'lastname', 'clientname']
             is_customer_name = _semantic_match(customer_keywords, col)
             
+            # Dynamically derive domain-critical dimensions from the schema
+            domain_schema = DOMAIN_SCHEMAS.get(domain, {})
+            domain_kws = []
+            for key, kws in domain_schema.items():
+                if key.startswith('attr_'):
+                    domain_kws.extend(kws)
+            is_domain_dim = _semantic_match(domain_kws, col) if domain_kws else False
+            
             unique_count = df_typed[col].nunique()
             cardinality = unique_count / len(df_typed) if len(df_typed) > 0 else 0
 
-            if (is_important_dim or is_geo_col) and domain == DomainType.SALES:
-                # Force include important business dimensions for sales domain
+            if (is_important_dim and domain == DomainType.SALES) or is_domain_dim:
+                # Force include important business dimensions for the detected domain
                 classification.dimensions.append(col)
             elif is_geo_col:
                 # Force include geo columns for ALL domains — needed for geo map charts

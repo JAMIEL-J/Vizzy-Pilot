@@ -449,12 +449,26 @@ def _detect_category_value_cols(columns: list, data: list) -> tuple:
         return (columns[0] if columns else "category", "value")
 
     row = data[0] if data else {}
+    
+    numeric_cols = []
     for col in columns:
         val = row.get(col)
         if isinstance(val, (int, float)):
-            value_col = col
-            category_col = [c for c in columns if c != col][0]
-            return (category_col, value_col)
+            numeric_cols.append(col)
+            
+    if numeric_cols:
+        # Prefer numeric columns that are NOT time/date as value_col
+        time_keywords = ["year", "month", "day", "date", "quarter", "week", "id"]
+        for col in numeric_cols:
+            if not any(kw in col.lower() for kw in time_keywords):
+                value_col = col
+                category_col = [c for c in columns if c != col][0]
+                return (category_col, value_col)
+                
+        # Fallback if all numeric cols are time-like (or no time-like check matched)
+        value_col = numeric_cols[-1] # Pick the last numeric column as metric (most SQL queries put metric last)
+        category_col = [c for c in columns if c != value_col][0]
+        return (category_col, value_col)
 
     # Fallback: first = category, second = value
     return (columns[0], columns[1])

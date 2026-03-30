@@ -111,6 +111,8 @@ Your job is to classify user queries into one of 6 intent types:
 
 Rules:
 - Do NOT guess column names - use exact names from schema
+- Time/Date components (like year, month, date) MUST ONLY be used in 'group_by' or 'time_column', NEVER as the 'metric'
+- Financial/Numeric values (revenue, sales, count) MUST be the 'metric', NEVER in 'group_by'
 - If a time-related word is used (monthly, yearly, trend, over time), classify as "trend"
 - If user asks "why" or "what drives" or "explain", classify as "interpretive"
 - If user asks to "compare" or uses "by" with a dimension, classify as "comparative"

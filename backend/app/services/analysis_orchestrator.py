@@ -28,7 +28,6 @@ from app.services.visualization.dashboard_generator import (
     generate_overview_dashboard,
     build_single_chart,
 )
-from app.services.analytics.csv_loader import safe_read_csv
 from app.services.analysis_service import create_analysis_result
 
 
@@ -381,7 +380,7 @@ async def run_analysis_orchestration(
     data_path = version.cleaned_reference or version.source_reference
 
     try:
-        df = safe_read_csv(data_path)
+        df = pd.read_csv(data_path)
     except FileNotFoundError:
         raise InvalidOperation(
             operation="run_analysis",

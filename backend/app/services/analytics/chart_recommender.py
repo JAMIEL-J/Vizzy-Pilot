@@ -148,6 +148,27 @@ COLUMN_TO_BUSINESS_TERM = {
     'paperless_billing': 'Paperless Billing',
     'churn': 'Churn Status',
     
+    # Healthcare
+    'patient_id': 'Patient',
+    'patient': 'Patient',
+    'diagnosis': 'Diagnosis',
+    'treatment': 'Treatment',
+    'admission_type': 'Admission Type',
+    'admission': 'Admission',
+    'discharge_disposition': 'Discharge Status',
+    'discharge': 'Discharge',
+    'los': 'Length of Stay',
+    'length_of_stay': 'Length of Stay',
+    'readmission': 'Readmission',
+    'mortality': 'Mortality',
+    'clinical_score': 'Clinical Score',
+    'hospital': 'Hospital',
+    'physician': 'Physician',
+    'drg': 'DRG',
+    'icd': 'ICD Code',
+    'medication': 'Medication',
+    'vital_signs': 'Vital Signs',
+    
     # Generic
     'type': 'Type',
     'status': 'Status',
@@ -181,6 +202,9 @@ METRIC_TYPE_PREFIX = {
     'price': 'Price',
     'amount': 'Amount',
     'total': 'Total',
+    'los': 'Days',
+    'score': 'Score',
+    'rate': 'Rate',
 }
 
 # DA Grade Metrics Categorization
@@ -332,27 +356,27 @@ def _deduplicate_charts(charts: List['ChartRecommendation']) -> List['ChartRecom
 # ============================================================================
 
 METRIC_PRIORITY_KEYWORDS = [
-    # Tier 1: Revenue & Sales (highest priority)
-    ['revenue', 'sales', 'totalcharges', 'total_charges', 'income', 'gross'],
-    # Tier 2: Cost & Expense
-    ['cost', 'expense', 'spending', 'monthlycharges', 'monthly_charges', 'price'],
-    # Tier 3: Profit & Margins
-    ['profit', 'margin', 'net', 'earning'],
-    # Tier 4: Volume & Quantity
-    ['quantity', 'count', 'volume', 'orders', 'transactions'],
+    # Tier 1: Revenue & Sales (highest priority) & Critical Health Outcomes
+    ['revenue', 'sales', 'totalcharges', 'total_charges', 'income', 'gross', 'los', 'length_of_stay', 'mortality', 'readmission'],
+    # Tier 2: Cost & Expense & Clinical Scores
+    ['cost', 'expense', 'spending', 'monthlycharges', 'monthly_charges', 'price', 'score', 'rate', 'prevalence', 'incidence'],
+    # Tier 3: Profit & Margins & Vital Measurements
+    ['profit', 'margin', 'net', 'earning', 'vital', 'pressure', 'bmi', 'weight', 'temperature'],
+    # Tier 4: Volume & Quantity 
+    ['quantity', 'count', 'volume', 'orders', 'transactions', 'encounters', 'visits', 'admissions', 'discharges'],
     # Tier 5: Engagement & Activity
-    ['tenure', 'clicks', 'impressions', 'views', 'visits', 'sessions'],
+    ['tenure', 'clicks', 'impressions', 'views', 'sessions'],
 ]
 
 DIMENSION_PRIORITY_KEYWORDS = [
-    # Tier 1: Business Segmentation (most insightful)
-    ['contract', 'segment', 'category', 'type', 'tier', 'plan'],
-    # Tier 2: Customer Segments
-    ['customer', 'gender', 'age', 'region', 'country'],
-    # Tier 3: Product/Service
-    ['product', 'service', 'internetservice', 'phoneservice', 'channel'],
-    # Tier 4: Payment/Method
-    ['payment', 'method', 'paymentmethod', 'payment_method'],
+    # Tier 1: Business Segmentation & Primary Health Classifications
+    ['contract', 'segment', 'category', 'type', 'tier', 'plan', 'diagnosis', 'drg', 'condition', 'treatment'],
+    # Tier 2: Customer/Patient Segments
+    ['customer', 'patient', 'gender', 'age', 'region', 'country', 'demographics'],
+    # Tier 3: Product/Service & Facilities/Staff
+    ['product', 'service', 'internetservice', 'phoneservice', 'channel', 'hospital', 'clinic', 'physician', 'provider', 'ward'],
+    # Tier 4: Payment/Method & Encounters
+    ['payment', 'method', 'paymentmethod', 'payment_method', 'admission', 'discharge', 'encounter'],
     # Tier 5: Other categorical
     ['status', 'state', 'city', 'department'],
 ]
@@ -2448,6 +2472,9 @@ def _generate_healthcare_charts(df: pd.DataFrame, classification: ColumnClassifi
     admission_type_col = next((c for c in pd_ if 'admission' in c.lower()), None)
     gender_col = next((c for c in pd_ if 'gender' in c.lower() or 'sex' in c.lower()), None)
     dept_col = next((c for c in pd_ if 'department' in c.lower() or 'ward' in c.lower()), None)
+    hospital_col = next((c for c in pd_ if 'hospital' in c.lower() or 'facility' in c.lower() or 'clinic' in c.lower()), None)
+    doctor_col = next((c for c in pd_ if any(kw in c.lower() for kw in ['doctor', 'physician', 'provider'])), None)
+    medication_col = next((c for c in pd_ if 'medication' in c.lower() or 'drug' in c.lower() or 'medicine' in c.lower()), None)
 
     # ── 1. Condition Distribution (Bar) ──────────────────────────────────────
     if condition_col:
@@ -2580,6 +2607,72 @@ def _generate_healthcare_charts(df: pd.DataFrame, classification: ColumnClassifi
                 format_type='currency', value_label='Billing Amount',
                 dimension=admission_type_col, metric=cost_col, aggregation='sum'
             ))
+    # ── 11. Billing by Hospital (HBar) ─────────────────────────────────────────
+    if hospital_col and cost_col:
+        data = _safe_groupby_sum(df, hospital_col, cost_col)
+        if data:
+            add_chart(ChartRecommendation(
+                '', f'Total Billing by {_beautify_column_name(hospital_col)}', 'hbar', data, 'HIGH',
+                'Revenue distribution across facilities',
+                format_type='currency', value_label='Billing Amount',
+                dimension=hospital_col, metric=cost_col, aggregation='sum'
+            ))
+
+    # ── 12. Top Doctors by Patient Volume (Bar) ──────────────────────────────
+    if doctor_col:
+        add_chart(_distribution_chart(
+            df, doctor_col,
+            f'Top {_beautify_column_name(doctor_col)}s by Patient Volume', 'HIGH',
+            'Workload distribution across physicians',
+            'Patients', prefer_pie=False
+        ))
+
+    # ── 13. Medication Distribution (Bar/Donut) ──────────────────────────────
+    if medication_col:
+        add_chart(_distribution_chart(
+            df, medication_col,
+            f'Top Prescribed {_beautify_column_name(medication_col)}s', 'HIGH',
+            'Most common prescriptions in the facility',
+            'Prescriptions', prefer_pie=df[medication_col].nunique() <= 6
+        ))
+
+    # ── EXHAUSTIVE DIMENSION COVERAGE ──────────────────────────────────────────
+    # For every recognized dimension that hasn't been used in a chart above,
+    # generate a distribution chart + a metric cross-tab so no insight is missed.
+    MAX_CHARTS = 20
+    used_dims = {condition_col, insurance_col, admission_type_col, dept_col,
+                 gender_col, hospital_col, doctor_col, medication_col}
+    used_dims.discard(None)  # Remove None entries
+    
+    avail_dims = [d for d in pd_ if d not in used_dims]
+    primary_metric = cost_col or (pm[0] if pm else None)  # Best available metric
+    
+    for dim in avail_dims:
+        if len(charts) >= MAX_CHARTS:
+            break
+        nunique = df[dim].nunique()
+        if nunique < 2 or nunique > 50:
+            continue  # Skip useless (1 value) or too noisy (>50) dimensions
+        
+        # Distribution chart for this dimension
+        add_chart(_distribution_chart(
+            df, dim,
+            f'{_beautify_column_name(dim)} Distribution', 'MEDIUM',
+            f'Patient distribution by {_beautify_column_name(dim)}',
+            'Count', prefer_pie=nunique <= 5
+        ))
+        
+        # Metric cross-tab: pair with the best available metric
+        if primary_metric and len(charts) < MAX_CHARTS:
+            agg = 'mean' if _should_average_metric(primary_metric) else 'sum'
+            data = _safe_groupby_mean(df, dim, primary_metric) if agg == 'mean' else _safe_groupby_sum(df, dim, primary_metric)
+            if data:
+                add_chart(ChartRecommendation(
+                    '', f'{_beautify_column_name(primary_metric)} by {_beautify_column_name(dim)}',
+                    'bar' if nunique < 8 else 'hbar', data, 'MEDIUM',
+                    f'{_beautify_column_name(primary_metric)} breakdown across {_beautify_column_name(dim)}',
+                    dimension=dim, metric=primary_metric, aggregation=agg
+                ))
 
     # Assign slot numbers
     for i, chart in enumerate(charts):
