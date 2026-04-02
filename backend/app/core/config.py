@@ -109,9 +109,9 @@ class LLMSettings(BaseSettings):
     groq_dashboard_api_key: SecretStr = Field(default=SecretStr(""))
     groq_dashboard_model: str = Field(default="llama-3.3-70b-versatile")
 
-    # Account 2: Groq (Chat/SQL - Kimi K2)
+    # Account 2: Groq (alternate Chat/SQL model)
     groq_chat_api_key: SecretStr = Field(default=SecretStr(""))
-    groq_chat_model: str = Field(default="moonshotai/kimi-k2-instruct-0905")
+    groq_chat_model: str = Field(default="llama-3.3-70b-versatile")
 
     # Provider Selection (Always Groq)
     primary_provider: Literal["groq"] = Field(default="groq")

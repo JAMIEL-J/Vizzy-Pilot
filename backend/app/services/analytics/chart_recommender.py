@@ -2370,6 +2370,7 @@ def _generate_marketing_charts(df: pd.DataFrame, classification: ColumnClassific
     click_col = next((c for c in pm if 'click' in c.lower()), None)
     spend_col = next((c for c in pm if 'spend' in c.lower() or 'cost' in c.lower()), None)
     conv_col = next((c for c in pm if 'conversion' in c.lower() or 'lead' in c.lower()), None)
+    conv_is_rate = _should_average_metric(conv_col) if conv_col else False
     
     campaign_col = next((c for c in pd_ if 'campaign' in c.lower() or 'ad' in c.lower()), None)
     channel_col = next((c for c in pd_ if 'channel' in c.lower() or 'source' in c.lower() or 'medium' in c.lower()), None)
@@ -2381,12 +2382,16 @@ def _generate_marketing_charts(df: pd.DataFrame, classification: ColumnClassific
         add_chart(ChartRecommendation('', f'Ad Spend by {_beautify_column_name(primary_dim)}', 'hbar', data, 'HIGH', 'Spend allocation', format_type='currency', dimension=primary_dim, metric=spend_col, aggregation='sum'))
         
     if primary_dim and conv_col:
-        data = _safe_groupby_sum(df, primary_dim, conv_col)
-        add_chart(ChartRecommendation('', f'Conversions by {_beautify_column_name(primary_dim)}', 'donut', data, 'HIGH', 'Top performing sources', format_type='number', dimension=primary_dim, metric=conv_col, aggregation='sum'))
+        if conv_is_rate:
+            data = _safe_groupby_mean(df, primary_dim, conv_col)
+            add_chart(ChartRecommendation('', f'Conversion Rate by {_beautify_column_name(primary_dim)} (%)', 'bar', data, 'HIGH', 'Top performing sources by conversion efficiency', format_type='percentage', dimension=primary_dim, metric=conv_col, aggregation='mean'))
+        else:
+            data = _safe_groupby_sum(df, primary_dim, conv_col)
+            add_chart(ChartRecommendation('', f'Conversions by {_beautify_column_name(primary_dim)}', 'donut', data, 'HIGH', 'Top performing sources', format_type='number', dimension=primary_dim, metric=conv_col, aggregation='sum'))
 
     if spend_col and conv_col:
         data = _get_scatter_data(df, spend_col, conv_col, label_col=primary_dim)
-        add_chart(ChartRecommendation('', 'Spend vs Conversions', 'scatter', data, 'HIGH', 'Cost acquisition efficiency', format_type='number', dimension=spend_col, metric=conv_col, aggregation='sum'))
+        add_chart(ChartRecommendation('', 'Spend vs Conversions', 'scatter', data, 'HIGH', 'Cost acquisition efficiency', format_type='percentage' if conv_is_rate else 'number', dimension=spend_col, metric=conv_col, aggregation='mean' if conv_is_rate else 'sum'))
 
     if dates and click_col:
         data = _get_time_trend(

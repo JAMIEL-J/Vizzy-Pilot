@@ -1,4 +1,7 @@
 import json
+from typing import Any, Dict, List
+
+from app.core.config import get_settings
 
 
 class SQLGenerator:
@@ -61,23 +64,77 @@ Output Schema (must be valid JSON):
 }
 """
 
+    @staticmethod
+    def _truncate_scalar(value: Any, max_len: int = 80) -> Any:
+        """Compact scalar values for prompt payload safety."""
+        if isinstance(value, str):
+            clean = " ".join(value.split())
+            if len(clean) > max_len:
+                return clean[:max_len] + "..."
+            return clean
+        return value
+
+    @classmethod
+    def _sanitize_sample_rows(cls, rows: List[Dict[str, Any]], max_rows: int, max_text_len: int) -> List[Dict[str, Any]]:
+        """Trim row samples to a compact shape while preserving column/value semantics."""
+        cleaned_rows: List[Dict[str, Any]] = []
+        for row in (rows or [])[:max_rows]:
+            if not isinstance(row, dict):
+                continue
+            cleaned_rows.append({k: cls._truncate_scalar(v, max_text_len) for k, v in row.items()})
+        return cleaned_rows
+
+    @classmethod
+    def _build_schema_text(
+        cls,
+        *,
+        table_name: str,
+        row_count: Any,
+        columns: Dict[str, Any],
+        sample_rows: List[Dict[str, Any]],
+        include_samples: bool,
+    ) -> str:
+        """Serialize schema context in compact JSON form."""
+        columns_text = json.dumps(columns, separators=(",", ":"), ensure_ascii=False)
+        schema_text = (
+            f"Table Name: {table_name}\n"
+            f"Total Rows: {row_count}\n\n"
+            f"Column Structure (JSON map column->type):\n{columns_text}"
+        )
+        if include_samples:
+            sample_text = json.dumps(sample_rows, separators=(",", ":"), ensure_ascii=False)
+            schema_text += f"\n\nSample Data (compact rows):\n{sample_text}"
+        return schema_text
+
     @classmethod
     def format_prompt(cls, user_query: str, db_schema: dict) -> str:
         """Construct the prompt mapping user intent to DuckDB tables."""
-        columns_text = json.dumps(db_schema.get('columns', {}), indent=2)
-        sample_text = json.dumps(db_schema.get('sample_data', []), indent=2)
+        settings = get_settings().llm
+        table_name = db_schema.get('table_name', 'data')
         row_count = db_schema.get('row_count', 'unknown')
+        columns = db_schema.get('columns', {}) or {}
+        sample_rows = cls._sanitize_sample_rows(
+            db_schema.get('sample_data', []) or [],
+            max_rows=min(3, max(1, int(settings.max_rows_sample))),
+            max_text_len=80,
+        )
 
-        schema_text = f"""Table Name: {db_schema.get('table_name', 'data')}
-Total Rows: {row_count}
+        # Budget prompt by configured input token target (rough char proxy),
+        # but keep an upper cap to prevent provider payload-size rejections.
+        configured_chars = int(settings.max_input_tokens) * 8
+        char_budget = min(max(configured_chars, 12000), 24000)
 
-Column Structure:
-{columns_text}
+        schema_text = cls._build_schema_text(
+            table_name=table_name,
+            row_count=row_count,
+            columns=columns,
+            sample_rows=sample_rows,
+            include_samples=True,
+        )
 
-Sample Data (First 3 Rows):
-{sample_text}"""
+        system_prompt = cls.SYSTEM_PROMPT
 
-        return f"""{cls.SYSTEM_PROMPT}
+        prompt = f"""{system_prompt}
 
 # Database Context:
 {schema_text}
@@ -88,3 +145,56 @@ Sample Data (First 3 Rows):
 Remember to return ONLY valid JSON. Wait for no further instructions.
 """
 
+        # First compaction pass: drop sample rows if prompt is too large.
+        if len(prompt) > char_budget:
+            schema_text = cls._build_schema_text(
+                table_name=table_name,
+                row_count=row_count,
+                columns=columns,
+                sample_rows=[],
+                include_samples=False,
+            )
+            prompt = f"""{system_prompt}
+
+# Database Context:
+{schema_text}
+
+# User Query:
+{user_query}
+
+Remember to return ONLY valid JSON. Wait for no further instructions.
+"""
+
+        # Second compaction pass: collapse whitespace in system prompt only.
+        if len(prompt) > char_budget:
+            system_prompt = " ".join(line.strip() for line in cls.SYSTEM_PROMPT.splitlines() if line.strip())
+            prompt = f"""{system_prompt}
+
+# Database Context:
+{schema_text}
+
+# User Query:
+{user_query}
+
+Remember to return ONLY valid JSON. Wait for no further instructions.
+"""
+
+        # Final hard safety pass: clip schema context if prompt is still too large.
+        if len(prompt) > char_budget:
+            static_overhead = len(system_prompt) + len(user_query) + 256
+            schema_budget = max(2000, char_budget - static_overhead)
+            if len(schema_text) > schema_budget:
+                schema_text = schema_text[:schema_budget] + "\n...[schema truncated for payload safety]..."
+
+            prompt = f"""{system_prompt}
+
+# Database Context:
+{schema_text}
+
+# User Query:
+{user_query}
+
+Remember to return ONLY valid JSON. Wait for no further instructions.
+"""
+
+        return prompt

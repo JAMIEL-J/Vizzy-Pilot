@@ -191,6 +191,110 @@ def _count_target_positive(df: pd.DataFrame, target_col: str) -> int:
     return 0
 
 
+_MARKETING_POSITIVE_KEYWORDS = {
+    '1', '1.0', 'yes', 'true', 'converted', 'conversion', 'won', 'success', 'qualified'
+}
+_MARKETING_NEGATIVE_KEYWORDS = {
+    '0', '0.0', 'no', 'false', 'not converted', 'lost', 'failed', 'unqualified'
+}
+
+
+def _to_numeric_series(series: pd.Series) -> pd.Series:
+    """Coerce common numeric-like strings (currency/percent) into numeric values."""
+    if pd.api.types.is_numeric_dtype(series):
+        return pd.to_numeric(series, errors='coerce')
+
+    cleaned = (
+        series.astype(str)
+        .str.strip()
+        .str.replace(r'[$£€₹,]', '', regex=True)
+        .str.replace('%', '', regex=False)
+    )
+    return pd.to_numeric(cleaned, errors='coerce')
+
+
+def _is_rate_metric_name(col: str) -> bool:
+    """Detect whether a metric name semantically represents a rate/ratio."""
+    name = _normalized_col(col)
+    rate_tokens = [
+        'rate', 'ratio', 'percentage', 'percent', 'pct',
+        'ctr', 'cvr', 'clickthrough', 'conversionrate'
+    ]
+    return any(tok in name for tok in rate_tokens)
+
+
+def _infer_rate_scale(values: pd.Series) -> Optional[str]:
+    """Infer whether rate values are stored as ratios (0-1) or percents (0-100)."""
+    vals = values.dropna()
+    if vals.empty:
+        return None
+
+    q95 = float(vals.quantile(0.95))
+    q05 = float(vals.quantile(0.05))
+
+    # Typical ratio scale: 0.00 - 1.00
+    if -0.05 <= q05 and q95 <= 1.5:
+        return 'ratio'
+
+    # Typical percent scale: 0.0 - 100.0
+    if -5.0 <= q05 and q95 <= 100.0:
+        return 'percent'
+
+    return None
+
+
+def _rate_series_to_percent(series: pd.Series, weight_series: Optional[pd.Series] = None) -> Optional[float]:
+    """Convert a rate-like series to a percent value, optionally weighted by exposure."""
+    values = _to_numeric_series(series)
+    if values.dropna().empty:
+        return None
+
+    if weight_series is not None:
+        weights = _to_numeric_series(weight_series)
+        mask = values.notna() & weights.notna() & (weights > 0)
+        if mask.any():
+            weighted_mean = float((values[mask] * weights[mask]).sum() / weights[mask].sum())
+            scale = _infer_rate_scale(values[mask])
+            if scale == 'ratio':
+                return weighted_mean * 100.0
+            if scale == 'percent':
+                return weighted_mean
+
+    mean_val = float(values.mean())
+    scale = _infer_rate_scale(values)
+    if scale == 'ratio':
+        return mean_val * 100.0
+    if scale == 'percent':
+        return mean_val
+
+    return None
+
+
+def _binary_positive_share_percent(series: pd.Series) -> Optional[float]:
+    """Return positive-class share (%) for binary encoded series, otherwise None."""
+    numeric = _to_numeric_series(series)
+    numeric_coverage = float(numeric.notna().mean())
+
+    if numeric_coverage >= 0.8:
+        unique_vals = set(numeric.dropna().round(6).unique().tolist())
+        if unique_vals and unique_vals.issubset({0.0, 1.0}):
+            denominator = int(numeric.notna().sum())
+            if denominator > 0:
+                return float((numeric == 1).sum() / denominator * 100.0)
+
+    normalized = series.astype(str).str.strip().str.lower()
+    normalized = normalized[~normalized.isin({'', 'nan', 'none', 'null'})]
+    if normalized.empty:
+        return None
+
+    unique_tokens = set(normalized.unique().tolist())
+    valid_tokens = _MARKETING_POSITIVE_KEYWORDS | _MARKETING_NEGATIVE_KEYWORDS
+    if unique_tokens and unique_tokens.issubset(valid_tokens):
+        return float(normalized.isin(_MARKETING_POSITIVE_KEYWORDS).mean() * 100.0)
+
+    return None
+
+
 # =============================================================================
 # Domain-Specific KPI Generators
 # =============================================================================
@@ -928,11 +1032,52 @@ def _generate_churn_kpis(df: pd.DataFrame, classification: ColumnClassification)
 def _generate_marketing_kpis(df: pd.DataFrame, classification: ColumnClassification) -> List[KPI]:
     """Generate KPIs for Marketing domain."""
     kpis = []
-    
-    # 1. Total Impressions
+
+    # Primary volume columns
     imp_col = _find_column(df, ['impression', 'impressions', 'views'], classification)
+    click_col = _find_column(df, ['click', 'clicks'], classification)
+
+    # Conversion candidates (volume/count vs explicit rate)
+    metric_and_target_cols = classification.metrics + classification.targets
+    conv_rate_col = next(
+        (
+            c for c in metric_and_target_cols
+            if (
+                'cvr' in _normalized_col(c)
+                or 'conversionrate' in _normalized_col(c)
+                or ('conversion' in _normalized_col(c) and _is_rate_metric_name(c))
+            )
+        ),
+        None,
+    )
+
+    conv_col = next(
+        (
+            c for c in metric_and_target_cols
+            if any(tok in _normalized_col(c) for tok in ['conversion', 'converted', 'lead', 'signup'])
+            and c != conv_rate_col
+            and not _is_rate_metric_name(c)
+        ),
+        None,
+    )
+    if not conv_col:
+        conv_col = _find_column(df, ['conversion', 'conversions', 'converted', 'lead', 'leads', 'signup', 'signups'], classification)
+        if conv_col == conv_rate_col:
+            conv_col = None
+
+    # Optional explicit CTR column
+    ctr_col = next(
+        (
+            c for c in metric_and_target_cols
+            if 'ctr' in _normalized_col(c)
+            or ('click' in _normalized_col(c) and _is_rate_metric_name(c))
+        ),
+        None,
+    )
+
+    # 1) Total Impressions
+    total_imp = _safe_sum(df, imp_col) if imp_col else 0.0
     if imp_col:
-        total_imp = _safe_sum(df, imp_col)
         kpis.append(KPI(
             key="impressions",
             title="Total Impressions",
@@ -942,11 +1087,10 @@ def _generate_marketing_kpis(df: pd.DataFrame, classification: ColumnClassificat
             confidence="HIGH",
             reason=f"Sum of {imp_col}"
         ))
-    
-    # 2. Total Clicks
-    click_col = _find_column(df, ['click', 'clicks'], classification)
+
+    # 2) Total Clicks
+    total_clicks = _safe_sum(df, click_col) if click_col else 0.0
     if click_col:
-        total_clicks = _safe_sum(df, click_col)
         kpis.append(KPI(
             key="clicks",
             title="Total Clicks",
@@ -956,36 +1100,78 @@ def _generate_marketing_kpis(df: pd.DataFrame, classification: ColumnClassificat
             confidence="HIGH",
             reason=f"Sum of {click_col}"
         ))
-        
-        # 3. CTR (Calculated)
-        if imp_col and total_imp > 0:
-            ctr = (total_clicks / total_imp) * 100
-            kpis.append(KPI(
-                key="ctr",
-                title="Click-Through Rate",
-                value=round(ctr, 2),
-                format="percent",
-                icon="target",
-                confidence="HIGH",
-                reason="Clicks / Impressions × 100"
-            ))
-    
-    # 4. Conversion Rate
-    conv_col = _find_column(df, ['conversion', 'conversions', 'converted'], classification)
-    if conv_col and click_col:
-        total_conv = _safe_sum(df, conv_col)
-        total_clicks = _safe_sum(df, click_col)
-        if total_clicks > 0:
-            conv_rate = (total_conv / total_clicks) * 100
-            kpis.append(KPI(
-                key="conversion_rate",
-                title="Conversion Rate",
-                value=round(conv_rate, 2),
-                format="percent",
-                icon="check-circle",
-                confidence="HIGH",
-                reason="Conversions / Clicks × 100"
-            ))
+
+    # 3) CTR (ratio from volumes preferred, fallback to explicit rate column)
+    ctr_value: Optional[float] = None
+    ctr_reason: Optional[str] = None
+    if imp_col and total_imp > 0 and click_col:
+        ctr_value = (total_clicks / total_imp) * 100.0
+        ctr_reason = "Clicks / Impressions × 100"
+    elif ctr_col:
+        ctr_value = _rate_series_to_percent(df[ctr_col], weight_series=df[imp_col] if imp_col else None)
+        if ctr_value is not None:
+            ctr_reason = (
+                f"Weighted avg {_beautify_column_name(ctr_col)} (by impressions)"
+                if imp_col else f"Average {_beautify_column_name(ctr_col)}"
+            )
+
+    if ctr_value is not None:
+        kpis.append(KPI(
+            key="ctr",
+            title="Click-Through Rate",
+            value=round(float(ctr_value), 2),
+            format="percent",
+            icon="target",
+            confidence="HIGH",
+            reason=ctr_reason or "CTR"
+        ))
+
+    # 4) Conversion Rate (dynamic: explicit rate col, binary converted flag, or volume ratio)
+    conversion_rate: Optional[float] = None
+    conversion_reason: Optional[str] = None
+
+    if conv_rate_col:
+        conv_weights = df[click_col] if click_col else (df[imp_col] if imp_col else None)
+        conversion_rate = _rate_series_to_percent(df[conv_rate_col], weight_series=conv_weights)
+        if conversion_rate is not None:
+            if click_col:
+                conversion_reason = f"Weighted avg {_beautify_column_name(conv_rate_col)} (by clicks)"
+            elif imp_col:
+                conversion_reason = f"Weighted avg {_beautify_column_name(conv_rate_col)} (by impressions)"
+            else:
+                conversion_reason = f"Average {_beautify_column_name(conv_rate_col)}"
+
+    if conversion_rate is None and conv_col:
+        # Binary converted flags (Yes/No, 1/0) should be treated as positive share.
+        binary_share = _binary_positive_share_percent(df[conv_col])
+        if binary_share is not None:
+            conversion_rate = binary_share
+            conversion_reason = f"Positive class share in {_beautify_column_name(conv_col)}"
+        else:
+            total_conv = _safe_sum(df, conv_col)
+            if click_col and total_clicks > 0:
+                conversion_rate = (total_conv / total_clicks) * 100.0
+                conversion_reason = f"Sum {_beautify_column_name(conv_col)} / Clicks × 100"
+            elif imp_col and total_imp > 0:
+                conversion_rate = (total_conv / total_imp) * 100.0
+                conversion_reason = f"Sum {_beautify_column_name(conv_col)} / Impressions × 100"
+            else:
+                # Final fallback: in case conversion values are actually precomputed rates.
+                fallback_rate = _rate_series_to_percent(df[conv_col])
+                if fallback_rate is not None:
+                    conversion_rate = fallback_rate
+                    conversion_reason = f"Average {_beautify_column_name(conv_col)}"
+
+    if conversion_rate is not None:
+        kpis.append(KPI(
+            key="conversion_rate",
+            title="Conversion Rate",
+            value=round(float(conversion_rate), 2),
+            format="percent",
+            icon="check-circle",
+            confidence="HIGH",
+            reason=conversion_reason or "Conversion performance"
+        ))
     
     return kpis
 

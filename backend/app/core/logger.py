@@ -8,6 +8,7 @@ Restrictions: No business logic, no datasets, no analytics
 
 import json
 import logging
+import re
 import sys
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
@@ -68,13 +69,20 @@ class SensitiveDataFilter(logging.Filter):
         "private_key",
     })
 
+    _ASSIGNMENT_PATTERNS = tuple(
+        re.compile(rf"(?<![A-Za-z0-9_]){re.escape(key)}\s*=", re.IGNORECASE)
+        for key in SENSITIVE_KEYS
+    )
+
     def filter(self, record: logging.LogRecord) -> bool:
         """Filter out records containing sensitive data patterns."""
-        message = record.getMessage().lower()
+        message = record.getMessage()
         
-        for key in self.SENSITIVE_KEYS:
-            if key in message and "=" in message:
+        for pattern in self._ASSIGNMENT_PATTERNS:
+            if pattern.search(message):
                 record.msg = self._redact_message(record.msg)
+                # Clear formatting args because message no longer contains placeholders.
+                record.args = ()
                 break
         
         return True

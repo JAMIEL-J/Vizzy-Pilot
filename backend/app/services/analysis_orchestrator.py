@@ -588,8 +588,8 @@ Rules:
                 )
                 llm_model = getattr(synthesis_response, "model", None)
                 model_name = str(llm_model or "").lower()
-                if "kimi" in model_name:
-                    llm_label = "Kimi"
+                if "gpt-oss" in model_name or "gpt oss" in model_name:
+                    llm_label = "GPT OSS"
                 elif "llama" in model_name:
                     llm_label = "Llama"
                 else:

@@ -239,6 +239,14 @@ class Executor:
                 logger.warning(f"NL2SQL retry {attempt}/{self.MAX_RETRIES}: {current_error}")
 
             full_prompt = SQLGenerator.format_prompt(prompt_query, schema)
+            logger.info(
+                "NL2SQL prompt metrics chars=%s columns=%s sample_rows=%s hints=%s attempt=%s",
+                len(full_prompt),
+                len(schema.get("columns", {}) or {}),
+                len(schema.get("sample_data", []) or []),
+                len(hints),
+                attempt,
+            )
 
             # ── LLM Generation (timed) ──
             t_llm = time.perf_counter()

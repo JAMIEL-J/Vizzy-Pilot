@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 class LLMRouter:
     """
     Router for Chat Analytics / SQL generation.
-    Uses the 'sql' purpose to leverage the Kimi K2 model.
+    Uses the 'sql' purpose with the LLMClient SQL/chat provider chain.
     """
     def __init__(self):
         self.client = get_llm_client()
