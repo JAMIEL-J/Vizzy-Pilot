@@ -2387,50 +2387,129 @@ def _generate_generic_charts(df: pd.DataFrame, classification: ColumnClassificat
 
 
 def _generate_marketing_charts(df: pd.DataFrame, classification: ColumnClassification) -> List[ChartRecommendation]:
-    """Generate charts tailored for the Marketing domain."""
-    charts = []
-    def add_chart(rec):
-        if rec: charts.append(rec)
-            
-    pm = classification.metrics
-    pd_ = classification.dimensions
-    dates = classification.dates
-    
-    imp_col = next((c for c in pm if 'impression' in c.lower() or 'view' in c.lower()), None)
-    click_col = next((c for c in pm if 'click' in c.lower()), None)
-    spend_col = next((c for c in pm if 'spend' in c.lower() or 'cost' in c.lower()), None)
-    conv_col = next((c for c in pm if 'conversion' in c.lower() or 'lead' in c.lower()), None)
-    conv_is_rate = _should_average_metric(conv_col) if conv_col else False
-    
-    campaign_col = next((c for c in pd_ if 'campaign' in c.lower() or 'ad' in c.lower()), None)
-    channel_col = next((c for c in pd_ if 'channel' in c.lower() or 'source' in c.lower() or 'medium' in c.lower()), None)
-    
-    primary_dim = channel_col or campaign_col or (pd_[0] if pd_ else None)
-    
-    if primary_dim and spend_col:
-        data = _safe_groupby_sum(df, primary_dim, spend_col)
-        add_chart(ChartRecommendation('', f'Ad Spend by {_beautify_column_name(primary_dim)}', 'hbar', data, 'HIGH', 'Spend allocation', format_type='currency', dimension=primary_dim, metric=spend_col, aggregation='sum'))
-        
-    if primary_dim and conv_col:
-        if conv_is_rate:
-            data = _safe_groupby_mean(df, primary_dim, conv_col)
-            add_chart(ChartRecommendation('', f'Conversion Rate by {_beautify_column_name(primary_dim)} (%)', 'bar', data, 'HIGH', 'Top performing sources by conversion efficiency', format_type='percentage', dimension=primary_dim, metric=conv_col, aggregation='mean'))
-        else:
-            data = _safe_groupby_sum(df, primary_dim, conv_col)
-            add_chart(ChartRecommendation('', f'Conversions by {_beautify_column_name(primary_dim)}', 'donut', data, 'HIGH', 'Top performing sources', format_type='number', dimension=primary_dim, metric=conv_col, aggregation='sum'))
+    """Generate dynamic, schema-agnostic charts tailored for Marketing datasets."""
+    charts: List[ChartRecommendation] = []
 
-    if spend_col and conv_col:
-        data = _get_scatter_data(df, spend_col, conv_col, label_col=primary_dim)
-        add_chart(ChartRecommendation('', 'Spend vs Conversions', 'scatter', data, 'HIGH', 'Cost acquisition efficiency', format_type='percentage' if conv_is_rate else 'number', dimension=spend_col, metric=conv_col, aggregation='mean' if conv_is_rate else 'sum'))
+    def add_chart(rec: Optional[ChartRecommendation]) -> None:
+        if rec:
+            charts.append(rec)
 
-    if dates and click_col:
-        data = _get_time_trend(
-            df,
-            dates[0],
-            click_col,
-            aggregation=_trend_aggregation_for_metric(click_col),
+    pm = [c for c in classification.metrics if c in df.columns]
+    pd_ = [c for c in classification.dimensions if c in df.columns]
+    dates = [c for c in classification.dates if c in df.columns]
+
+    if not pm:
+        charts.extend(_generate_generic_charts(df, classification))
+        return charts
+
+    def ncol(col: str) -> str:
+        return col.lower().replace('_', '').replace('-', '')
+
+    def is_id_like(col: str) -> bool:
+        low = ncol(col)
+        if low.endswith('id') or low in {'id', 'uuid', 'guid', 'key', 'index'}:
+            return True
+        return 'campaignid' in low or 'adid' in low
+
+    def metric_role(col: str) -> str:
+        low = ncol(col)
+        if _should_average_metric(col) or any(k in low for k in ['ctr', 'cvr', 'rate', 'ratio', 'percent', 'pct']):
+            return 'rate'
+        if any(k in low for k in ['spend', 'cost', 'budget', 'revenue', 'income']):
+            return 'currency'
+        if any(k in low for k in ['impression', 'view', 'click', 'conversion', 'lead', 'signup', 'session', 'visit', 'reach']):
+            return 'volume'
+        return 'numeric'
+
+    # Choose dimensions that are interpretable for grouped visuals.
+    dim_candidates: List[str] = []
+    for d in pd_:
+        if is_id_like(d):
+            continue
+        try:
+            nunique = int(df[d].nunique(dropna=True))
+        except Exception:
+            continue
+        if 2 <= nunique <= 50:
+            dim_candidates.append(d)
+
+    preferred_dim_tokens = ['channel', 'source', 'medium', 'campaign', 'creative', 'audience', 'placement', 'region']
+    dim_candidates.sort(key=lambda d: (0 if any(tok in ncol(d) for tok in preferred_dim_tokens) else 1, len(d)))
+    primary_dim = dim_candidates[0] if dim_candidates else (pd_[0] if pd_ else None)
+
+    rate_metrics = [m for m in pm if metric_role(m) == 'rate']
+    currency_metrics = [m for m in pm if metric_role(m) == 'currency']
+    volume_metrics = [m for m in pm if metric_role(m) == 'volume']
+    numeric_metrics = [m for m in pm if metric_role(m) == 'numeric']
+
+    # 1) Grouped performance charts by a strong marketing dimension.
+    if primary_dim:
+        for m in currency_metrics[:2]:
+            data = _safe_groupby_sum(df, primary_dim, m)
+            add_chart(ChartRecommendation(
+                '', f'{_beautify_column_name(m)} by {_beautify_column_name(primary_dim)}', 'hbar', data,
+                'HIGH', 'Budget/revenue allocation by segment', format_type='currency',
+                dimension=primary_dim, metric=m, aggregation='sum'
+            ))
+
+        for m in rate_metrics[:2]:
+            data = _safe_groupby_mean(df, primary_dim, m)
+            add_chart(ChartRecommendation(
+                '', f'{_beautify_column_name(m)} by {_beautify_column_name(primary_dim)} (%)', 'bar', data,
+                'HIGH', 'Rate performance by segment', format_type='percentage',
+                dimension=primary_dim, metric=m, aggregation='mean'
+            ))
+
+        for m in volume_metrics[:2]:
+            data = _safe_groupby_sum(df, primary_dim, m)
+            add_chart(ChartRecommendation(
+                '', f'{_beautify_column_name(m)} by {_beautify_column_name(primary_dim)}', 'bar', data,
+                'MEDIUM', 'Volume distribution by segment', format_type='number',
+                dimension=primary_dim, metric=m, aggregation='sum'
+            ))
+
+    # 2) Funnel efficiency scatter using best available spend vs conversion-like pair.
+    spend_metric = next((m for m in currency_metrics if any(k in ncol(m) for k in ['spend', 'cost', 'budget'])), None)
+    conv_metric = next((m for m in pm if any(k in ncol(m) for k in ['conversion', 'lead', 'signup', 'cvr'])), None)
+    if spend_metric and conv_metric:
+        conv_role = metric_role(conv_metric)
+        scatter_data = _get_scatter_data(df, spend_metric, conv_metric, label_col=primary_dim)
+        add_chart(ChartRecommendation(
+            '', f'{_beautify_column_name(spend_metric)} vs {_beautify_column_name(conv_metric)}', 'scatter', scatter_data,
+            'HIGH', 'Acquisition efficiency and spend-performance balance',
+            format_type='percentage' if conv_role == 'rate' else 'number',
+            dimension=spend_metric, metric=conv_metric,
+            aggregation='mean' if conv_role == 'rate' else 'sum'
+        ))
+
+    # 3) Trend charts for representative metrics.
+    if dates:
+        date_col = dates[0]
+        trend_metrics = (volume_metrics[:1] + rate_metrics[:1] + currency_metrics[:1])
+        if not trend_metrics:
+            trend_metrics = pm[:2]
+
+        for m in trend_metrics[:3]:
+            role = metric_role(m)
+            trend_data = _get_time_trend(df, date_col, m, aggregation=_trend_aggregation_for_metric(m))
+            add_chart(ChartRecommendation(
+                '', f'{_beautify_column_name(m)} Trend', 'line', trend_data,
+                'HIGH', 'Temporal performance monitoring',
+                format_type='percentage' if role == 'rate' else 'currency' if role == 'currency' else 'number',
+                dimension=date_col, metric=m,
+                aggregation='mean' if role == 'rate' else 'sum'
+            ))
+
+    # 4) Category distribution fallback for key dimensions.
+    for dim in dim_candidates[:3]:
+        rec = _distribution_chart(
+            df, dim,
+            title=f'{_beautify_column_name(dim)} Distribution',
+            confidence='MEDIUM',
+            reason='Audience/channel mix coverage',
+            value_label='Records'
         )
-        add_chart(ChartRecommendation('', 'Daily Traffic (Clicks)', 'line', data, 'HIGH', 'Traffic volume over time', format_type='number', dimension=dates[0], metric=click_col, aggregation='sum'))
+        add_chart(rec)
 
     charts.extend(_generate_generic_charts(df, classification))
     return charts

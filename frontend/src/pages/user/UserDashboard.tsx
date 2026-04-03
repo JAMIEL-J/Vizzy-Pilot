@@ -178,13 +178,27 @@ const ThemedTooltip = ({ active, payload, label, formatter, chartTitle, valueLab
 
     const fp = payload[0]?.payload;
     if (fp?.xLabel && fp?.yLabel) {
+        const isCurrencyLabel = (text: string) => {
+            const lower = String(text || '').toLowerCase();
+            return ['revenue', 'cost', 'costs', 'spend', 'budget', 'income', 'sales', 'profit', 'payment', 'charge', 'charges', 'price', 'amount', 'roi', 'roas'].some((kw) => lower.includes(kw));
+        };
+
+        const isPercentLabel = (text: string) => {
+            const lower = String(text || '').toLowerCase();
+            return ['rate', 'percent', 'percentage', 'pct', 'ctr', 'cvr', 'ratio', 'margin'].some((kw) => lower.includes(kw));
+        };
+
+        const isCountLabel = (text: string) => {
+            const lower = String(text || '').toLowerCase();
+            return ['click', 'count', 'record', 'records', 'orders', 'order', 'customers', 'units', 'qty', 'quantity', 'volume', 'visits', 'sessions', 'impressions', 'views'].some((kw) => lower.includes(kw));
+        };
+
         const fmtS = (v: number, lbl: string) => {
             if (formatter) return formatter(v, lbl);
             const lblLower = lbl.toLowerCase();
             const isTimeVariant = ['tenure', 'age', 'duration', 'months', 'years', 'days'].some(k => lblLower.includes(k));
-            const isCur = formatType === 'currency' || (!isTimeVariant && ['revenue', 'charges', 'cost', 'price', 'amount', 'sales', 'profit', 'income', 'expense']
-                .some(k => lblLower.includes(k)));
-            const isPct = formatType === 'percentage' || formatType === 'percent' || lbl.includes('%') || lblLower.includes('rate');
+            const isCur = isCurrencyLabel(lbl) || (formatType === 'currency' && !isCountLabel(lbl) && !isPercentLabel(lbl) && !isTimeVariant);
+            const isPct = isPercentLabel(lbl) || lbl.includes('%') || (formatType === 'percentage' && !isCountLabel(lbl) && !isCur);
 
             if (isCur) return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }).format(v);
             if (isPct) return `${v.toLocaleString(undefined, { maximumFractionDigits: 1 })}%`;
@@ -462,50 +476,77 @@ const ChartRenderer = ({
         .some(k => chartTitleLower.includes(k)));
     const isPercent = formatType === 'percentage' || formatType === 'percent' || (!formatType && (chartTitleLower.includes('rate') || chartTitleLower.includes('%')));
 
-    const countLikeMetricTokens = ['record', 'records', 'count', 'orders', 'order', 'customers', 'units', 'qty', 'quantity', 'volume'];
+    const countLikeMetricTokens = [
+        'record', 'records', 'count', 'orders', 'order', 'customers', 'units', 'qty', 'quantity', 'volume',
+        'click', 'clicks', 'impression', 'impressions', 'view', 'views', 'session', 'sessions', 'visit', 'visits'
+    ];
     const isCountLikeMetric = (label?: string) => {
         const token = String(label || '').toLowerCase();
         return countLikeMetricTokens.some((kw) => token.includes(kw));
     };
 
-    const percentSeries = rawChartData
-        .map((row: any) => Number(row?.value))
-        .filter((value: number) => Number.isFinite(value));
-    const percentDisplayMultiplier = (() => {
-        if (!isPercent || percentSeries.length === 0) return 1;
-        const maxAbs = Math.max(...percentSeries.map((value: number) => Math.abs(value)));
-        return maxAbs <= 1 ? 100 : 1;
-    })();
-
-    const toPercentDisplayValue = (value: number) => value * percentDisplayMultiplier;
-
-    const fmtVal = (v: any, metricLabel?: string): string => {
-        if (typeof v !== 'number') return String(v ?? '');
-        if (isMoney) return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }).format(v);
-        if (isPercent && !isCountLikeMetric(metricLabel)) {
-            const pctValue = toPercentDisplayValue(v);
-            return `${pctValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}%`;
-        }
-        if (formatType === 'number') return v.toLocaleString(undefined, { maximumFractionDigits: 0 });
-        return Number.isInteger(v) ? v.toLocaleString() : v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    const isCurrencyMetricLabel = (label?: string) => {
+        const token = String(label || '').toLowerCase();
+        return ['revenue', 'cost', 'costs', 'spend', 'budget', 'income', 'sales', 'profit', 'payment', 'charge', 'charges', 'price', 'amount', 'roi', 'roas'].some((kw) => token.includes(kw));
     };
 
-    const fmtTick = (v: any) => {
+    const isPercentMetricLabel = (label?: string) => {
+        const token = String(label || '').toLowerCase();
+        return ['rate', 'percent', 'percentage', 'pct', 'ctr', 'cvr', 'ratio', 'margin'].some((kw) => token.includes(kw));
+    };
+
+    const compactNumber = (value: number, currency = false) => {
+        const absValue = Math.abs(value);
+        const sign = value < 0 ? '-' : '';
+        const formatCompact = (divisor: number, suffix: string) => {
+            const scaled = absValue / divisor;
+            const decimals = scaled >= 100 ? 0 : scaled >= 10 ? 1 : 2;
+            const body = String(Number(scaled.toFixed(decimals)));
+            return `${sign}${currency ? '$' : ''}${body}${suffix}`;
+        };
+
+        if (absValue >= 1_000_000_000_000) return formatCompact(1_000_000_000_000, 'T');
+        if (absValue >= 1_000_000_000) return formatCompact(1_000_000_000, 'B');
+        if (absValue >= 1_000_000) return formatCompact(1_000_000, 'M');
+        if (absValue >= 1_000) return formatCompact(1_000, 'K');
+
+        return currency
+            ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(value)
+            : new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(value);
+    };
+
+    const formatByLabel = (value: any, metricLabel?: string, fallbackChartLevel = true): string => {
+        if (typeof value !== 'number') return String(value ?? '');
+        const label = String(metricLabel || '').toLowerCase();
+
+        if (isCurrencyMetricLabel(label) || (fallbackChartLevel && isMoney)) {
+            return compactNumber(value, true);
+        }
+
+        if (isPercentMetricLabel(label) || (fallbackChartLevel && isPercent)) {
+            const pctValue = Math.abs(value) <= 1 ? value * 100 : value;
+            return `${new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(pctValue)}%`;
+        }
+
+        return compactNumber(value, false);
+    };
+
+    const fmtVal = (v: any, metricLabel?: string): string => {
+        if (isCountLikeMetric(metricLabel)) {
+            return compactNumber(Number(v), false);
+        }
+        const hasMetricLabel = !!String(metricLabel || '').trim();
+        return formatByLabel(v, metricLabel, !hasMetricLabel);
+    };
+
+    const fmtTick = (v: any, metricLabel?: string) => {
         if (typeof v !== 'number') return v;
-        if (isPercent) return `${toPercentDisplayValue(v)}%`;
-        return v >= 1000 ? `${(v / 1000).toFixed(0)}K` : v;
+        const hasMetricLabel = !!String(metricLabel || '').trim();
+        return formatByLabel(v, metricLabel, !hasMetricLabel);
     };
 
     const formatCenterTotal = (total: number): string => {
-        if (isMoney) {
-            if (total >= 1_000_000) return `$${(total / 1_000_000).toFixed(2)}M`;
-            if (total >= 1_000) return `$${(total / 1_000).toFixed(1)}K`;
-            return `$${Math.round(total).toLocaleString()}`;
-        }
-        if (isPercent) return `${toPercentDisplayValue(total).toFixed(1)}%`;
-        if (total >= 1_000_000) return `${(total / 1_000_000).toFixed(2)}M`;
-        if (total >= 1_000) return `${(total / 1_000).toFixed(1)}K`;
-        return Math.round(total).toLocaleString();
+        return formatByLabel(total, chart.value_label || chart.metric || chart.title, true);
     };
 
     const formatMonthYearLabel = (value: any): string => {
@@ -828,14 +869,16 @@ const ChartRenderer = ({
             );
 
         case 'scatter':
+            const scatterXLabel = String(rawChartData[0]?.xLabel || chart.dimension || chart.x_axis || 'X');
+            const scatterYLabel = String(rawChartData[0]?.yLabel || chart.metric || chart.y_axis || 'Y');
             return (
                 <div className="flex flex-col h-full w-full">
                     {renderOutlierToggle()}
                     <ResponsiveContainer width="100%" height={192} debounce={50}>
                         <ScatterChart margin={{ top: 10, right: 15, bottom: 10, left: 0 }}>
                             <CartesianGrid {...gridProps} />
-                            <XAxis type="number" dataKey="x" {...axisProps} stroke={chartColors.axis} tickFormatter={fmtTick} tick={{ ...textStyle }} />
-                            <YAxis type="number" dataKey="y" {...axisProps} stroke={chartColors.axis} tickFormatter={fmtTick} tick={{ ...textStyle }} />
+                            <XAxis type="number" dataKey="x" {...axisProps} stroke={chartColors.axis} tickFormatter={(v) => fmtTick(v, scatterXLabel)} tick={{ ...textStyle }} />
+                            <YAxis type="number" dataKey="y" {...axisProps} stroke={chartColors.axis} tickFormatter={(v) => fmtTick(v, scatterYLabel)} tick={{ ...textStyle }} />
                             <Tooltip content={<ThemedTooltip formatter={fmtVal} chartColors={chartColors} chartTitle={chart.title} valueLabel={chart.value_label} formatType={chart.format_type} />} cursor={{ strokeDasharray: '3 3', stroke: chartColors.axis }} />
                             <Scatter data={chartData}>
                                 {chartData.map((_: any, i: number) => (

@@ -389,6 +389,47 @@ def _marketing_groupby_aggregate(df: pd.DataFrame, dim_col: str, metric_col: str
     return frame.groupby('_dim')['_metric'].sum()
 
 
+def _find_marketing_entity_identifier(df: pd.DataFrame, classification: ColumnClassification) -> Optional[tuple[str, str]]:
+    """Find a marketing entity identifier column and return (column_name, entity_label)."""
+    ordered_cols: List[str] = []
+    for col in (classification.excluded or []) + (classification.dimensions or []) + (classification.metrics or []):
+        if col in df.columns and col not in ordered_cols:
+            ordered_cols.append(col)
+
+    entity_map = [
+        ('campaign', 'Campaigns'),
+        ('adgroup', 'Ad Groups'),
+        ('adset', 'Ad Sets'),
+        ('creative', 'Creatives'),
+        ('keyword', 'Keywords'),
+        ('placement', 'Placements'),
+        ('channel', 'Channels'),
+        ('source', 'Sources'),
+        ('ad', 'Ads'),
+    ]
+    identifier_hints = ['id', 'key', 'code', 'name']
+
+    for col in ordered_cols:
+        name = _normalized_col(col)
+        if not name:
+            continue
+
+        matched_entity = next((label for token, label in entity_map if token in name), None)
+        if not matched_entity:
+            continue
+
+        if not any(h in name for h in identifier_hints):
+            continue
+
+        non_null = int(df[col].notna().sum())
+        if non_null <= 0:
+            continue
+
+        return col, matched_entity
+
+    return None
+
+
 # =============================================================================
 # Domain-Specific KPI Generators
 # =============================================================================
@@ -1130,12 +1171,7 @@ def _generate_marketing_kpis(df: pd.DataFrame, classification: ColumnClassificat
     # Primary volume columns
     imp_col = _find_column(df, ['impression', 'impressions', 'views'], classification)
     click_col = _find_column(df, ['click', 'clicks'], classification)
-    campaign_id_col = _find_column(
-        df,
-        ['campaign_id', 'campaignid', 'campaign key', 'ad_id', 'adid'],
-        classification,
-        search_excluded=True,
-    )
+    entity_identifier = _find_marketing_entity_identifier(df, classification)
 
     # Conversion candidates (volume/count vs explicit rate)
     metric_and_target_cols = classification.metrics + classification.targets
@@ -1273,21 +1309,23 @@ def _generate_marketing_kpis(df: pd.DataFrame, classification: ColumnClassificat
             reason=conversion_reason or "Conversion performance"
         ))
 
-    # 4.5) Campaign ID volume KPI (count-based, never sum identifier values)
-    if campaign_id_col and campaign_id_col in df.columns:
-        non_null_count = int(df[campaign_id_col].notna().sum())
-        distinct_count = int(df[campaign_id_col].nunique(dropna=True))
+    # 4.5) Entity volume KPI from identifier columns (count-based, never sum IDs/codes)
+    if entity_identifier:
+        entity_col, entity_label = entity_identifier
+        non_null_count = int(df[entity_col].notna().sum())
+        distinct_count = int(df[entity_col].nunique(dropna=True))
         use_distinct = distinct_count > 0 and distinct_count < non_null_count
-        campaign_count_value = distinct_count if use_distinct else non_null_count
+        entity_count_value = distinct_count if use_distinct else non_null_count
         count_reason = (
-            f"Distinct count of {campaign_id_col}"
+            f"Distinct count of {entity_col}"
             if use_distinct
-            else f"Non-null count of {campaign_id_col}"
+            else f"Non-null count of {entity_col}"
         )
+        entity_key = re.sub(r'[^a-z0-9]+', '_', _normalized_col(entity_col)).strip('_')
         kpis.append(KPI(
-            key="campaign_id_count",
-            title="Total Campaign ID",
-            value=campaign_count_value,
+            key=f"entity_count_{entity_key}",
+            title=f"Total {entity_label}",
+            value=entity_count_value,
             format="number",
             icon="list",
             confidence="HIGH",
@@ -1743,7 +1781,8 @@ def _kpi_priority_bonus(kpi: KPI, domain: DomainType) -> int:
         marketing_priority = [
             'click-through rate', 'conversion rate', 'total impressions',
             'total clicks', 'total spend', 'total budget', 'top channel',
-            'top source', 'top campaign', 'total campaign id'
+            'top source', 'top campaign', 'total campaigns', 'total ads',
+            'total ad groups', 'total ad sets', 'total creatives', 'total keywords'
         ]
         for token in marketing_priority:
             if token in text:
