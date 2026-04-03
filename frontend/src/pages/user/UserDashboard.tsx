@@ -179,7 +179,7 @@ const ThemedTooltip = ({ active, payload, label, formatter, chartTitle, valueLab
     const fp = payload[0]?.payload;
     if (fp?.xLabel && fp?.yLabel) {
         const fmtS = (v: number, lbl: string) => {
-            if (formatter) return formatter(v);
+            if (formatter) return formatter(v, lbl);
             const lblLower = lbl.toLowerCase();
             const isTimeVariant = ['tenure', 'age', 'duration', 'months', 'years', 'days'].some(k => lblLower.includes(k));
             const isCur = formatType === 'currency' || (!isTimeVariant && ['revenue', 'charges', 'cost', 'price', 'amount', 'sales', 'profit', 'income', 'expense']
@@ -274,7 +274,7 @@ const ThemedTooltip = ({ active, payload, label, formatter, chartTitle, valueLab
                             </div>
                             <span className="text-sm font-bold tabular-nums text-themed-main group-hover:text-primary transition-colors">
                                 {formatter
-                                    ? formatter(p.value)
+                                    ? formatter(p.value, p.name)
                                     : typeof p.value === 'number'
                                         ? p.value.toLocaleString(undefined, { maximumFractionDigits: 2 })
                                         : p.value}
@@ -309,18 +309,38 @@ const KPICard = ({ title, value, icon, trend, trend_label, subtitle, cardColor, 
     
     const svgNode = getSvgIcon(icon, index);
 
-    // Dynamic scale for massive numbers like millions
+    // Compact KPI values by magnitude so cards stay readable on any dataset.
     const formatCompactValue = (valStr: string) => {
         if (!valStr) return '';
-        // Skip compacting if it has manual alpha markers or is short
-        if (/[a-zA-Z]$/.test(valStr.trim())) return valStr;
-        
-        const rawNum = parseFloat(valStr.replace(/[^0-9.-]+/g,""));
-        if (!isNaN(rawNum) && Math.abs(rawNum) >= 1_000_000) {
-            const isCurrency = valStr.includes('$');
-            return `${isCurrency ? '$' : ''}${(rawNum / 1_000_000).toFixed(2)}M`;
-        }
-        return valStr;
+
+        const trimmed = String(valStr).trim();
+        if (!trimmed) return '';
+
+        // Preserve already-labeled values such as percentages or preformatted strings.
+        if (/[a-zA-Z%]$/.test(trimmed)) return trimmed;
+
+        const isCurrency = trimmed.includes('$');
+        const rawNum = parseFloat(trimmed.replace(/[^0-9.-]+/g, ''));
+        if (Number.isNaN(rawNum)) return trimmed;
+
+        const absValue = Math.abs(rawNum);
+        const sign = rawNum < 0 ? '-' : '';
+
+        const compact = (value: number, divisor: number, suffix: string) => {
+            const scaled = value / divisor;
+            const decimals = scaled >= 100 ? 0 : scaled >= 10 ? 1 : 2;
+            const body = String(Number(scaled.toFixed(decimals)));
+            return `${sign}${isCurrency ? '$' : ''}${body}${suffix}`;
+        };
+
+        if (absValue >= 1_000_000_000_000) return compact(absValue, 1_000_000_000_000, 'T');
+        if (absValue >= 1_000_000_000) return compact(absValue, 1_000_000_000, 'B');
+        if (absValue >= 1_000_000) return compact(absValue, 1_000_000, 'M');
+        if (absValue >= 1_000) return compact(absValue, 1_000, 'K');
+
+        return isCurrency
+            ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(rawNum)
+            : new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(rawNum);
     };
 
     const finalValue = formatCompactValue(String(value ?? ''));
@@ -442,17 +462,37 @@ const ChartRenderer = ({
         .some(k => chartTitleLower.includes(k)));
     const isPercent = formatType === 'percentage' || formatType === 'percent' || (!formatType && (chartTitleLower.includes('rate') || chartTitleLower.includes('%')));
 
-    const fmtVal = (v: any): string => {
+    const countLikeMetricTokens = ['record', 'records', 'count', 'orders', 'order', 'customers', 'units', 'qty', 'quantity', 'volume'];
+    const isCountLikeMetric = (label?: string) => {
+        const token = String(label || '').toLowerCase();
+        return countLikeMetricTokens.some((kw) => token.includes(kw));
+    };
+
+    const percentSeries = rawChartData
+        .map((row: any) => Number(row?.value))
+        .filter((value: number) => Number.isFinite(value));
+    const percentDisplayMultiplier = (() => {
+        if (!isPercent || percentSeries.length === 0) return 1;
+        const maxAbs = Math.max(...percentSeries.map((value: number) => Math.abs(value)));
+        return maxAbs <= 1 ? 100 : 1;
+    })();
+
+    const toPercentDisplayValue = (value: number) => value * percentDisplayMultiplier;
+
+    const fmtVal = (v: any, metricLabel?: string): string => {
         if (typeof v !== 'number') return String(v ?? '');
         if (isMoney) return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }).format(v);
-        if (isPercent) return `${v.toLocaleString(undefined, { maximumFractionDigits: 1 })}%`;
+        if (isPercent && !isCountLikeMetric(metricLabel)) {
+            const pctValue = toPercentDisplayValue(v);
+            return `${pctValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}%`;
+        }
         if (formatType === 'number') return v.toLocaleString(undefined, { maximumFractionDigits: 0 });
         return Number.isInteger(v) ? v.toLocaleString() : v.toLocaleString(undefined, { maximumFractionDigits: 2 });
     };
 
     const fmtTick = (v: any) => {
         if (typeof v !== 'number') return v;
-        if (isPercent) return `${v}%`;
+        if (isPercent) return `${toPercentDisplayValue(v)}%`;
         return v >= 1000 ? `${(v / 1000).toFixed(0)}K` : v;
     };
 
@@ -462,7 +502,7 @@ const ChartRenderer = ({
             if (total >= 1_000) return `$${(total / 1_000).toFixed(1)}K`;
             return `$${Math.round(total).toLocaleString()}`;
         }
-        if (isPercent) return `${total.toFixed(1)}%`;
+        if (isPercent) return `${toPercentDisplayValue(total).toFixed(1)}%`;
         if (total >= 1_000_000) return `${(total / 1_000_000).toFixed(2)}M`;
         if (total >= 1_000) return `${(total / 1_000).toFixed(1)}K`;
         return Math.round(total).toLocaleString();

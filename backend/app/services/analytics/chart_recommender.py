@@ -605,10 +605,10 @@ def _safe_groupby_mean(df: pd.DataFrame, group_col: str, value_col: str, limit: 
         if outlier_mask.sum() > 0:
             outliers = {"count": int(outlier_mask.sum()), "metric": value_col}
             cleaned = df[~outlier_mask].groupby(group_col)[value_col].mean().sort_values(ascending=False).head(limit)
-            data_clean = [{"name": str(k), "value": round(float(v), 2)} for k, v in cleaned.items()]
+            data_clean = [{"name": str(k), "value": round(float(v), 4)} for k, v in cleaned.items()]
 
         grouped = df.groupby(group_col)[value_col].mean().sort_values(ascending=False).head(limit)
-        return AggregationData([{"name": str(k), "value": round(float(v), 2)} for k, v in grouped.items()], outliers, data_clean)
+        return AggregationData([{"name": str(k), "value": round(float(v), 4)} for k, v in grouped.items()], outliers, data_clean)
     except Exception:
         return AggregationData([])
 
@@ -626,6 +626,36 @@ def _safe_value_counts(df: pd.DataFrame, col: str, limit: int = 10) -> List[Dict
         return result
     except Exception:
         return []
+
+
+def _normalize_percentage_chart_values(data: Any) -> Any:
+    """Convert ratio-scale chart values (0-1) to percent-scale values (0-100)."""
+    if not isinstance(data, list) or not data:
+        return data
+
+    numeric_values = []
+    for row in data:
+        if not isinstance(row, dict):
+            continue
+        value = row.get("value")
+        if isinstance(value, (int, float)):
+            numeric_values.append(float(value))
+
+    if not numeric_values:
+        return data
+
+    max_abs = max(abs(v) for v in numeric_values)
+    # Only scale when values clearly look like ratios.
+    if max_abs > 1.0:
+        return data
+
+    normalized = []
+    for row in data:
+        if isinstance(row, dict) and isinstance(row.get("value"), (int, float)):
+            normalized.append({**row, "value": round(float(row["value"]) * 100.0, 2)})
+        else:
+            normalized.append(row)
+    return normalized
 
 
 def _get_target_distribution(df: pd.DataFrame, target_col: str) -> List[Dict]:
@@ -2961,6 +2991,10 @@ def recommend_charts(df: pd.DataFrame, domain: DomainType, classification: Colum
             result[slot]["geo_meta"] = chart.geo_meta
         if format_type:
             result[slot]["format_type"] = format_type
+            if format_type == "percentage":
+                result[slot]["data"] = _normalize_percentage_chart_values(result[slot].get("data"))
+                if "data_without_outliers" in result[slot]:
+                    result[slot]["data_without_outliers"] = _normalize_percentage_chart_values(result[slot].get("data_without_outliers"))
         if getattr(chart, "value_label", None):
             result[slot]["value_label"] = chart.value_label
         if getattr(chart, "outliers", None):

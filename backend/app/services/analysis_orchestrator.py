@@ -504,6 +504,21 @@ async def run_analysis_orchestration(
     }
     route = _LEGACY_MAP.get(intent.intent_type) or _NEW_MAP.get(intent.intent_type, 'analysis_chart')
 
+    # Guardrail for charted analytical queries that the classifier marks as ambiguous.
+    if intent.intent_type == IntentType.AMBIGUOUS:
+        q_lower = (query or "").lower()
+        has_chart_signal = bool(re.search(
+            r"\b(chart|bar chart|line chart|pie|plot|graph|visualize|show me)\b",
+            q_lower,
+        ))
+        has_group_filter_signal = bool(re.search(
+            r"\b(by|where|group by|higher than|greater than|more than|less than|top\s+\d+|filter)\b",
+            q_lower,
+        ))
+        if has_chart_signal and has_group_filter_signal:
+            logger.info("Routing override: ambiguous intent promoted to analysis_chart due to chart+group/filter query pattern")
+            route = 'analysis_chart'
+
     if route == 'dashboard':
         # DASHBOARD MODE: Generate multi-widget overview
         dashboard_output = generate_overview_dashboard(

@@ -208,13 +208,28 @@ async def classify_intent(
         logger.warning(f"LLM classification failed, using heuristic only: {e}")
         data = {}
 
-    # Step 3: Merge — heuristic wins for type, LLM wins for fields
+    # Step 3: Merge — heuristic wins for chart-like structure; LLM wins for fields
     llm_type = data.get('intent_type', heuristic_type)
 
-    # If LLM says interpretive or ambiguous, trust it
-    # Otherwise, trust heuristic for type
-    if llm_type in ('interpretive', 'ambiguous'):
+    has_visual_signal = _detect_visualization_intent(query)
+    has_structured_analytic_signal = bool(re.search(
+        r"\b(by|where|group by|higher than|greater than|more than|less than|top\s+\d+|filter)\b",
+        query_lower,
+    ))
+
+    # Trust LLM for interpretive, and for truly ambiguous low-signal queries.
+    # But if user clearly asks for a visualization/structured analytic, keep heuristic route.
+    if llm_type == 'interpretive':
         final_type = llm_type
+    elif llm_type == 'ambiguous':
+        if (
+            has_visual_signal
+            or has_structured_analytic_signal
+            or heuristic_type in ('comparative', 'aggregative', 'trend')
+        ):
+            final_type = heuristic_type
+        else:
+            final_type = llm_type
     else:
         final_type = heuristic_type
 

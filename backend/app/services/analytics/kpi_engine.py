@@ -295,6 +295,100 @@ def _binary_positive_share_percent(series: pd.Series) -> Optional[float]:
     return None
 
 
+def _marketing_metric_role(col: str) -> str:
+    """Classify marketing metric semantics for dynamic KPI generation."""
+    name = _normalized_col(col)
+
+    if _is_rate_metric_name(col) or any(tok in name for tok in ['engagementrate', 'bouncerate', 'openrate']):
+        return 'percent_rate'
+
+    if any(tok in name for tok in ['roas', 'returnonadspend']):
+        return 'ratio'
+
+    if any(tok in name for tok in ['roi', 'returnoninvestment']):
+        return 'percent_rate'
+
+    if any(tok in name for tok in ['cpc', 'cpa', 'cpm', 'cpl', 'cpv', 'costper', 'spendper']):
+        return 'currency_avg'
+
+    if any(tok in name for tok in ['spend', 'cost', 'budget', 'revenue', 'income']):
+        return 'currency_sum'
+
+    if any(tok in name for tok in ['impression', 'view', 'click', 'conversion', 'lead', 'signup', 'session', 'visit', 'reach']):
+        return 'volume_sum'
+
+    if any(tok in name for tok in ['score', 'index', 'quality']):
+        return 'number_avg'
+
+    return 'number_sum'
+
+
+def _marketing_metric_icon(role: str, col: str) -> str:
+    name = _normalized_col(col)
+    if 'click' in name:
+        return 'mouse-pointer'
+    if 'impression' in name or 'view' in name or 'reach' in name:
+        return 'eye'
+    if 'conversion' in name or 'lead' in name or 'signup' in name:
+        return 'check-circle'
+    if role in {'percent_rate', 'ratio'}:
+        return 'target'
+    if role.startswith('currency'):
+        return 'dollar'
+    return 'bar-chart'
+
+
+def _is_identifier_like_metric(col: str) -> bool:
+    """Return True when a metric name looks like an identifier/code rather than a business measure."""
+    name = _normalized_col(col)
+    if not name:
+        return False
+
+    identifier_tokens = ['id', 'key', 'uuid', 'guid', 'index', 'row', 'record', 'code']
+    if name in {'id', 'key', 'uuid', 'guid', 'index', 'row'}:
+        return True
+
+    if name.endswith('_id') or name.endswith('id'):
+        return True
+
+    if any(token in name for token in ['campaignid', 'adid', 'userid', 'customerid', 'orderid', 'productid']):
+        return True
+
+    # Split on non-alphanumerics to avoid false positives like 'paid'.
+    words = re.sub(r'[^a-z0-9]+', ' ', name).split()
+    return any(word in identifier_tokens for word in words)
+
+
+def _marketing_groupby_aggregate(df: pd.DataFrame, dim_col: str, metric_col: str, role: str) -> Optional[pd.Series]:
+    """Compute a robust grouped aggregate for marketing insight KPIs."""
+    if dim_col not in df.columns or metric_col not in df.columns:
+        return None
+
+    frame = pd.DataFrame({
+        '_dim': df[dim_col],
+        '_metric': _to_numeric_series(df[metric_col]),
+    }).dropna(subset=['_dim', '_metric'])
+
+    if frame.empty:
+        return None
+
+    if role == 'percent_rate':
+        grouped = frame.groupby('_dim')['_metric'].mean()
+        if grouped.empty:
+            return None
+
+        # If grouped means look ratio-scale, convert to percent-scale for KPI display.
+        scale = _infer_rate_scale(grouped)
+        if scale == 'ratio':
+            grouped = grouped * 100.0
+        return grouped
+
+    if role in {'currency_avg', 'number_avg', 'ratio'}:
+        return frame.groupby('_dim')['_metric'].mean()
+
+    return frame.groupby('_dim')['_metric'].sum()
+
+
 # =============================================================================
 # Domain-Specific KPI Generators
 # =============================================================================
@@ -1036,6 +1130,12 @@ def _generate_marketing_kpis(df: pd.DataFrame, classification: ColumnClassificat
     # Primary volume columns
     imp_col = _find_column(df, ['impression', 'impressions', 'views'], classification)
     click_col = _find_column(df, ['click', 'clicks'], classification)
+    campaign_id_col = _find_column(
+        df,
+        ['campaign_id', 'campaignid', 'campaign key', 'ad_id', 'adid'],
+        classification,
+        search_excluded=True,
+    )
 
     # Conversion candidates (volume/count vs explicit rate)
     metric_and_target_cols = classification.metrics + classification.targets
@@ -1172,6 +1272,154 @@ def _generate_marketing_kpis(df: pd.DataFrame, classification: ColumnClassificat
             confidence="HIGH",
             reason=conversion_reason or "Conversion performance"
         ))
+
+    # 4.5) Campaign ID volume KPI (count-based, never sum identifier values)
+    if campaign_id_col and campaign_id_col in df.columns:
+        non_null_count = int(df[campaign_id_col].notna().sum())
+        distinct_count = int(df[campaign_id_col].nunique(dropna=True))
+        use_distinct = distinct_count > 0 and distinct_count < non_null_count
+        campaign_count_value = distinct_count if use_distinct else non_null_count
+        count_reason = (
+            f"Distinct count of {campaign_id_col}"
+            if use_distinct
+            else f"Non-null count of {campaign_id_col}"
+        )
+        kpis.append(KPI(
+            key="campaign_id_count",
+            title="Total Campaign ID",
+            value=campaign_count_value,
+            format="number",
+            icon="list",
+            confidence="HIGH",
+            reason=count_reason,
+        ))
+
+    # 5+) Dynamic metric KPIs so marketing dashboards adapt to any schema.
+    used_metrics = {c for c in [imp_col, click_col, ctr_col, conv_col, conv_rate_col] if c}
+    dynamic_metric_kpis: List[KPI] = []
+
+    for metric_col in classification.metrics:
+        if metric_col in used_metrics or metric_col not in df.columns:
+            continue
+        if not _is_effectively_numeric(df[metric_col]):
+            continue
+        if _is_identifier_like_metric(metric_col):
+            continue
+
+        role = _marketing_metric_role(metric_col)
+        metric_name = _beautify_column_name(metric_col)
+        key_stub = re.sub(r'[^a-z0-9]+', '_', _normalized_col(metric_col)).strip('_')
+        icon = _marketing_metric_icon(role, metric_col)
+
+        kpi_value: Optional[float] = None
+        kpi_format = 'number'
+        title_prefix = 'Total'
+        reason = ''
+
+        if role == 'percent_rate':
+            kpi_value = _rate_series_to_percent(df[metric_col])
+            kpi_format = 'percent'
+            title_prefix = 'Avg'
+            reason = f"Average {metric_name} (normalized to percent)"
+        elif role == 'ratio':
+            kpi_value = _safe_mean(df, metric_col)
+            kpi_format = 'number'
+            title_prefix = 'Avg'
+            reason = f"Average {metric_name}"
+        elif role == 'currency_avg':
+            kpi_value = _safe_mean(df, metric_col)
+            kpi_format = 'currency'
+            title_prefix = 'Avg'
+            reason = f"Mean of {metric_col}"
+        elif role == 'currency_sum':
+            kpi_value = _safe_sum(df, metric_col)
+            kpi_format = 'currency'
+            title_prefix = 'Total'
+            reason = f"Sum of {metric_col}"
+        elif role == 'number_avg':
+            kpi_value = _safe_mean(df, metric_col)
+            kpi_format = 'number'
+            title_prefix = 'Avg'
+            reason = f"Mean of {metric_col}"
+        else:
+            kpi_value = _safe_sum(df, metric_col)
+            kpi_format = 'number'
+            title_prefix = 'Total'
+            reason = f"Sum of {metric_col}"
+
+        if kpi_value is None:
+            continue
+
+        if kpi_format == 'number' and role == 'volume_sum':
+            value_out: Any = int(round(float(kpi_value)))
+        elif kpi_format == 'number' and title_prefix == 'Avg':
+            value_out = round(float(kpi_value), 2)
+        elif kpi_format == 'number':
+            value_out = round(float(kpi_value), 1)
+        else:
+            value_out = round(float(kpi_value), 2)
+
+        dynamic_metric_kpis.append(KPI(
+            key=f"mkt_{title_prefix.lower()}_{key_stub}",
+            title=f"{title_prefix} {metric_name}",
+            value=value_out,
+            format=kpi_format,
+            icon=icon,
+            confidence='MEDIUM',
+            reason=reason,
+            subtitle='x multiple' if role == 'ratio' else None,
+        ))
+
+    kpis.extend(dynamic_metric_kpis)
+
+    # 6+) Dynamic top segment KPI for campaign/channel/source-style dimensions.
+    dim_priority = [
+        'channel', 'source', 'medium', 'campaign', 'adgroup', 'creative', 'audience', 'region'
+    ]
+    segment_dim = next(
+        (
+            dim for token in dim_priority
+            for dim in classification.dimensions
+            if token in _normalized_col(dim) and dim in df.columns
+        ),
+        None,
+    )
+
+    if segment_dim:
+        benchmark_candidates = [
+            c for c in [conv_col, click_col, imp_col] + classification.metrics
+            if c and c in df.columns
+        ]
+
+        benchmark_metric = next((c for c in benchmark_candidates if c in df.columns), None)
+        if benchmark_metric:
+            bench_role = _marketing_metric_role(benchmark_metric)
+            grouped = _marketing_groupby_aggregate(df, segment_dim, benchmark_metric, bench_role)
+            if grouped is not None and not grouped.empty:
+                top_segment = str(grouped.idxmax())
+                top_value = float(grouped.max())
+
+                bench_format = 'number'
+                if bench_role == 'percent_rate':
+                    bench_format = 'percent'
+                elif bench_role.startswith('currency'):
+                    bench_format = 'currency'
+
+                if bench_format == 'number' and bench_role in {'volume_sum', 'number_sum'}:
+                    top_value_out: Any = int(round(top_value))
+                else:
+                    top_value_out = round(top_value, 2)
+
+                kpis.append(KPI(
+                    key=f"top_{re.sub(r'[^a-z0-9]+', '_', _normalized_col(segment_dim)).strip('_')}",
+                    title=f"Top {_beautify_column_name(segment_dim)}",
+                    value=top_segment,
+                    format='text',
+                    icon='trophy',
+                    confidence='MEDIUM',
+                    reason=f"Highest {_beautify_column_name(benchmark_metric)} by segment",
+                    subtitle=f"{_beautify_column_name(benchmark_metric)}: {top_value_out}{'%' if bench_format == 'percent' else ''}",
+                ))
     
     return kpis
 
@@ -1488,6 +1736,16 @@ def _kpi_priority_bonus(kpi: KPI, domain: DomainType) -> int:
             'best seller', 'top region', 'top performing state', 'revenue/customer'
         ]
         for token in sales_priority:
+            if token in text:
+                bonus += 3
+
+    if domain == DomainType.MARKETING:
+        marketing_priority = [
+            'click-through rate', 'conversion rate', 'total impressions',
+            'total clicks', 'total spend', 'total budget', 'top channel',
+            'top source', 'top campaign', 'total campaign id'
+        ]
+        for token in marketing_priority:
             if token in text:
                 bonus += 3
 

@@ -178,6 +178,43 @@ def _looks_interpretive_query(query: str) -> bool:
     return any(re.search(p, q) for p in patterns)
 
 
+def _normalize_nl2sql_query(query: str) -> str:
+    """Rewrite common natural-language filter phrasing into explicit SQL-friendly hints."""
+    q = (query or "").strip()
+    q_lower = q.lower()
+
+    # Parenthetical scoped filters: Category(Furniture) -> explicit equality instruction.
+    parenthetical_filters = re.findall(
+        r"\b([a-zA-Z][a-zA-Z0-9_\-\s]{1,40})\s*\(\s*([^)]+?)\s*\)",
+        q,
+    )
+    for key, value in parenthetical_filters:
+        key_clean = re.sub(r"\s+", " ", key.strip())
+        value_clean = re.sub(r"\s+", " ", value.strip())
+        if key_clean and value_clean:
+            q += f" Treat {key_clean}({value_clean}) as a strict filter where {key_clean} equals '{value_clean}'."
+
+    exclusion_match = re.search(
+        r"\b(?:exclude|excluding|without|not including)\s+(?:the\s+)?([a-zA-Z0-9_\-\s]+?)(?:\s+from\b|\s+in\b|\s+category\b|\s+categories\b|$)",
+        q_lower,
+    )
+    if exclusion_match:
+        excluded_value = re.sub(r"\s+", " ", exclusion_match.group(1).strip())
+        if excluded_value and excluded_value not in {"category", "categories"}:
+            q += (
+                f" Apply a filter before aggregation: exclude rows where category contains '{excluded_value}'."
+            )
+
+    # Comparator normalization: "sales less than 1000 and orders less than 3" -> explicit numeric filter intent.
+    if re.search(r"\b(where|and)\b", q_lower) and re.search(
+        r"\b(less than|greater than|under|below|over|above|at least|at most|<=|>=|<|>)\b",
+        q_lower,
+    ):
+        q += " Apply all numeric filter conditions before aggregation; combine them with AND unless specified otherwise."
+
+    return q
+
+
 def _explicitly_requests_visual(query: str) -> bool:
     """Detect whether user explicitly asks for chart/graph output."""
     q = (query or "").lower()
@@ -841,7 +878,8 @@ async def send_message(
                             if history:
                                 context_prefix = f"[Conversation Context]:\n{history}\n\n"
 
-                        contextual_query = f"{context_prefix}[Current Question]: {request.content}"
+                        normalized_query = _normalize_nl2sql_query(request.content)
+                        contextual_query = f"{context_prefix}[Current Question]: {normalized_query}"
 
                         # Execute via self-healing NL2SQL engine
                         executor = Executor()

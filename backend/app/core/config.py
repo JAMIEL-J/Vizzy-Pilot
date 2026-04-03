@@ -111,7 +111,7 @@ class LLMSettings(BaseSettings):
 
     # Account 2: Groq (alternate Chat/SQL model)
     groq_chat_api_key: SecretStr = Field(default=SecretStr(""))
-    groq_chat_model: str = Field(default="llama-3.3-70b-versatile")
+    groq_chat_model: str = Field(default="openai/gpt-oss-120b")
 
     # Provider Selection (Always Groq)
     primary_provider: Literal["groq"] = Field(default="groq")
@@ -119,6 +119,9 @@ class LLMSettings(BaseSettings):
     # Token optimization settings (IMPORTANT for free tier)
     max_tokens: int = Field(default=512, ge=64, le=8192)  # Increased for Pro model
     max_input_tokens: int = Field(default=1024, ge=256, le=32768)  # Increased for Pro model
+    # SQL/chat specific limits (kept smaller to avoid provider payload rejections)
+    max_tokens_sql: int = Field(default=384, ge=64, le=4096)
+    max_input_tokens_sql: int = Field(default=1400, ge=256, le=8192)
     temperature: float = Field(default=0.3, ge=0.0, le=1.0)  # Lower = more focused
     
     # Response optimization

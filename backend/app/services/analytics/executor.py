@@ -69,6 +69,23 @@ def _build_business_semantic_hints(query: str, available_cols: list[str], column
     asks_retention = "retention" in q
     asks_month_to_month = any(k in q for k in ["month-to-month", "month to month", "monthtomonth", "m2m"])
 
+    # Detect exclusion phrasing, e.g. "excluding furniture category", "without furniture".
+    exclusion_match = re.search(
+        r"\b(?:exclude|excluding|without|not including)\s+([a-zA-Z0-9_\-\s]+?)(?:\s+from\b|\s+in\b|\s+category\b|\s+categories\b|$)",
+        q,
+    )
+    excluded_value = None
+    if exclusion_match:
+        excluded_value = exclusion_match.group(1).strip()
+        if excluded_value.startswith("the "):
+            excluded_value = excluded_value[4:].strip()
+        excluded_value = re.sub(r"\s+", " ", excluded_value)
+        if excluded_value and excluded_value not in {"category", "categories"}:
+            category_col = find_column(["category", "sub category", "subcategory", "segment", "type"], available_cols, threshold=0.5)
+            if category_col:
+                add_hint("exclude_value_filter", category_col, "FILTER", bool(column_metadata.get(category_col, {}).get("coerced")))
+                hints[-1]["value"] = excluded_value
+
     if asks_subcategory:
         subcat_col = find_column(["sub category", "subcategory", "sub_category", "sub-category"], available_cols, threshold=0.5)
         if subcat_col:
@@ -97,6 +114,33 @@ def _build_business_semantic_hints(query: str, available_cols: list[str], column
 
         if asks_month_to_month and contract_col:
             add_hint("month_to_month_scope", contract_col, "FILTER", bool(column_metadata.get(contract_col, {}).get("coerced")))
+
+    # Parenthetical dimensional scoping: Category(Furniture), Region(East), etc.
+    parenthetical_pairs = re.findall(r"\b([a-zA-Z][a-zA-Z0-9_\-\s]{1,40})\s*\(\s*([^)]+?)\s*\)", q)
+    for raw_key, raw_value in parenthetical_pairs:
+        key = re.sub(r"\s+", " ", raw_key.strip())
+        value = re.sub(r"\s+", " ", raw_value.strip())
+        if not key or not value:
+            continue
+        mapped_col = find_column([key], available_cols, threshold=0.5)
+        if mapped_col:
+            add_hint("dimension_value_filter", mapped_col, "FILTER", bool(column_metadata.get(mapped_col, {}).get("coerced")))
+            hints[-1]["value"] = value
+
+    # Comparison filters: "sales less than 1000 and orders less than 3"
+    comparison_patterns = [
+        r"\b([a-zA-Z][a-zA-Z0-9_\-\s]{1,40})\s*(<=|>=|<|>)\s*(-?\d+(?:\.\d+)?)",
+        r"\b([a-zA-Z][a-zA-Z0-9_\-\s]{1,40})\s+(less than or equal to|greater than or equal to|less than|greater than|under|below|over|above|at least|at most)\s+(-?\d+(?:\.\d+)?)",
+    ]
+    for pattern in comparison_patterns:
+        for raw_key, raw_op, raw_val in re.findall(pattern, q):
+            key = re.sub(r"\s+", " ", raw_key.strip())
+            mapped_col = find_column([key], available_cols, threshold=0.55)
+            if not mapped_col:
+                continue
+            add_hint("comparison_filter", mapped_col, "FILTER", bool(column_metadata.get(mapped_col, {}).get("coerced")))
+            hints[-1]["operator"] = raw_op.strip().lower()
+            hints[-1]["value"] = raw_val
 
     return hints
 
@@ -128,6 +172,53 @@ def _render_hint_lines(hints: list[dict]) -> list[str]:
         contract_col = next((h.get("column") for h in hints if h.get("keyword") == "month_to_month_scope"), None)
         if contract_col:
             lines.append(f"- [BUSINESS_RULE] Apply filter LOWER(CAST(\"{contract_col}\" AS VARCHAR)) LIKE '%month%to%month%' for month-to-month contract scope.")
+
+    exclusion_hint = next((h for h in hints if h.get("keyword") == "exclude_value_filter"), None)
+    if exclusion_hint and exclusion_hint.get("column") and exclusion_hint.get("value"):
+        col = exclusion_hint.get("column")
+        val = str(exclusion_hint.get("value")).replace("'", "''").lower()
+        lines.append(
+            f"- [BUSINESS_RULE] Exclude rows where LOWER(CAST(\"{col}\" AS VARCHAR)) LIKE '%{val}%'. Apply this exclusion before aggregation and charting."
+        )
+
+    # Parenthetical filter hints: treat value as a scoped category/dimension filter.
+    for h in [x for x in hints if x.get("keyword") == "dimension_value_filter"]:
+        col = h.get("column")
+        val = str(h.get("value", "")).replace("'", "''").strip().lower()
+        if col and val:
+            lines.append(
+                f"- [BUSINESS_RULE] Apply scoped filter LOWER(CAST(\"{col}\" AS VARCHAR)) LIKE '%{val}%'. This filter is mandatory for the requested slice."
+            )
+
+    # Numeric comparison filter hints.
+    op_map = {
+        "less than": "<",
+        "under": "<",
+        "below": "<",
+        "greater than": ">",
+        "over": ">",
+        "above": ">",
+        "less than or equal to": "<=",
+        "greater than or equal to": ">=",
+        "at least": ">=",
+        "at most": "<=",
+        "<": "<",
+        ">": ">",
+        "<=": "<=",
+        ">=": ">=",
+    }
+    comparison_hints = [x for x in hints if x.get("keyword") == "comparison_filter"]
+    for h in comparison_hints:
+        col = h.get("column")
+        op = op_map.get(str(h.get("operator", "")).strip().lower())
+        val = str(h.get("value", "")).strip()
+        if col and op and val:
+            lines.append(
+                f"- [BUSINESS_RULE] Apply numeric filter TRY_CAST(\"{col}\" AS DOUBLE) {op} {val} before aggregation."
+            )
+
+    if len(comparison_hints) >= 2:
+        lines.append("- [BUSINESS_RULE] Combine multiple filter conditions with AND unless user explicitly requests OR.")
 
     if mapped_cols:
         col_list = ", ".join(sorted(mapped_cols))

@@ -171,6 +171,10 @@ class LLMClient:
         temp = temperature if temperature is not None else self.settings.temperature
         tokens = max_tokens if max_tokens is not None else self.settings.max_tokens
 
+        # Keep SQL/chat responses compact; JSON SQL plans do not need very large output budgets.
+        if purpose in {"sql", "chat"}:
+            tokens = min(tokens, int(self.settings.max_tokens_sql))
+
         effective_system_prompt = system_prompt
         effective_user_prompt = user_prompt
 

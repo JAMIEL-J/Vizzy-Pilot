@@ -113,16 +113,28 @@ Output Schema (must be valid JSON):
         table_name = db_schema.get('table_name', 'data')
         row_count = db_schema.get('row_count', 'unknown')
         columns = db_schema.get('columns', {}) or {}
+
+        column_count = len(columns)
+        sample_row_limit = min(3, max(1, int(settings.max_rows_sample)))
+        sample_text_len = 80
+        if column_count > 180:
+            sample_row_limit = 1
+            sample_text_len = 56
+        if column_count > 320:
+            # For very wide datasets, samples add a lot of prompt volume and little extra signal.
+            sample_row_limit = 0
+
         sample_rows = cls._sanitize_sample_rows(
             db_schema.get('sample_data', []) or [],
-            max_rows=min(3, max(1, int(settings.max_rows_sample))),
-            max_text_len=80,
+            max_rows=sample_row_limit,
+            max_text_len=sample_text_len,
         )
 
-        # Budget prompt by configured input token target (rough char proxy),
-        # but keep an upper cap to prevent provider payload-size rejections.
-        configured_chars = int(settings.max_input_tokens) * 8
-        char_budget = min(max(configured_chars, 12000), 24000)
+        # Budget prompt by SQL-specific input token target.
+        # Use conservative token->char proxy and a strict cap to avoid provider payload 413s.
+        sql_input_tokens = int(getattr(settings, "max_input_tokens_sql", settings.max_input_tokens))
+        configured_chars = max(256, sql_input_tokens) * 4
+        char_budget = min(max(configured_chars, 3200), 7200)
 
         schema_text = cls._build_schema_text(
             table_name=table_name,
@@ -135,6 +147,26 @@ Output Schema (must be valid JSON):
         system_prompt = cls.SYSTEM_PROMPT
 
         prompt = f"""{system_prompt}
+
+# Database Context:
+{schema_text}
+
+# User Query:
+{user_query}
+
+Remember to return ONLY valid JSON. Wait for no further instructions.
+"""
+
+        # Extra compaction for very wide tables: skip samples immediately.
+        if column_count > 320 and sample_rows:
+            schema_text = cls._build_schema_text(
+                table_name=table_name,
+                row_count=row_count,
+                columns=columns,
+                sample_rows=[],
+                include_samples=False,
+            )
+            prompt = f"""{system_prompt}
 
 # Database Context:
 {schema_text}
@@ -182,7 +214,7 @@ Remember to return ONLY valid JSON. Wait for no further instructions.
         # Final hard safety pass: clip schema context if prompt is still too large.
         if len(prompt) > char_budget:
             static_overhead = len(system_prompt) + len(user_query) + 256
-            schema_budget = max(2000, char_budget - static_overhead)
+            schema_budget = max(1200, char_budget - static_overhead)
             if len(schema_text) > schema_budget:
                 schema_text = schema_text[:schema_budget] + "\n...[schema truncated for payload safety]..."
 
