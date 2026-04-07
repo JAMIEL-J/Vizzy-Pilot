@@ -7,8 +7,8 @@ import SettingsDropdown from '../../components/common/SettingsDropdown';
 import { useFilterStore } from '../../store/useFilterStore';
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-    AreaChart, Area, PieChart, Pie, Cell, Legend,
-    ScatterChart, Scatter,
+    AreaChart, Area, PieChart, Pie, Legend,
+    ScatterChart, Scatter, Cell,
     RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis
 } from 'recharts';
 import { ColumnClassificationPanel } from '../../components/dashboard/ColumnClassificationPanel';
@@ -455,6 +455,10 @@ const ChartRenderer = ({
     const polishedPalette = isDark
         ? ['#f59e0b', '#6366f1', '#10b981', '#f43f5e', '#14b8a6', '#8b5cf6']
         : ['#f59e0b', '#6366f1', '#22c55e', '#f43f5e', '#14b8a6', '#8b5cf6'];
+    const chartColorSeed = String(chart?.id ?? chart?.chart_id ?? chart?.title ?? chart?.metric ?? chart?.dimension ?? chart?.type ?? 'chart');
+    const safeChartId = chartColorSeed.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'chart';
+    const baseColorIndex = Array.from(chartColorSeed).reduce((hash, char) => ((hash * 31) + char.charCodeAt(0)) >>> 0, 0) % polishedPalette.length;
+    const getPaletteColor = (index: number) => polishedPalette[(baseColorIndex + index) % polishedPalette.length];
 
     if (!rawChartData?.length) {
         return (
@@ -539,8 +543,8 @@ const ChartRenderer = ({
         return formatByLabel(v, metricLabel, !hasMetricLabel);
     };
 
-    const fmtTick = (v: any, metricLabel?: string) => {
-        if (typeof v !== 'number') return v;
+    const fmtTick = (v: any, metricLabel?: string): string => {
+        if (typeof v !== 'number') return String(v ?? '');
         const hasMetricLabel = !!String(metricLabel || '').trim();
         return formatByLabel(v, metricLabel, !hasMetricLabel);
     };
@@ -605,14 +609,6 @@ const ChartRenderer = ({
         onFilterClick(filterCol, String(val));
     };
 
-    const STANDARD_BAR_COLOR = polishedPalette[0];
-    const getBarFillByIndex = (index: number, totalBars: number) => {
-        if (totalBars >= 3 && totalBars <= 5) {
-            return polishedPalette[index % polishedPalette.length];
-        }
-        return STANDARD_BAR_COLOR;
-    };
-
     const renderOutlierToggle = () => {
         if (!chart.outliers?.count) return null;
         return (
@@ -647,14 +643,14 @@ const ChartRenderer = ({
                             <YAxis
                                 {...axisProps}
                                 stroke={chartColors.axis}
-                                tickFormatter={fmtTick}
+                                tickFormatter={(value: any, _index: number) => fmtTick(value)}
                                 tick={{ ...textStyle, fontSize: 10 }}
                                 width={44}
                             />
                             <Tooltip content={<ThemedTooltip formatter={fmtVal} chartColors={chartColors} chartTitle={chart.title} valueLabel={chart.value_label} formatType={chart.format_type} />} cursor={{ fill: isDark ? 'rgba(0,240,255,0.05)' : 'rgba(0,0,0,0.05)' }} />
-                            <Bar dataKey="value" radius={[6, 6, 0, 0]} fill={STANDARD_BAR_COLOR} maxBarSize={52} onClick={handleSliceClick} cursor={onFilterClick ? "pointer" : "default"}>
-                                {chartData.map((_: any, i: number) => (
-                                    <Cell key={`bar-cell-${i}`} fill={getBarFillByIndex(i, chartData.length)} />
+                            <Bar dataKey="value" radius={[6, 6, 0, 0]} maxBarSize={52} onClick={handleSliceClick} cursor={onFilterClick ? "pointer" : "default"}>
+                                {chartData.map((_: any, index: number) => (
+                                    <Cell key={`bar-cell-${safeChartId}-${index}`} fill={getPaletteColor(index)} />
                                 ))}
                             </Bar>
                         </BarChart>
@@ -670,12 +666,12 @@ const ChartRenderer = ({
                     <ResponsiveContainer width="100%" height={hbarHeight} debounce={50}>
                         <BarChart data={chartData} layout="vertical" margin={{ top: 6, right: 14, bottom: 6, left: 2 }} barCategoryGap="28%">
                             <CartesianGrid {...gridProps} horizontal={false} />
-                            <XAxis type="number" {...axisProps} stroke={chartColors.axis} tickFormatter={fmtTick} tick={{ ...textStyle }} />
+                            <XAxis type="number" {...axisProps} stroke={chartColors.axis} tickFormatter={(value: any, _index: number) => fmtTick(value)} tick={{ ...textStyle }} />
                             <YAxis dataKey={nameKey} type="category" {...axisProps} stroke={chartColors.axis} width={110} tick={{ ...textStyle, fontSize: 11 }} />
                             <Tooltip content={<ThemedTooltip formatter={fmtVal} chartColors={chartColors} chartTitle={chart.title} valueLabel={chart.value_label} formatType={chart.format_type} />} cursor={{ fill: isDark ? 'rgba(129,140,248,0.05)' : 'rgba(0,0,0,0.05)' }} />
-                            <Bar dataKey="value" radius={[0, 6, 6, 0]} fill={STANDARD_BAR_COLOR} maxBarSize={20} onClick={handleSliceClick} cursor={onFilterClick ? "pointer" : "default"}>
-                                {chartData.map((_: any, i: number) => (
-                                    <Cell key={`hbar-cell-${i}`} fill={getBarFillByIndex(i, chartData.length)} />
+                            <Bar dataKey="value" radius={[0, 6, 6, 0]} maxBarSize={20} onClick={handleSliceClick} cursor={onFilterClick ? "pointer" : "default"}>
+                                {chartData.map((_: any, index: number) => (
+                                    <Cell key={`hbar-cell-${safeChartId}-${index}`} fill={getPaletteColor(index)} />
                                 ))}
                             </Bar>
                         </BarChart>
@@ -692,7 +688,7 @@ const ChartRenderer = ({
                         <BarChart data={chartData} margin={{ top: 10, right: 10, bottom: 30, left: 0 }}>
                             <CartesianGrid {...gridProps} vertical={false} />
                             <XAxis dataKey={nameKey} {...axisProps} stroke={chartColors.axis} tick={{ ...textStyle }} />
-                            <YAxis {...axisProps} stroke={chartColors.axis} tickFormatter={fmtTick} tick={{ ...textStyle }} />
+                            <YAxis {...axisProps} stroke={chartColors.axis} tickFormatter={(value: any, _index: number) => fmtTick(value)} tick={{ ...textStyle }} />
                             <Tooltip content={<ThemedTooltip formatter={fmtVal} chartColors={chartColors} chartTitle={chart.title} valueLabel={chart.value_label} formatType={chart.format_type} />} cursor={{ fill: isDark ? 'rgba(0,240,255,0.05)' : 'rgba(0,0,0,0.05)' }} />
                             <Legend iconType="circle" iconSize={8}
                                 formatter={(v: string) => {
@@ -702,8 +698,8 @@ const ChartRenderer = ({
                                     const label = v === 'positive' ? positiveLabel : v === 'negative' ? negativeLabel : v;
                                     return <span className="text-xs text-themed-muted">{label}</span>;
                                 }} />
-                            <Bar dataKey="positive" stackId="a" fill={CHART_COLORS[1]} maxBarSize={40} name="positive" onClick={handleSliceClick} cursor={onFilterClick ? 'pointer' : 'default'} />
-                            <Bar dataKey="negative" stackId="a" fill={CHART_COLORS[2]} maxBarSize={40} name="negative" onClick={handleSliceClick} cursor={onFilterClick ? 'pointer' : 'default'} />
+                            <Bar dataKey="positive" stackId="a" fill={getPaletteColor(0)} maxBarSize={40} name="positive" onClick={handleSliceClick} cursor={onFilterClick ? 'pointer' : 'default'} />
+                            <Bar dataKey="negative" stackId="a" fill={getPaletteColor(1)} maxBarSize={40} name="negative" onClick={handleSliceClick} cursor={onFilterClick ? 'pointer' : 'default'} />
                         </BarChart>
                     </ResponsiveContainer>
                 </div>
@@ -717,21 +713,16 @@ const ChartRenderer = ({
                         <PieChart>
                             <defs>
                                 {chartData.map((_: any, i: number) => (
-                                    <linearGradient key={`pg${i}`} id={`pieGrad${i}`} x1="0" y1="0" x2="1" y2="1">
-                                        <stop offset="0%" stopColor={CHART_COLORS[i % CHART_COLORS.length]} stopOpacity={1} />
-                                        <stop offset="100%" stopColor={CHART_COLORS[i % CHART_COLORS.length]} stopOpacity={0.7} />
+                                    <linearGradient key={`pg-${safeChartId}-${i}`} id={`pieGrad-${safeChartId}-${i}`} x1="0" y1="0" x2="1" y2="1">
+                                        <stop offset="0%" stopColor={getPaletteColor(i)} stopOpacity={1} />
+                                        <stop offset="100%" stopColor={getPaletteColor(i)} stopOpacity={0.7} />
                                     </linearGradient>
                                 ))}
                             </defs>
-                            <Pie data={chartData} cx="50%" cy="46%" outerRadius={72} innerRadius={24}
+                            <Pie data={chartData.map((entry: any, i: number) => ({ ...entry, fill: `url(#pieGrad-${safeChartId}-${i})` }))} cx="50%" cy="46%" outerRadius={72} innerRadius={24}
                                 paddingAngle={2} dataKey="value" stroke={isDark ? '#1a1d24' : '#ffffff'}
-                                strokeWidth={2} animationBegin={0} animationDuration={800}>
-                                {chartData.map((entry: any, i: number) => (
-                                    <Cell key={i} fill={`url(#pieGrad${i})`}
-                                        onClick={() => handleSliceClick(entry)}
-                                        style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.15))', cursor: onFilterClick ? 'pointer' : 'default' }} />
-                                ))}
-                            </Pie>
+                                strokeWidth={2} animationBegin={0} animationDuration={800}
+                                onClick={(entry: any) => handleSliceClick(entry)} />
                             <Tooltip content={<ThemedTooltip formatter={fmtVal} chartColors={chartColors} chartTitle={chart.title} valueLabel={chart.value_label} formatType={chart.format_type} />} />
                             <Legend verticalAlign="bottom" align="center" layout="horizontal" iconType="circle" iconSize={7}
                                 formatter={(v: string) => {
@@ -753,17 +744,14 @@ const ChartRenderer = ({
                         <PieChart>
                             <defs>
                                 {chartData.map((_: any, i: number) => (
-                                    <linearGradient key={`dg${i}`} id={`donutGrad${i}`} x1="0" y1="0" x2="1" y2="1">
-                                        <stop offset="0%" stopColor={CHART_COLORS[i % CHART_COLORS.length]} stopOpacity={1} />
-                                        <stop offset="100%" stopColor={CHART_COLORS[i % CHART_COLORS.length]} stopOpacity={0.7} />
+                                    <linearGradient key={`dg-${safeChartId}-${i}`} id={`donutGrad-${safeChartId}-${i}`} x1="0" y1="0" x2="1" y2="1">
+                                        <stop offset="0%" stopColor={getPaletteColor(i)} stopOpacity={1} />
+                                        <stop offset="100%" stopColor={getPaletteColor(i)} stopOpacity={0.7} />
                                     </linearGradient>
                                 ))}
                             </defs>
-                            <Pie data={chartData} cx="50%" cy="46%" innerRadius={65} outerRadius={90} paddingAngle={2} dataKey="value" stroke="none">
-                                {chartData.map((_entry: any, index: number) => (
-                                    <Cell key={`cell-${index}`} fill={`url(#donutGrad${index % chartData.length})`} onClick={() => handleSliceClick(chartData[index])} cursor={onFilterClick ? 'pointer' : 'default'} style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.15))' }} />
-                                ))}
-                            </Pie>
+                            <Pie data={chartData.map((entry: any, index: number) => ({ ...entry, fill: `url(#donutGrad-${safeChartId}-${index % chartData.length})` }))} cx="50%" cy="46%" innerRadius={65} outerRadius={90} paddingAngle={2} dataKey="value" stroke="none"
+                                onClick={(entry: any) => handleSliceClick(entry)} />
                             {(() => {
                                 const total = chartData.reduce((s: number, d: any) => s + (Number(d.value) || 0), 0);
                                 const totalText = formatCenterTotal(total);
@@ -796,6 +784,9 @@ const ChartRenderer = ({
         case 'line':
         case 'area':
             {
+                const seriesColor = getPaletteColor(0);
+                const seriesAccentColor = getPaletteColor(1);
+                const trendGradientId = `trendGrad-${safeChartId}`;
                 const trendData = chartData
                     .map((row: any) => ({
                         ...row,
@@ -815,19 +806,19 @@ const ChartRenderer = ({
                     <ResponsiveContainer width="100%" height={192} debounce={50}>
                         <AreaChart data={trendData} margin={{ top: 10, right: 10, bottom: 5, left: 0 }}>
                             <defs>
-                                <linearGradient id="areaDark" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="0%" stopColor={CHART_COLORS[0]} stopOpacity={0.28} />
-                                    <stop offset="100%" stopColor={CHART_COLORS[0]} stopOpacity={0.03} />
+                                <linearGradient id={trendGradientId} x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stopColor={seriesColor} stopOpacity={0.28} />
+                                    <stop offset="100%" stopColor={seriesAccentColor} stopOpacity={0.03} />
                                 </linearGradient>
                             </defs>
                             <CartesianGrid {...gridProps} vertical={false} />
                             <XAxis dataKey={dateKey} {...axisProps} stroke={chartColors.axis}
                                 tickFormatter={formatMonthYearLabel} tick={{ ...textStyle }} />
-                            <YAxis {...axisProps} stroke={chartColors.axis} tickFormatter={fmtTick} tick={{ ...textStyle }} />
+                            <YAxis {...axisProps} stroke={chartColors.axis} tickFormatter={(value: any, _index: number) => fmtTick(value)} tick={{ ...textStyle }} />
                             <Tooltip content={<ThemedTooltip formatter={fmtVal} chartColors={chartColors} chartTitle={chart.title} valueLabel={chart.value_label} formatType={chart.format_type} />} />
-                            <Area type="monotone" dataKey="value" stroke={CHART_COLORS[0]} strokeWidth={2.75}
-                                fill={chart.type === 'line' ? 'transparent' : 'url(#areaDark)'} dot={false}
-                                activeDot={{ r: 4.5, fill: '#ffffff', stroke: CHART_COLORS[0], strokeWidth: 2, onClick: (e: any) => handleSliceClick(e?.payload || e) }}
+                            <Area type="monotone" dataKey="value" stroke={seriesColor} strokeWidth={2.75}
+                                fill={chart.type === 'line' ? 'transparent' : `url(#${trendGradientId})`} dot={false}
+                                activeDot={{ r: 4.5, fill: '#ffffff', stroke: seriesColor, strokeWidth: 2, onClick: (e: any) => handleSliceClick(e?.payload || e) }}
                                 onClick={handleSliceClick}
                                 cursor={onFilterClick ? 'pointer' : 'default'} />
                         </AreaChart>
@@ -844,22 +835,22 @@ const ChartRenderer = ({
                         <AreaChart data={chartData} margin={{ top: 10, right: 10, bottom: 5, left: 0 }}>
                             <defs>
                                 {(chart.categories || []).map((cat: string, i: number) => (
-                                    <linearGradient key={cat} id={`stackGrad${i}`} x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="0%" stopColor={CHART_COLORS[i % CHART_COLORS.length]} stopOpacity={0.4} />
-                                        <stop offset="100%" stopColor={CHART_COLORS[i % CHART_COLORS.length]} stopOpacity={0.05} />
+                                    <linearGradient key={cat} id={`stackGrad-${safeChartId}-${i}`} x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="0%" stopColor={getPaletteColor(i)} stopOpacity={0.4} />
+                                        <stop offset="100%" stopColor={getPaletteColor(i)} stopOpacity={0.05} />
                                     </linearGradient>
                                 ))}
                             </defs>
                             <CartesianGrid {...gridProps} vertical={false} />
                             <XAxis dataKey={nameKey} {...axisProps} stroke={chartColors.axis} tick={{ ...textStyle }} />
-                            <YAxis {...axisProps} stroke={chartColors.axis} tickFormatter={fmtTick} tick={{ ...textStyle }} />
+                            <YAxis {...axisProps} stroke={chartColors.axis} tickFormatter={(value: any, _index: number) => fmtTick(value)} tick={{ ...textStyle }} />
                             <Tooltip content={<ThemedTooltip formatter={fmtVal} chartColors={chartColors} chartTitle={chart.title} valueLabel={chart.value_label} formatType={chart.format_type} />} />
                             <Legend iconType="circle" iconSize={8}
                                 formatter={v => <span className="text-xs text-themed-muted">{v}</span>} />
                             {(chart.categories || []).map((cat: string, i: number) => (
                                 <Area key={cat} type="monotone" dataKey={cat} stackId="a"
-                                    stroke={CHART_COLORS[i % CHART_COLORS.length]}
-                                    fill={`url(#stackGrad${i})`} strokeWidth={1.5}
+                                    stroke={getPaletteColor(i)}
+                                    fill={`url(#stackGrad-${safeChartId}-${i})`} strokeWidth={1.5}
                                     onClick={handleSliceClick}
                                     cursor={onFilterClick ? 'pointer' : 'default'} />
                             ))}
@@ -880,9 +871,9 @@ const ChartRenderer = ({
                             <XAxis type="number" dataKey="x" {...axisProps} stroke={chartColors.axis} tickFormatter={(v) => fmtTick(v, scatterXLabel)} tick={{ ...textStyle }} />
                             <YAxis type="number" dataKey="y" {...axisProps} stroke={chartColors.axis} tickFormatter={(v) => fmtTick(v, scatterYLabel)} tick={{ ...textStyle }} />
                             <Tooltip content={<ThemedTooltip formatter={fmtVal} chartColors={chartColors} chartTitle={chart.title} valueLabel={chart.value_label} formatType={chart.format_type} />} cursor={{ strokeDasharray: '3 3', stroke: chartColors.axis }} />
-                            <Scatter data={chartData}>
-                                {chartData.map((_: any, i: number) => (
-                                    <Cell key={i} fill={polishedPalette[i % polishedPalette.length]} stroke={isDark ? '#111318' : '#ffffff'} strokeWidth={1.2} opacity={0.88} />
+                            <Scatter data={chartData} stroke={isDark ? '#111318' : '#ffffff'} strokeWidth={1.2} fillOpacity={0.88}>
+                                {chartData.map((_: any, index: number) => (
+                                    <Cell key={`scatter-cell-${safeChartId}-${index}`} fill={getPaletteColor(index)} />
                                 ))}
                             </Scatter>
                         </ScatterChart>
@@ -1009,7 +1000,7 @@ const ChartRenderer = ({
                             <PolarGrid stroke={chartColors.grid} />
                             <PolarAngleAxis dataKey="name" tick={{ fontSize: 10, fill: chartColors.text }} />
                             <PolarRadiusAxis tick={{ fontSize: 9, fill: chartColors.axis }} />
-                            <Radar dataKey="value" stroke={CHART_COLORS[0]} fill={CHART_COLORS[0]} fillOpacity={0.2} strokeWidth={2} onClick={handleSliceClick} cursor={onFilterClick ? 'pointer' : 'default'} />
+                            <Radar dataKey="value" stroke={getPaletteColor(0)} fill={getPaletteColor(0)} fillOpacity={0.2} strokeWidth={2} onClick={handleSliceClick} cursor={onFilterClick ? 'pointer' : 'default'} />
                             <Tooltip content={<ThemedTooltip formatter={fmtVal} chartColors={chartColors} valueLabel={chart.value_label} />} />
                         </RadarChart>
                     </ResponsiveContainer>

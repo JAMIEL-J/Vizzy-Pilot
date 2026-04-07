@@ -146,6 +146,18 @@ COLUMN_TO_BUSINESS_TERM = {
     'streaming_movies': 'Streaming Movies',
     'paperlessbilling': 'Paperless Billing',
     'paperless_billing': 'Paperless Billing',
+    'paymenttype': 'Payment Method',
+    'payment_type': 'Payment Method',
+    'paymentmode': 'Payment Method',
+    'payment_mode': 'Payment Method',
+    'billingtype': 'Payment Method',
+    'billing_type': 'Payment Method',
+    'billingmethod': 'Payment Method',
+    'billing_method': 'Payment Method',
+    'invoicemethod': 'Payment Method',
+    'invoice_method': 'Payment Method',
+    'autopay': 'Auto Pay',
+    'auto_pay': 'Auto Pay',
     'churn': 'Churn Status',
     
     # Healthcare
@@ -1325,7 +1337,58 @@ def _generate_churn_charts(df, classification):
 
     # Multi-value dimensions (3-8 categories)
     multi_dims = [d for d in pd_ if 2 < df[d].nunique() <= 8 and d != target_col]
-    payment_col_match = next((c for c in pd_ if 'payment' in c.lower()), None)
+    def _find_payment_dimension(dim_candidates: List[str]) -> Optional[str]:
+        """Resolve a payment-like categorical dimension across churn schemas."""
+        # 1) Prefer canonical mapper output when available.
+        mapped = None
+        if getattr(classification, "mappings", None):
+            mapped = classification.mappings.get("attr_payment")
+        if mapped and mapped in df.columns and mapped in dim_candidates and mapped != target_col:
+            if df[mapped].nunique(dropna=True) >= 2:
+                return mapped
+
+        payment_keywords = [
+            "payment", "payment method", "payment type", "billing", "billing method",
+            "billing type", "invoice method", "card", "bank", "autopay", "auto pay",
+            "mode of payment",
+        ]
+
+        # 2) Semantic resolution across candidate dimensions.
+        try:
+            from .semantic_resolver import semantic_similarity
+            best_col = None
+            best_score = 0.0
+            for col in dim_candidates:
+                if col == target_col or col not in df.columns:
+                    continue
+                nunique = df[col].nunique(dropna=True)
+                if nunique < 2:
+                    continue
+                # Keep chart interpretable; payment method should be categorical, not near-ID.
+                if nunique > max(40, int(len(df) * 0.35)):
+                    continue
+
+                score = max(semantic_similarity(keyword, col) for keyword in payment_keywords)
+                if score > best_score:
+                    best_score = score
+                    best_col = col
+            if best_col and best_score >= 0.55:
+                return best_col
+        except Exception:
+            pass
+
+        # 3) String fallback for environments where semantic resolver is unavailable.
+        fallback_tokens = ("payment", "billing", "invoice", "card", "bank", "autopay")
+        for col in dim_candidates:
+            if col == target_col or col not in df.columns:
+                continue
+            if any(token in col.lower() for token in fallback_tokens):
+                if df[col].nunique(dropna=True) >= 2:
+                    return col
+
+        return None
+
+    payment_col_match = _find_payment_dimension(pd_)
 
     # Second-best dimension (different from primary_dim)
     secondary_dim = next((d for d in pd_ if d != primary_dim and d != target_col), None)
@@ -1359,7 +1422,29 @@ def _generate_churn_charts(df, classification):
             dimension=target_col, metric=None, aggregation='count'
         ))
 
-    # 2. Rate by Primary Dimension (highest variance = most impactful)
+    # 2. Guaranteed Payment Method view (rate + volume) when a payment-like dimension exists.
+    if payment_col_match:
+        data = _get_churn_rate_by_segment(df, target_col, payment_col_match)
+        if data:
+            add_chart(ChartRecommendation(
+                slot='', title=f'{label} Rate by Payment Method (%)',
+                chart_type='bar', data=data, confidence='HIGH',
+                reason=f'Tier 1: Payment-method risk profile for {label.lower()}',
+                format_type='percentage',
+                dimension=payment_col_match, metric=target_col, aggregation='mean',
+                variance_score=float('inf')
+            ))
+
+        data = _get_churn_count_by_segment(df, target_col, payment_col_match)
+        if data:
+            add_chart(ChartRecommendation(
+                slot='', title=f'{label} Count by Payment Method',
+                chart_type='hbar', data=data, confidence='HIGH',
+                reason=f'Tier 1: Payment-method volume context for {label.lower()}',
+                dimension=payment_col_match, metric=target_col, aggregation='count'
+            ))
+
+    # 3. Rate by Primary Dimension (highest variance = most impactful)
     if primary_dim:
         data = _get_churn_rate_by_segment(df, target_col, primary_dim)
         if data:
@@ -1370,7 +1455,7 @@ def _generate_churn_charts(df, classification):
                 dimension=primary_dim, metric=target_col, aggregation='mean'
             ))
 
-    # 3. Lifecycle Cohort Analysis (data-driven quartile buckets)
+    # 4. Lifecycle Cohort Analysis (data-driven quartile buckets)
     if lifecycle_col:
         data = _get_lifecycle_cohorts(df, lifecycle_col, target_col)
         if data:
