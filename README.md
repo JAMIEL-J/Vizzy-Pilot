@@ -1,433 +1,193 @@
-# 📊 Vizzy Pro - Next-Generation AI-Powered Analytics Platform
+# ✨ Vizzy Analytics
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/Version-2.0-blue?style=for-the-badge)
-![Status](https://img.shields.io/badge/Status-Production%20Ready-success?style=for-the-badge)
-![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
+### 📊 AI-Powered Analytics • 🧠 Conversational Insights • ⚡ Fast Decisions
 
-### Transform Raw Data into Actionable Intelligence with Conversational AI
+![Repo](https://img.shields.io/badge/Repo-Vizzy--Analytics-111827?style=for-the-badge&logo=github)
+![Frontend](https://img.shields.io/badge/Frontend-React%2019-61DAFB?style=for-the-badge&logo=react&logoColor=000)
+![Backend](https://img.shields.io/badge/Backend-FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=fff)
+![Database](https://img.shields.io/badge/Engine-DuckDB-FFF000?style=for-the-badge&logo=duckdb&logoColor=000)
+![License](https://img.shields.io/badge/License-MIT-16a34a?style=for-the-badge)
 
-<br>
+**Turn raw files into dashboards, KPIs, and explainable insights using natural language.**
 
-**[🚀 Quick Start](#-getting-started)** • **[📚 Documentation](#-documentation)** • **[🎯 Features](#-core-features)** • **[🏗️ Architecture](#-system-architecture)**
+[🚀 Quick Start](#-quick-start) • [🧩 Architecture](#-interactive-architecture) • [🎯 Features](#-feature-highlights) • [🛠️ Tech Stack](#️-tech-stack)
 
 </div>
 
 ---
 
-## 🎯 Overview
+## 🌟 Why Vizzy Analytics?
 
-**Vizzy Pro** is a revolutionary, enterprise-grade analytics platform that synthesizes **Advanced LLM Orchestration** with **Deterministic Computing Logic** to unlock the full potential of your data. Designed for modern data professionals, analysts, and business leaders—Vizzy enables natural language interaction with datasets while guaranteeing mathematical precision and auditability.
-
-> **"Talk to your data like a senior analyst. Get answers at machine speed."**
-
-### Why Vizzy?
-- 🔮 **Natural Language Querying**: Ask questions in plain English, not SQL
-- ⚡ **Lightning-Fast Insights**: Get complex analyses in seconds
-- 🧠 **Context-Aware Conversations**: Follow-up questions maintain conversation history
-- 🎨 **Auto-Visualizations**: Optimal chart recommendations based on data patterns
-- 🧼 **Smart Data Cleaning**: Automated quality assessment and remediation
-- 🔐 **Enterprise-Ready**: Audit trails, role-based access, and data governance
+- 💬 **Ask in plain English** — no SQL required for common analysis
+- 📈 **Auto visualizations** — get chart suggestions from your data shape
+- 🧼 **Data cleaning support** — profile quality and execute remediation actions
+- 🧠 **Context-aware analytics** — follow-up questions keep session context
+- 🔒 **Production-ready foundation** — API layer, validation, and scalable architecture
 
 ---
 
-## 🚀 Core Features
+## 🎯 Feature Highlights
 
-### 🧠 **Conversational Analytics Engine**
-- **Multi-LLM Gateway**: Seamless integration with Groq, Gemini, and Llama-3 with intelligent failover
-- **Intent Recognition**: Automatic classification of user queries into actionable analysis patterns
-- **Context Memory**: Sophisticated session management preserving conversation history
-- **Domain Detection**: Auto-identification of dataset types (Sales, Finance, Healthcare, Marketing, Custom)
-
-### 📊 **Visual Intelligence Suite**
-- **Smart Chart Selection**: ML-powered visualization recommender based on data cardinality and trends
-- **Interactive Dashboards**: Real-time, multi-widget dashboards with drill-down capabilities
-- **Glassmorphism Design**: Premium UI with Tailwind CSS v4 + Framer Motion animations
-- **Export Ready**: Download dashboards as PNG, PDF, or interactive HTML
-
-### 🧼 **Data Cleaning Studio 2.0**
-- **Automated Profiling**: Comprehensive data quality assessment with risk scoring
-- **Intelligent Remediation**: One-click cleaning for duplicates, nulls, type mismatches, outliers
-- **Transparency First**: Visual penalty breakdown explaining *why* data needs attention
-- **Version Control**: Track and compare data versions across cleaning operations
-
-### 📈 **Advanced Analytics**
-- **Pivot Tables**: Dynamic cross-tabulation with custom aggregations
-- **Outlier Detection**: Statistical anomaly identification with context
-- **Column Filtering**: Intelligent semantic filtering across all dimensions
-- **Business Metrics**: Pre-built KPI calculators and metric libraries
+| Area | What you get |
+|---|---|
+| 🤖 Conversational Analytics | Intent-aware query understanding and analytics workflows |
+| 📊 Smart Visualization | Chart recommendations + dashboard-ready outputs |
+| 🧽 Cleaning Studio | Duplicate/null/type/outlier handling with transparent logic |
+| 📚 Session Memory | Preserves context for multi-turn analysis |
+| ⚙️ Extensible Engine | API-first backend with modular services |
 
 ---
 
-## 📋 System Properties
+## 🧩 Interactive Architecture
 
-### **Frontend Stack**
-| Component | Version | Purpose |
-|-----------|---------|---------|
-| React | 19.2.4 | UI Framework |
-| TypeScript | 5.9.3 | Type Safety |
-| Vite | 7.2.4 | Build Tool |
-| Tailwind CSS | 4.1.18 | Styling Engine |
-| Framer Motion | 12.34.3 | Animations |
-| Zustand | 5.0.11 | State Management |
-| TanStack Query | 5.90.20 | Data Fetching |
-| Recharts | 3.7.0 | Charting Library |
-| Axios | 1.13.4 | HTTP Client |
-| React Router | 7.13.0 | Navigation |
+> Explore the system top-down, then expand each layer for details.
 
-### **Backend Stack**
-| Component | Version | Purpose |
-|-----------|---------|---------|
-| FastAPI | Latest | API Framework |
-| DuckDB | ≥1.0.0 | In-Memory Analytics DB |
-| Groq SDK | ≥0.9.0 | LLM Integration |
-| SQLGlot | ≥25.0.0 | SQL Parsing & Translation |
-| Tiktoken | ≥0.7.0 | Token Counting |
-| Python | 3.10+ | Runtime |
-
-### **Key Metrics**
-- **Response Time**: <500ms for typical queries
-- **Max Dataset Size**: Up to 2GB (in-memory with DuckDB)
-- **Concurrent Users**: 100+ (with proper infrastructure)
-- **Query Cache**: In-memory LRU with 1-hour TTL
-- **API Rate Limit**: 1000 req/min per API key
-
----
-
-## 🏗️ System Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         VIZZY PRO ARCHITECTURE                          │
-└─────────────────────────────────────────────────────────────────────────┘
-
-                              ┌──────────────┐
-                              │   End User   │
-                              └──────┬───────┘
-                                     │
-                    ┌────────────────┼────────────────┐
-                    │                │                │
-            ┌───────▼──────┐  ┌──────▼──────┐  ┌─────▼──────┐
-            │   Analytics  │  │  Dashboard  │  │   Chat     │
-            │   Engine     │  │  Builder    │  │   Interface│
-            └───────┬──────┘  └──────┬──────┘  └─────┬──────┘
-                    │                │                │
-                    └────────────────┼────────────────┘
-                                     │
-                    ┌────────────────▼────────────────┐
-                    │     REACT 19 FRONTEND LAYER     │
-                    │  (Zustand + TanStack Query)     │
-                    └────────────────┬────────────────┘
-                                     │
-                    ┌────────────────▼────────────────┐
-                    │    HTTP/REST API Gateway        │
-                    │  (Rate Limiting, Auth, Logging) │
-                    └────────────────┬────────────────┘
-                                     │
-        ┌────────────────────────────┼────────────────────────────┐
-        │                            │                            │
-    ┌───▼────────┐      ┌───────────▼───────────┐      ┌─────────▼──────┐
-    │ Intent     │      │ Analysis              │      │ Cleaning       │
-    │ Engine     │      │ Execution Layer       │      │ Engine         │
-    │            │      │                       │      │                │
-    │ • Intent   │      │ • SQL Generation      │      │ • Anomaly      │
-    │   Mapper   │      │ • Query Validation    │      │   Detection    │
-    │ • Business │      │ • Result Formatting   │      │ • Duplicate    │
-    │   Rules    │      │ • Memory Manager      │      │   Removal      │
-    └───┬────────┘      └───────────┬───────────┘      └─────────┬──────┘
-        │                           │                           │
-        └───────────────────────────┼───────────────────────────┘
-                                    │
-        ┌───────────────────────────▼───────────────────────────┐
-        │        DETERMINISTIC COMPUTATION LAYER                │
-        │  (Heuristic Rules, Type System, Risk Scoring)         │
-        └───────────────────────────┬───────────────────────────┘
-                                    │
-        ┌───────────────────────────▼───────────────────────────┐
-        │         DATA ACCESS & QUERY ENGINE                    │
-        │                                                       │
-        │  ┌─────────────────┐    ┌──────────────────────┐      │
-        │  │ DuckDB Engine   │    │ External Database    │      │
-        │  │ (In-Memory)     │    │ Connectors           │      │
-        │  │                 │    │ • PostgreSQL         │      │
-        │  │ • CSV/Parquet   │    │ • MySQL              │      │
-        │  │   Ingestion     │    │ • SQL Server         │      │
-        │  │ • Query Exec    │    │ • BigQuery           │      │
-        │  │ • Analytics     │    └──────────────────────┘      │
-        │  └─────────────────┘                                  │
-        └───────────────────────────┬───────────────────────────┘
-                                    │
-        ┌───────────────────────────▼───────────────────────────┐
-        │           EXTERNAL INTEGRATIONS                       │
-        │                                                       │
-        │  ┌────────────────┐  ┌────────────────┐              │
-        │  │ LLM Providers  │  │ Storage Layer  │              │
-        │  │ • Groq API     │  │ • File Upload  │              │
-        │  │ • Gemini API   │  │ • Cloud Storage│              │
-        │  │ • Stripe       │  │                │              │
-        │  │   Failover     │  └────────────────┘              │
-        │  └────────────────┘                                  │
-        └─────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    U[👤 User] --> F[🖥️ React Frontend]
+    F --> A[🌐 FastAPI Gateway]
+    A --> I[🧠 Intent & Analysis Services]
+    A --> C[🧼 Cleaning Services]
+    I --> D[(🦆 DuckDB)]
+    C --> D
+    I --> L[🔌 LLM Providers]
+    D --> O[📤 Insights & Visual Outputs]
 ```
 
-### **Component Deep Dive**
+<details>
+  <summary><strong>🖥️ Frontend Layer (React + TypeScript)</strong></summary>
 
-#### **Frontend Layer (React 19)**
-- **Components**: Reusable UI blocks with Tailwind CSS v4
-- **State Management**: Zustand for global state, React Context for theme
-- **Data Fetching**: TanStack Query (React Query) for server state
-- **Visualization**: Recharts for charts, Framer Motion for animations
-- **Routing**: React Router v7 for navigation
+- Modern UI built with React, TypeScript, Vite, Tailwind
+- Dashboard, analytics, and chat-driven experiences
+- State + async data flow via Zustand and TanStack Query
 
-#### **API Gateway**
-- **Security**: JWT authentication, CORS, CSRF protection
-- **Rate Limiting**: Sliding window rate limiter (1000 req/min)
-- **Logging**: Structured JSON logging with request/response tracking
-- **Error Handling**: Standardized error responses with trace IDs
+</details>
 
-#### **Intent Processing Engine**
-- **Intent Mapper**: Maps queries to 15+ predefined intent patterns
-- **Semantic Resolver**: Column name fuzzy matching and aliasing
-- **Business Rules**: Domain-specific validation and business logic
-- **Memory Manager**: Session-aware conversation context persistence
+<details>
+  <summary><strong>🌐 API Gateway (FastAPI)</strong></summary>
 
-#### **Analysis Execution**
-- **SQL Generator**: LLM-powered SQL with fallback heuristics
-- **Query Validator**: Syntax and semantic validation
-- **Result Formatter**: Transforms raw query results for frontend
-- **Chart Recommender**: Selects optimal visualization type
+- Routes requests for analysis, cleaning, dashboards, and uploads
+- Central place for request validation and response formatting
+- Designed for secure and scalable integrations
 
-#### **Data Engine (DuckDB)**
-- **Format Support**: CSV, Parquet, JSON, Arrow
-- **In-Memory Performance**: Sub-second query execution
-- **Schema Inference**: Automatic type detection
-- **Version Control**: Track dataset versions and transformations
+</details>
 
-#### **Cleaning Engine**
-- **Profiler**: Column-level statistics and data quality metrics
-- **Anomaly Detector**: Statistical outlier identification
-- **Duplicate Handler**: Smart deduplication with conflict resolution
-- **Type Converter**: Automatic or manual type conversion
+<details>
+  <summary><strong>🧠 Intelligence Layer</strong></summary>
 
----
+- Intent mapping and query orchestration
+- Analysis planning and execution workflows
+- LLM-powered generation with deterministic safeguards
 
-## 🔧 Project Structure
+</details>
 
-```
-vizzy-analytics/
-├── backend/                          # FastAPI Backend
-│   ├── app/
-│   │   ├── api/                    # API Endpoints
-│   │   │   ├── analysis_routes.py
-│   │   │   ├── chat_routes.py
-│   │   │   ├── cleaning_plan_routes.py
-│   │   │   ├── dashboard_routes.py
-│   │   │   ├── upload_routes.py
-│   │   │   └── ...
-│   │   ├── core/                   # Configuration & Security
-│   │   │   ├── config.py
-│   │   │   ├── security.py
-│   │   │   ├── logger.py
-│   │   │   └── exceptions.py
-│   │   ├── models/                 # Data Models
-│   │   │   ├── user.py
-│   │   │   ├── dataset.py
-│   │   │   ├── chat_session.py
-│   │   │   └── ...
-│   │   ├── services/               # Business Logic
-│   │   │   ├── llm/                # LLM Integration
-│   │   │   ├── analytics/          # Analytics Logic
-│   │   │   ├── cleaning_execution/ # Data Cleaning
-│   │   │   ├── visualization/      # Chart Generation
-│   │   │   └── ...
-│   │   └── main.py                # App Entry Point
-│   ├── requirements.txt
-│   └── .env.example
-│
-├── frontend/                         # React 19 Frontend
-│   ├── src/
-│   │   ├── components/             # Reusable Components
-│   │   │   ├── Analytics/
-│   │   │   ├── Dashboard/
-│   │   │   ├── Chat/
-│   │   │   └── ...
-│   │   ├── pages/                  # Page Components
-│   │   │   ├── AnalyticsPage.tsx
-│   │   │   ├── DashboardPage.tsx
-│   │   │   └── ...
-│   │   ├── store/                  # Zustand Store
-│   │   └── App.tsx
-│   ├── public/                     # Static Assets
-│   ├── index.html
-│   ├── tailwind.config.js
-│   ├── vite.config.ts
-│   └── package.json
-│
-├── ui-prototype/                    # Design Files
-├── streamlit/                       # Internal Tools
-├── README.md
-└── docker-compose.yml (Optional)
-```
+<details>
+  <summary><strong>🦆 Data Layer (DuckDB + Connectors)</strong></summary>
+
+- Fast in-memory analytics for uploaded datasets
+- Handles tabular processing and SQL execution
+- Ready for extension to external data sources
+
+</details>
+
+<details>
+  <summary><strong>🧼 Data Cleaning Layer</strong></summary>
+
+- Quality profiling and anomaly detection
+- Guided cleaning actions (nulls, duplicates, type fixes)
+- Produces cleaner data for more reliable analytics
+
+</details>
 
 ---
 
-## 🛠️ Getting Started
+## 🛠️ Tech Stack
 
-### **Prerequisites**
-- Python 3.10+ — [Download](https://www.python.org/downloads/)
-- Node.js 18+ — [Download](https://nodejs.org/)
-- API Keys:
-  - [Groq API Key](https://console.groq.com/) (Primary LLM)
-  - [Gemini API Key](https://aistudio.google.com/) (Fallback)
+### Frontend
+- ⚛️ React 19
+- 🔷 TypeScript
+- ⚡ Vite
+- 🎨 Tailwind CSS
+- 🧠 Zustand
+- 🔄 TanStack Query
+- 📉 Recharts
 
-### **Backend Setup**
+### Backend
+- 🚀 FastAPI
+- 🐍 Python 3.10+
+- 🦆 DuckDB
+- 🔌 LLM Integrations (Groq / Gemini style providers)
+
+---
+
+## 🚀 Quick Start
+
+### 1) Backend setup
 
 ```bash
-# 1. Navigate to backend
 cd backend
-
-# 2. Create virtual environment
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# 3. Install dependencies
+source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-
-# 4. Create environment file
 cp .env.example .env
-# Edit .env and add your API keys
-
-# 5. Start the server
+# Add your API keys and config
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-**Backend URL**: `http://localhost:8000`
-**API Docs**: `http://localhost:8000/docs`
+Backend URL: `http://localhost:8000`  
+API Docs: `http://localhost:8000/docs`
 
-### **Frontend Setup**
+### 2) Frontend setup
 
 ```bash
-# 1. Navigate to frontend
 cd frontend
-
-# 2. Install dependencies
 npm install
-
-# 3. Create environment file
 cp .env.example .env
-# Configure API endpoint (default: http://localhost:8000)
-
-# 4. Start development server
 npm run dev
 ```
 
-**Frontend URL**: `http://localhost:5173`
+Frontend URL: `http://localhost:5173`
 
-### **Production Build**
+---
 
-```bash
-# Frontend
-npm run build
-npm run preview
+## 📂 Project Structure
 
-# Backend
-gunicorn -w 4 -k uvicorn.workers.UvicornWorker app.main:app
+```text
+Vizzy-Analytics/
+├── backend/         # FastAPI services, API routes, business logic
+├── frontend/        # React app (analytics UI + dashboard)
+├── README.md
+└── .gitignore
 ```
 
 ---
 
-## 📚 API Documentation
+## 🗺️ Product Direction
 
-### **Key Endpoints**
-
-**Analytics**
-```
-POST /api/analysis/chat        # Send query to AI engine
-GET  /api/analysis/history     # Get query history
-POST /api/analysis/save        # Save analysis
-```
-
-**Dashboards**
-```
-GET  /api/dashboards           # List dashboards
-POST /api/dashboards           # Create dashboard
-PUT  /api/dashboards/{id}      # Update dashboard
-```
-
-**Data Cleaning**
-```
-POST /api/cleaning/assess      # Assess data quality
-POST /api/cleaning/execute     # Execute cleaning plan
-GET  /api/cleaning/history     # Get cleaning history
-```
-
-**Dataset Management**
-```
-POST /api/datasets/upload      # Upload CSV/Parquet
-GET  /api/datasets             # List datasets
-DELETE /api/datasets/{id}      # Delete dataset
-```
-
-Full API documentation available at `http://localhost:8000/docs` (Swagger UI)
-
----
-
-## 🚀 Deployment
-
-### **Docker**
-```bash
-docker-compose up
-```
-
-### **Cloud Platforms**
-- **Vercel** (Frontend)
-- **AWS Lambda / Google Cloud Run** (Backend)
-- **Render / Railway** (Full Stack)
-
----
-
-## 🗺️ Roadmap
-
-- [ ] **Sub-100ms Queries**: Heuristic fast-path for standard queries
-- [ ] **Time-Series Forecasting**: Prophet integration for trend prediction
-- [ ] **Advanced Data Engineering**: Multi-step cleaning orchestration
-- [ ] **Enterprise Export**: PDF reports, specialized data exports
-- [ ] **Team Collaboration**: Real-time dashboards, comments, annotations
-- [ ] **Data Catalog**: Automated metadata and data lineage tracking
-- [ ] **Custom AI Models**: Fine-tuned models for domain-specific queries
+- [ ] Faster low-latency analysis paths
+- [ ] Richer forecasting and predictive analytics
+- [ ] Collaborative dashboards and sharing
+- [ ] Expanded export/reporting options
+- [ ] Better metadata, lineage, and data cataloging
 
 ---
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
-
----
+Contributions are welcome. Open an issue first for major changes.
 
 ## 📄 License
 
-Vizzy Pro is released under the [MIT License](LICENSE).
-
----
-
-## 💡 Support & Resources
-
-- 📖 [Documentation](https://docs.vizzy.dev)
-- 💬 [Community Discord](https://discord.gg/vizzy)
-- 🐛 [Report Issues](https://github.com/vizzy/analytics/issues)
-- 📧 [Email Support](mailto:support@vizzy.dev)
+Licensed under the [MIT License](LICENSE).
 
 ---
 
 <div align="center">
 
-### 🎉 Transform Your Data, Today
+### 💡 Make analytics feel effortless.
 
-**[Get Started →](#-getting-started)**
-
-Built with ❤️ for the next generation of Data Professionals.
-
-*Vizzy Pro • © 2024-2026 • [Website](https://vizzy.dev)*
+If this project helps you, consider giving it a ⭐ on GitHub.
 
 </div>
