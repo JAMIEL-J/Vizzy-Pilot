@@ -5,6 +5,7 @@ Belongs to: API layer
 Responsibility: HTTP interfaces for chat operations
 Restrictions: Thin controller - all logic delegated to services
 """
+from datetime import datetime
 from typing import List, Optional, Any, Tuple, Set
 import csv
 import re
@@ -29,6 +30,43 @@ router = APIRouter()
 # Keeps normalized user queries seen in this process to avoid DB scans on every send.
 _SESSION_QUERY_INDEX: dict[str, Set[str]] = {}
 _SESSION_INDEX_WARMED: Set[str] = set()
+
+
+def _is_simple_chat_query(query: str) -> bool:
+    """Detect simple greetings and help prompts that should stay conversational."""
+    normalized = (query or "").lower().strip()
+    if not normalized:
+        return False
+
+    if _explicitly_requests_visual(normalized) or _looks_interpretive_query(normalized):
+        return False
+
+    analytic_terms = [
+        "chart", "graph", "dashboard", "trend", "sales by", "revenue by", "count", "total",
+        "average", "sum", "compare", "compare", "group by", "show me", "analyze", "analysis",
+    ]
+    if any(term in normalized for term in analytic_terms):
+        return False
+
+    greeting_terms = [
+        "hello", "hi", "hey", "greetings", "good morning", "good afternoon", "good evening",
+        "can you help me", "help me", "how are you",
+    ]
+    return any(term in normalized for term in greeting_terms)
+
+
+def _build_simple_chat_response(query: str, has_dataset: bool) -> str:
+    """Build a lightweight conversational response for non-analytical chat."""
+    if has_dataset:
+        return (
+            "Hello! I can help with your data. Ask me about total sales, counts, trends, or comparisons, "
+            "and I’ll use the dataset you attached."
+        )
+
+    return (
+        "Hello! I can help with your data. Please attach a dataset and I’ll answer questions about "
+        "total sales, counts, trends, or comparisons."
+    )
 
 
 def _is_currency_kpi(kpi_label: str, chart_spec: dict) -> bool:
@@ -168,6 +206,10 @@ def _looks_interpretive_query(query: str) -> bool:
     patterns = [
         r"\bwhy\b",
         r"\bwhat\s+drives?\b",
+        r"\bwhat\s+is\s+driving\b",
+        r"\b(what|which)\s+(are\s+)?(the\s+)?(main|key|top)\s+drivers?\b",
+        r"\bdrivers?\s+of\b",
+        r"\b(revenue|sales|profit|margin|cost|churn|attrition|retention|conversion|growth)\s+drivers?\b",
         r"\bwhat\s+causes?\b",
         r"\bexplain\b",
         r"\breason\s+for\b",
@@ -416,6 +458,46 @@ def _ensure_point_style(text: str, min_points: int = 6, max_points: int = 8) -> 
     return "\n\n".join(f"{idx + 1}. {p}" for idx, p in enumerate(extracted[:max_points]))
 
 
+def _extract_diagnostic_sql_queries(orch_output: Optional[dict]) -> List[dict]:
+    """Extract SQL snippets for interpretive diagnostics from orchestrator payloads."""
+    if not isinstance(orch_output, dict):
+        return []
+
+    candidates = orch_output.get("diagnostic_sql_queries")
+    if not isinstance(candidates, list):
+        diagnostics = orch_output.get("diagnostics")
+        candidates = diagnostics if isinstance(diagnostics, list) else []
+
+    sql_queries: List[dict] = []
+    for idx, item in enumerate(candidates):
+        if not isinstance(item, dict):
+            continue
+
+        sql = item.get("sql")
+        if not isinstance(sql, str) or not sql.strip():
+            continue
+
+        entry = {
+            "id": str(item.get("id") or f"diag_{idx + 1}"),
+            "title": str(item.get("title") or f"Diagnostic {idx + 1}"),
+            "sql": sql.strip(),
+        }
+
+        dimension = item.get("dimension")
+        if isinstance(dimension, str) and dimension.strip():
+            entry["dimension"] = dimension
+
+        row_count = item.get("row_count")
+        if isinstance(row_count, int):
+            entry["row_count"] = row_count
+        elif isinstance(item.get("data"), list):
+            entry["row_count"] = len(item.get("data") or [])
+
+        sql_queries.append(entry)
+
+    return sql_queries
+
+
 # =============================================================================
 # Request/Response Schemas
 # =============================================================================
@@ -459,6 +541,8 @@ class SessionResponse(BaseModel):
     title: str
     message_count: int
     is_active: bool
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True
@@ -827,6 +911,19 @@ async def send_message(
                     diag_count = orch_output.get("diagnostics_count")
                     if isinstance(diag_count, int):
                         output_data["diagnostics_count"] = diag_count
+                    grounding_mode = orch_output.get("grounding_mode")
+                    if isinstance(grounding_mode, str) and grounding_mode:
+                        output_data["grounding_mode"] = grounding_mode
+                    evidence_quality = orch_output.get("evidence_quality")
+                    if isinstance(evidence_quality, dict):
+                        output_data["evidence_quality"] = evidence_quality
+                    insufficient_evidence = orch_output.get("insufficient_evidence")
+                    if isinstance(insufficient_evidence, bool):
+                        output_data["insufficient_evidence"] = insufficient_evidence
+
+                    diagnostic_sql_queries = _extract_diagnostic_sql_queries(orch_output)
+                    if diagnostic_sql_queries:
+                        output_data["diagnostic_sql_queries"] = diagnostic_sql_queries
                 if result.get("staleness_warning"):
                     output_data["staleness_warning"] = result.get("staleness_warning")
 

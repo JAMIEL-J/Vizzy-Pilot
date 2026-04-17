@@ -258,6 +258,22 @@ class LLMClient:
                         last_error = retry_e
                         continue
 
+                if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
+                    status_code = e.response.status_code
+                    response_snippet = (e.response.text or "")[:500].replace("\n", " ").strip()
+                    logger.error(
+                        "LLM provider HTTP error provider=%s purpose=%s status=%s body=%s",
+                        provider.value,
+                        purpose,
+                        status_code,
+                        response_snippet,
+                    )
+                    if status_code == 404 and provider == LLMProvider.GROQ_CHAT:
+                        logger.error(
+                            "Likely Groq chat model unavailable for this key/account. configured_model=%s",
+                            self.settings.groq_chat_model,
+                        )
+
                 logger.error(f"LLM call failed with {provider.value}: {e}", exc_info=True)
                 last_error = e
                 continue

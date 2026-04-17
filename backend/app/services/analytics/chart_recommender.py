@@ -9,6 +9,7 @@ import logging
 from typing import Dict, Any, List, Optional, Set
 from dataclasses import dataclass
 import warnings
+import re
 import pandas as pd
 from .domain_detector import DomainType, detect_domain
 from .column_filter import ColumnClassification, _clean_header, filter_columns
@@ -253,18 +254,36 @@ def _smart_aggregate(df: pd.DataFrame, group_col: str, metric_col: str, limit: i
 def _beautify_column_name(col: str) -> str:
     """Convert column name to professional business term."""
     col_lower = col.lower().replace('-', '_')
+
+    def _humanize_column_name(name: str) -> str:
+        # Keep full source semantics while improving readability.
+        # Examples: subscription_type -> Subscription Type, PaymentMethod -> Payment Method
+        spaced = re.sub(r'(?<=[a-z0-9])(?=[A-Z])', ' ', str(name))
+        spaced = spaced.replace('_', ' ').replace('-', ' ')
+        normalized = re.sub(r'\s+', ' ', spaced).strip()
+        return normalized.title()
     
     # Check exact match first
     if col_lower in COLUMN_TO_BUSINESS_TERM:
         return COLUMN_TO_BUSINESS_TERM[col_lower]
+
+    # Check exact match without separators to catch camelCase/snake_case variations.
+    compact_lower = ''.join(ch for ch in col_lower if ch.isalnum())
+    for key, term in COLUMN_TO_BUSINESS_TERM.items():
+        key_compact = ''.join(ch for ch in key.lower() if ch.isalnum())
+        if key_compact == compact_lower:
+            return term
     
-    # Check partial match
+    # Check partial match, but avoid generic short tokens that can over-trim names
+    # (e.g., subscription_type should not collapse to just "Type").
     for pattern, term in COLUMN_TO_BUSINESS_TERM.items():
+        if len(pattern) <= 6:
+            continue
         if pattern in col_lower:
             return term
     
-    # Default: Title case with underscores replaced
-    return col.replace('_', ' ').replace('-', ' ').title()
+    # Default: preserve original column semantics with readable formatting.
+    return _humanize_column_name(col)
 
 
 def _get_metric_prefix(metric_col: str) -> str:
@@ -1424,10 +1443,14 @@ def _generate_churn_charts(df, classification):
 
     # 2. Guaranteed Payment Method view (rate + volume) when a payment-like dimension exists.
     if payment_col_match:
+        payment_dim_label = (
+            re.sub(r'\s+', ' ', re.sub(r'(?<=[a-z0-9])(?=[A-Z])', ' ', str(payment_col_match)).replace('_', ' ').replace('-', ' ')).strip().title()
+            or _beautify_column_name(payment_col_match)
+        )
         data = _get_churn_rate_by_segment(df, target_col, payment_col_match)
         if data:
             add_chart(ChartRecommendation(
-                slot='', title=f'{label} Rate by Payment Method (%)',
+                slot='', title=f'{label} Rate by {payment_dim_label} (%)',
                 chart_type='bar', data=data, confidence='HIGH',
                 reason=f'Tier 1: Payment-method risk profile for {label.lower()}',
                 format_type='percentage',
@@ -1438,7 +1461,7 @@ def _generate_churn_charts(df, classification):
         data = _get_churn_count_by_segment(df, target_col, payment_col_match)
         if data:
             add_chart(ChartRecommendation(
-                slot='', title=f'{label} Count by Payment Method',
+                slot='', title=f'{label} Count by {payment_dim_label}',
                 chart_type='hbar', data=data, confidence='HIGH',
                 reason=f'Tier 1: Payment-method volume context for {label.lower()}',
                 dimension=payment_col_match, metric=target_col, aggregation='count'

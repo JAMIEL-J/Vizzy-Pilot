@@ -20,6 +20,18 @@ export interface DuckDBStatus {
     duckdb_path?: string | null;
 }
 
+export interface DatasetVersionSummary {
+    id: string;
+    dataset_id: string;
+    version_number: number;
+    source_type: string;
+    source_reference: string;
+    row_count?: number | null;
+    schema_hash: string;
+    created_by: string;
+    is_active: boolean;
+}
+
 export const datasetService = {
     // List datasets
     listDatasets: async () => {
@@ -45,6 +57,12 @@ export const datasetService = {
     // Get DuckDB build status for latest dataset version
     getDuckdbStatus: async (datasetId: string) => {
         const response = await apiClient.get<DuckDBStatus>(`/datasets/${datasetId}/duckdb-status`);
+        return response.data;
+    },
+
+    // Get latest dataset version metadata (contains row_count when available)
+    getLatestVersion: async (datasetId: string) => {
+        const response = await apiClient.get<DatasetVersionSummary>(`/datasets/${datasetId}/versions/latest`);
         return response.data;
     },
 

@@ -4,6 +4,7 @@ from typing import Dict, Any, Optional, List
 import datetime
 import re
 
+
 from sqlmodel import Session, select
 
 from app.core.exceptions import ResourceNotFound, InvalidOperation
@@ -16,7 +17,7 @@ from app.services.llm.intent_validator import validate_intent
 from app.services.llm.intent_mapper import map_intent_to_operation
 from app.services.llm.intent_schema import IntentType, Aggregation
 from app.services.llm.chart_explainer import generate_chart_explanation
-from app.services.llm.text_answer_generator import generate_text_answer
+from app.services.llm.text_answer_generator import generate_text_answer_async
 from app.services.llm.response_formatter import (
     format_analysis_response,
     format_dashboard_response,
@@ -32,6 +33,151 @@ from app.services.analysis_service import create_analysis_result
 
 
 logger = get_logger(__name__)
+
+
+_GROUNDING_STOPWORDS = {
+    "the", "and", "for", "with", "that", "this", "from", "into", "over", "under",
+    "their", "there", "where", "which", "what", "when", "than", "then", "have",
+    "has", "been", "were", "was", "are", "is", "its", "per", "each", "across",
+    "segment", "breakdown", "value", "data", "shown", "total", "highest", "lowest",
+}
+
+
+def _normalize_text(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9\s%$€£₹¥+-]", " ", str(text or "").lower())).strip()
+
+
+def _collect_grounding_terms(diagnostics: List[Dict[str, Any]]) -> List[str]:
+    terms = set()
+    for diag in diagnostics:
+        title = _normalize_text(diag.get("title", ""))
+        for tok in title.split():
+            if len(tok) >= 4 and tok not in _GROUNDING_STOPWORDS:
+                terms.add(tok)
+
+        dim = str(diag.get("dimension", "")).strip()
+        if dim:
+            dim_norm = _normalize_text(dim)
+            if dim_norm and dim_norm not in _GROUNDING_STOPWORDS:
+                terms.add(dim_norm)
+
+        rows = diag.get("data") or []
+        for row in rows[:5]:
+            dim_val = row.get(dim, "") if isinstance(row, dict) else ""
+            dim_norm = _normalize_text(str(dim_val))
+            if len(dim_norm) >= 3:
+                terms.add(dim_norm)
+
+    return sorted(terms)
+
+
+def _assess_diagnostic_evidence(
+    diagnostics: List[Dict[str, Any]],
+    min_diagnostics: int = 2,
+    min_rows_per_diagnostic: int = 2,
+) -> Dict[str, Any]:
+    usable = 0
+    total_groups = 0
+
+    for diag in diagnostics:
+        rows = diag.get("data") or []
+        valid_rows = [r for r in rows if isinstance(r, dict) and isinstance(r.get("value"), (int, float))]
+        total_groups += len(valid_rows)
+        if len(valid_rows) >= min_rows_per_diagnostic:
+            usable += 1
+
+    total = len(diagnostics)
+    return {
+        "is_sufficient": usable >= min_diagnostics,
+        "usable_diagnostics": usable,
+        "total_diagnostics": total,
+        "total_groups": total_groups,
+    }
+
+
+def _is_grounded_interpretive_output(
+    text: str,
+    diagnostics: List[Dict[str, Any]],
+    min_points: int = 4,
+) -> bool:
+    points = _extract_points_from_text(text, max_points=8)
+    if len(points) < min_points:
+        return False
+
+    grounding_terms = _collect_grounding_terms(diagnostics)
+    if not grounding_terms:
+        return False
+
+    numeric_points = 0
+    grounded_points = 0
+    prohibited_causal = re.compile(
+        r"\b(proves|proved|root\s+cause\s+is|definitely\s+caused|certainly\s+caused)\b"
+    )
+
+    for point in points:
+        norm_point = _normalize_text(point)
+        if prohibited_causal.search(norm_point):
+            return False
+
+        if re.search(r"\d", point):
+            numeric_points += 1
+
+        if any(term in norm_point for term in grounding_terms):
+            grounded_points += 1
+
+    min_required = max(2, len(points) // 2)
+    return numeric_points >= min_required and grounded_points >= min_required
+
+
+def _build_low_evidence_interpretive_response(
+    query: str,
+    evidence_quality: Dict[str, Any],
+    supplemental_points: List[str],
+) -> str:
+    usable = evidence_quality.get("usable_diagnostics", 0)
+    total = evidence_quality.get("total_diagnostics", 0)
+    groups = evidence_quality.get("total_groups", 0)
+
+    seed_points = [
+        (
+            f"The dataset does not provide enough robust evidence to explain '{query}' confidently: "
+            f"only {usable} of {total} diagnostic breakdowns had enough group coverage "
+            f"({groups} total numeric groups analyzed)."
+        ),
+        "The strongest available relationships are listed below, but they should be treated as directional signals rather than final conclusions.",
+    ]
+    seed_points.extend(supplemental_points[:4])
+    seed_points.append("These findings indicate association in the current data slice, not proven causation.")
+
+    return _format_explanation_as_points(
+        text="\n".join(seed_points),
+        max_points=8,
+        min_points=4,
+        supplemental_points=seed_points,
+    )
+
+
+def _build_grounded_interpretive_fallback(
+    diagnostics: List[Dict[str, Any]],
+    evidence_quality: Dict[str, Any],
+    supplemental_points: List[str],
+) -> str:
+    usable = evidence_quality.get("usable_diagnostics", 0)
+    total = evidence_quality.get("total_diagnostics", 0)
+    groups = evidence_quality.get("total_groups", 0)
+
+    guardrail_point = (
+        f"This summary is grounded in {usable} of {total} diagnostic breakdowns "
+        f"({groups} total numeric groups), and it reports association patterns rather than proven causal effects."
+    )
+    points = [guardrail_point] + supplemental_points
+
+    return _format_explanation_as_points(
+        text="\n".join(points),
+        max_points=8,
+        min_points=4,
+        supplemental_points=points,
+    )
 
 
 def _infer_currency_symbol(df: pd.DataFrame, visualization_data: Optional[Dict[str, Any]] = None) -> str:
@@ -265,6 +411,35 @@ def _format_explanation_as_points(
                 points.append(sp)
 
     return "\n\n".join(f"{idx + 1}. {p}" for idx, p in enumerate(points[:max_points]))
+
+
+def _build_diagnostic_sql_queries(diagnostics: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Extract compact SQL metadata from successful diagnostics for UI transparency."""
+    sql_queries: List[Dict[str, Any]] = []
+
+    for idx, diag in enumerate(diagnostics):
+        if not isinstance(diag, dict):
+            continue
+
+        sql = diag.get("sql")
+        if not isinstance(sql, str) or not sql.strip():
+            continue
+
+        row_count = len(diag.get("data") or [])
+        item: Dict[str, Any] = {
+            "id": str(diag.get("id") or f"diag_{idx + 1}"),
+            "title": str(diag.get("title") or f"Diagnostic {idx + 1}"),
+            "sql": sql.strip(),
+            "row_count": row_count,
+        }
+
+        dimension = diag.get("dimension")
+        if isinstance(dimension, str) and dimension.strip():
+            item["dimension"] = dimension
+
+        sql_queries.append(item)
+
+    return sql_queries
 
 
 def _calculate_pop_change(df: pd.DataFrame, metric: str, date_col: str) -> Optional[Dict[str, Any]]:
@@ -551,11 +726,15 @@ async def run_analysis_orchestration(
             query=query,
             target_col=contract.target_column if hasattr(contract, 'target_column') else None,
             metric_col=intent.metric,
+            execution_mode="sql",
         )
 
         diagnostics = battery_result.get("diagnostics", [])
 
         if diagnostics:
+            supplemental_points = _diagnostic_points_from_results(diagnostics, max_points=8)
+            evidence_quality = _assess_diagnostic_evidence(diagnostics)
+            diagnostic_sql_queries = _build_diagnostic_sql_queries(diagnostics)
             synthesis_prompt = f"""User question: {query}
 
 Based on the following diagnostic breakdowns, write a concise explanation answering the user's question.
@@ -584,49 +763,72 @@ Rules:
 - For revenue/profit/cost values, include currency symbols.
 - Include percentages for share/change wherever possible.
 - If a percentage is not computable, explicitly state percentage not available.
+- Use only facts and numbers present in the diagnostic context; do not invent values or segments.
+- Phrase findings as associations or patterns and avoid claiming proven causality.
 - Do not output headings, prose paragraphs, markdown bullets, or code fences.
 - Keep the response as numbered points only."""
 
             llm_label = "Unknown"
-            try:
-                llm_client = get_llm_client()
-                synthesis_response = await llm_client.complete(
-                    system_prompt=(
-                        "You are a strict financial analytics formatter. "
-                        "Always return numbered points with a blank line between each point. "
-                        "Never return paragraphs. Never use bullet symbols."
-                    ),
-                    user_prompt=synthesis_prompt,
-                    temperature=0.0,
-                    max_tokens=512,
-                    purpose="chat_insight",
+            grounding_mode = "deterministic_low_evidence"
+            if not evidence_quality.get("is_sufficient"):
+                llm_label = "Skipped-LowEvidence"
+                synthesis_text = _build_low_evidence_interpretive_response(
+                    query=query,
+                    evidence_quality=evidence_quality,
+                    supplemental_points=supplemental_points,
                 )
-                llm_model = getattr(synthesis_response, "model", None)
-                model_name = str(llm_model or "").lower()
-                if "gpt-oss" in model_name or "gpt oss" in model_name:
-                    llm_label = "GPT OSS"
-                elif "llama" in model_name:
-                    llm_label = "Llama"
-                else:
-                    llm_label = str(llm_model) if llm_model else "Unknown"
+            else:
+                try:
+                    llm_client = get_llm_client()
+                    synthesis_response = await llm_client.complete(
+                        system_prompt=(
+                            "You are a strict financial analytics formatter. "
+                            "Always return numbered points with a blank line between each point. "
+                            "Never return paragraphs. Never use bullet symbols. "
+                            "Use only evidence present in the prompt and avoid causal claims."
+                        ),
+                        user_prompt=synthesis_prompt,
+                        temperature=0.0,
+                        max_tokens=512,
+                        purpose="chat_insight",
+                    )
+                    llm_model = getattr(synthesis_response, "model", None)
+                    model_name = str(llm_model or "").lower()
+                    if "gpt-oss" in model_name or "gpt oss" in model_name:
+                        llm_label = "GPT OSS"
+                    elif "llama" in model_name:
+                        llm_label = "Llama"
+                    else:
+                        llm_label = str(llm_model) if llm_model else "Unknown"
 
-                supplemental_points = _diagnostic_points_from_results(diagnostics, max_points=8)
-                synthesis_text = _format_explanation_as_points(
-                    synthesis_response.content,
-                    max_points=8,
-                    min_points=6,
-                    supplemental_points=supplemental_points,
-                )
-            except Exception as e:
-                logger.warning(f"LLM synthesis failed: {e}")
-                llm_label = "Unavailable"
-                supplemental_points = _diagnostic_points_from_results(diagnostics, max_points=8)
-                synthesis_text = _format_explanation_as_points(
-                    battery_result["synthesis_context"],
-                    max_points=8,
-                    min_points=6,
-                    supplemental_points=supplemental_points,
-                )
+                    candidate_text = _format_explanation_as_points(
+                        synthesis_response.content,
+                        max_points=8,
+                        min_points=6,
+                        supplemental_points=supplemental_points,
+                    )
+
+                    if _is_grounded_interpretive_output(candidate_text, diagnostics):
+                        synthesis_text = candidate_text
+                        grounding_mode = "llm_validated"
+                    else:
+                        logger.warning("Rejected ungrounded interpretive synthesis; using deterministic fallback")
+                        llm_label = "Rejected-Ungrounded"
+                        synthesis_text = _build_grounded_interpretive_fallback(
+                            diagnostics=diagnostics,
+                            evidence_quality=evidence_quality,
+                            supplemental_points=supplemental_points,
+                        )
+                        grounding_mode = "deterministic_guardrail"
+                except Exception as e:
+                    logger.warning(f"LLM synthesis failed: {e}")
+                    llm_label = "Unavailable"
+                    synthesis_text = _build_grounded_interpretive_fallback(
+                        diagnostics=diagnostics,
+                        evidence_quality=evidence_quality,
+                        supplemental_points=supplemental_points,
+                    )
+                    grounding_mode = "deterministic_fallback"
 
             # Build chart specs for each diagnostic
             diag_charts = []
@@ -644,6 +846,9 @@ Rules:
                 "type": "interpretive",
                 "diagnostics": diagnostics,
                 "target": battery_result["target"],
+                "evidence_quality": evidence_quality,
+                "grounding_mode": grounding_mode,
+                "diagnostic_sql_queries": diagnostic_sql_queries,
             }
 
             formatted_response = {
@@ -654,6 +859,10 @@ Rules:
                     "charts": diag_charts,
                     "diagnostics_count": len(diagnostics),
                     "detected_intent": "interpretive",
+                    "grounding_mode": grounding_mode,
+                    "evidence_quality": evidence_quality,
+                    "insufficient_evidence": not evidence_quality.get("is_sufficient"),
+                    "diagnostic_sql_queries": diagnostic_sql_queries,
                     "staleness_warning": staleness_warning,
                 },
                 "intent_type": "interpretive",
@@ -673,7 +882,7 @@ Rules:
         logger.info("Processing retrieval/text-only query (no visualization)")
         
         # Generate text answer
-        text_result = generate_text_answer(
+        text_result = await generate_text_answer_async(
             df=df,
             intent=intent,
             query=query,

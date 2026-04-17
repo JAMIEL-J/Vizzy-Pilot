@@ -1,11 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { datasetService, type Dataset } from '../../lib/api/dataset';
+import { datasetService, type Dataset, type DuckDBStatus } from '../../lib/api/dataset';
 
 export default function DatasetList() {
     const [searchTerm, setSearchTerm] = useState('');
     const [datasets, setDatasets] = useState<Dataset[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [isMetricsLoading, setIsMetricsLoading] = useState(false);
+    const [rowCountByDataset, setRowCountByDataset] = useState<Record<string, number>>({});
+    const [syncStatusByDataset, setSyncStatusByDataset] = useState<Record<string, DuckDBStatus['status']>>({});
 
     useEffect(() => {
         loadDatasets();
@@ -15,10 +18,62 @@ export default function DatasetList() {
         try {
             const data = await datasetService.listDatasets();
             setDatasets(data);
+            await loadDatasetMetrics(data);
         } catch (error) {
             console.error('Failed to load datasets:', error);
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    const loadDatasetMetrics = async (datasetList: Dataset[]) => {
+        if (datasetList.length === 0) {
+            setRowCountByDataset({});
+            setSyncStatusByDataset({});
+            return;
+        }
+
+        setIsMetricsLoading(true);
+        try {
+            const rowsMap: Record<string, number> = {};
+            const statusMap: Record<string, DuckDBStatus['status']> = {};
+
+            const results = await Promise.all(
+                datasetList.map(async (dataset) => {
+                    const [latestVersionResult, duckdbStatusResult] = await Promise.allSettled([
+                        datasetService.getLatestVersion(dataset.id),
+                        datasetService.getDuckdbStatus(dataset.id),
+                    ]);
+
+                    let rowCount = 0;
+                    if (latestVersionResult.status === 'fulfilled') {
+                        const rawRowCount = Number(latestVersionResult.value?.row_count ?? 0);
+                        rowCount = Number.isFinite(rawRowCount) ? Math.max(0, rawRowCount) : 0;
+                    }
+
+                    const syncStatus = duckdbStatusResult.status === 'fulfilled'
+                        ? duckdbStatusResult.value?.status || 'unknown'
+                        : 'unknown';
+
+                    return {
+                        datasetId: dataset.id,
+                        rowCount,
+                        syncStatus,
+                    };
+                })
+            );
+
+            for (const item of results) {
+                rowsMap[item.datasetId] = item.rowCount;
+                statusMap[item.datasetId] = item.syncStatus;
+            }
+
+            setRowCountByDataset(rowsMap);
+            setSyncStatusByDataset(statusMap);
+        } catch (error) {
+            console.error('Failed to load dataset metrics:', error);
+        } finally {
+            setIsMetricsLoading(false);
         }
     };
 
@@ -37,6 +92,55 @@ export default function DatasetList() {
     const filteredDatasets = datasets.filter(d =>
         d.name.toLowerCase().includes(searchTerm.toLowerCase())
     );
+
+    const filteredDatasetIds = useMemo(() => new Set(filteredDatasets.map((d) => d.id)), [filteredDatasets]);
+
+    const totalRowsAnalyzed = useMemo(() => {
+        return Object.entries(rowCountByDataset)
+            .filter(([datasetId]) => filteredDatasetIds.has(datasetId))
+            .reduce((acc, [, count]) => acc + count, 0);
+    }, [rowCountByDataset, filteredDatasetIds]);
+
+    const activeFilteredCount = useMemo(
+        () => filteredDatasets.filter((d) => d.is_active).length,
+        [filteredDatasets]
+    );
+
+    const syncedActiveFilteredCount = useMemo(
+        () => filteredDatasets.filter((d) => d.is_active && syncStatusByDataset[d.id] === 'ready').length,
+        [filteredDatasets, syncStatusByDataset]
+    );
+
+    const syncProgressPct = activeFilteredCount > 0
+        ? Math.round((syncedActiveFilteredCount / activeFilteredCount) * 100)
+        : 0;
+
+    const healthyFilteredCount = useMemo(
+        () => filteredDatasets.filter((d) => {
+            const status = (syncStatusByDataset[d.id] || 'unknown').toLowerCase();
+            return status === 'ready' || status === 'building';
+        }).length,
+        [filteredDatasets, syncStatusByDataset]
+    );
+
+    const systemHealthPct = filteredDatasets.length > 0
+        ? Number(((healthyFilteredCount / filteredDatasets.length) * 100).toFixed(1))
+        : 0;
+
+    const latestRefreshLabel = useMemo(() => {
+        if (filteredDatasets.length === 0) return 'No datasets available';
+        const latestTimestamp = filteredDatasets
+            .map((d) => Date.parse(d.updated_at || d.created_at || ''))
+            .filter((n) => Number.isFinite(n))
+            .reduce((max, n) => Math.max(max, n), 0);
+        if (!latestTimestamp) return 'Update time unavailable';
+
+        const elapsedMs = Date.now() - latestTimestamp;
+        if (elapsedMs < 60_000) return 'Updated just now';
+        if (elapsedMs < 3_600_000) return `Updated ${Math.floor(elapsedMs / 60_000)}m ago`;
+        if (elapsedMs < 86_400_000) return `Updated ${Math.floor(elapsedMs / 3_600_000)}h ago`;
+        return `Updated ${Math.floor(elapsedMs / 86_400_000)}d ago`;
+    }, [filteredDatasets]);
 
     return (
         <main className="flex-1 flex flex-col min-w-0 bg-background overflow-hidden relative selection:bg-primary selection:text-white">
@@ -174,10 +278,12 @@ export default function DatasetList() {
                     <div className="bg-primary hover:bg-primary-container text-on-primary rounded-2xl p-6 flex flex-col justify-between relative overflow-hidden h-40 transition-colors shadow-lg shadow-primary/10 dark:shadow-primary/20">
                         <div className="relative z-10">
                             <p className="text-on-primary/70 text-xs font-bold uppercase tracking-widest mb-2 font-label">Total Elements Analyzed</p>
-                            <h3 className="text-2xl font-bold font-headline">{filteredDatasets.length * 15320} Rows</h3>
+                            <h3 className="text-2xl font-bold font-headline">
+                                {isMetricsLoading ? 'Calculating...' : `${totalRowsAnalyzed.toLocaleString()} Rows`}
+                            </h3>
                         </div>
                         <div className="w-full bg-black/20 h-2 rounded-full overflow-hidden relative z-10">
-                            <div className="bg-white h-full" style={{ width: '82%' }}></div>
+                            <div className="bg-white h-full transition-all duration-500" style={{ width: `${syncProgressPct}%` }}></div>
                         </div>
                         {/* Decorative pattern */}
                         <div className="absolute -right-4 -bottom-4 opacity-10">
@@ -189,19 +295,21 @@ export default function DatasetList() {
                             <p className="text-on-surface-variant text-xs font-bold uppercase tracking-widest mb-2 font-label">Sync Status</p>
                             <div className="flex items-center gap-2">
                                 <span className="material-symbols-outlined text-secondary animate-pulse" style={{ fontVariationSettings: "'FILL' 1" }}>sync</span>
-                                <span className="text-lg font-bold text-on-surface">{datasets.filter(d => d.is_active).length} Synced actively</span>
+                                <span className="text-lg font-bold text-on-surface">{syncedActiveFilteredCount} Synced actively</span>
                             </div>
                         </div>
-                        <p className="text-sm text-on-surface-variant italic">Next global refresh: Real-time</p>
+                        <p className="text-sm text-on-surface-variant italic">{latestRefreshLabel}</p>
                     </div>
                     <div className="bg-surface-container-lowest dark:bg-surface-container border border-outline-variant/10 rounded-2xl p-6 flex flex-col justify-between h-40 shadow-sm">
                         <div>
                             <p className="text-on-surface-variant text-xs font-bold uppercase tracking-widest mb-2 font-label">System Health</p>
-                            <h3 className="text-2xl font-bold font-headline text-on-surface">94.8%</h3>
+                            <h3 className="text-2xl font-bold font-headline text-on-surface">{systemHealthPct.toFixed(1)}%</h3>
                         </div>
                         <div className="flex items-center gap-1.5">
                             <span className="material-symbols-outlined text-secondary text-sm">check_circle</span>
-                            <span className="text-xs text-secondary font-semibold">Active & performant</span>
+                            <span className="text-xs text-secondary font-semibold">
+                                {systemHealthPct >= 90 ? 'Active & performant' : systemHealthPct >= 60 ? 'Stable with pending sync' : 'Needs attention'}
+                            </span>
                         </div>
                     </div>
                 </div>

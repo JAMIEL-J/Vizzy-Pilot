@@ -7,6 +7,8 @@ export interface ChatSession {
     dataset_id?: string;
     dataset_version_id?: string;
     is_active: boolean;
+    created_at?: string;
+    updated_at?: string;
 }
 
 export interface ChatMessage {

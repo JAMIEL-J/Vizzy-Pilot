@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { chatService, type ChatMessage, type ChatSession } from '../../lib/api/chat';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -19,6 +19,20 @@ const buildClarifiedQuery = (originalQuery: string, term: string, selectedColumn
 
     if (!term) {
         return `${source}. Use column ${selectedColumn}.`;
+    }
+
+    const normalizedColumn = selectedColumn.toLowerCase();
+    const normalizedTerm = term.toLowerCase();
+
+    // Prefer replacing richer phrases first to avoid duplication like
+    // "Phone service" -> "Phone PhoneService" when selecting "PhoneService".
+    const termWordPattern = new RegExp(`\\b([A-Za-z][A-Za-z0-9_]*)\\s+${escapeRegExp(term)}\\b`, 'i');
+    const termWordMatch = source.match(termWordPattern);
+    if (termWordMatch) {
+        const leadingWord = String(termWordMatch[1] || '').toLowerCase();
+        if (leadingWord && normalizedColumn.includes(leadingWord) && normalizedColumn.includes(normalizedTerm)) {
+            return source.replace(termWordPattern, selectedColumn);
+        }
     }
 
     const pattern = new RegExp(`\\b${escapeRegExp(term)}\\b`, 'i');
@@ -72,6 +86,65 @@ const isMultiMetricKPIMessage = (msg: ChatMessage) => {
     return chartPayload?.type === 'kpi' && Array.isArray(metrics) && metrics.length > 1;
 };
 
+const isKPIMessage = (msg: ChatMessage) => {
+    const outputData = msg.output_data;
+    if (!outputData) return false;
+
+    const chartPayload = outputData.type === 'nl2sql' ? outputData.chart : outputData;
+    return chartPayload?.type === 'kpi';
+};
+
+interface InsightSqlQuery {
+    id: string;
+    title: string;
+    sql: string;
+    dimension?: string;
+    row_count?: number;
+}
+
+const getInsightSqlQueries = (msg: ChatMessage): InsightSqlQuery[] => {
+    const outputData = msg.output_data;
+    if (!outputData || typeof outputData !== 'object') {
+        return [];
+    }
+
+    const candidatesRaw = Array.isArray(outputData.diagnostic_sql_queries)
+        ? outputData.diagnostic_sql_queries
+        : (Array.isArray(outputData.diagnostics) ? outputData.diagnostics : []);
+    const candidates: unknown[] = candidatesRaw;
+    const sqlQueries: InsightSqlQuery[] = [];
+
+    candidates.forEach((item, idx) => {
+        if (!item || typeof item !== 'object') {
+            return;
+        }
+
+        const typedItem = item as Record<string, any>;
+        const sql = typeof typedItem.sql === 'string' ? typedItem.sql.trim() : '';
+        if (!sql) {
+            return;
+        }
+
+        const next: InsightSqlQuery = {
+            id: String(typedItem.id || `diag_${idx + 1}`),
+            title: String(typedItem.title || `Diagnostic ${idx + 1}`),
+            sql,
+        };
+
+        if (typeof typedItem.dimension === 'string' && typedItem.dimension.trim()) {
+            next.dimension = typedItem.dimension;
+        }
+
+        if (typeof typedItem.row_count === 'number' && Number.isFinite(typedItem.row_count)) {
+            next.row_count = typedItem.row_count;
+        }
+
+        sqlQueries.push(next);
+    });
+
+    return sqlQueries;
+};
+
 const renderInsightPoints = (content: string) => {
     const lines = (content || '')
         .split(/\n+/)
@@ -89,6 +162,20 @@ const renderInsightPoints = (content: string) => {
     );
 };
 
+const parseUtcTimestamp = (value?: string): Date | null => {
+    if (!value) return null;
+
+    const raw = value.trim();
+    if (!raw) return null;
+
+    const hasTimezone = /(?:[zZ]|[+-]\d{2}:?\d{2})$/.test(raw);
+    const normalized = hasTimezone ? raw : `${raw}Z`;
+    const parsed = new Date(normalized);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const localDayStart = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
 export default function ChatInterface() {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [isTyping, setIsTyping] = useState(false);
@@ -101,6 +188,47 @@ export default function ChatInterface() {
     // Session History State
     const [sessions, setSessions] = useState<ChatSession[]>([]);
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+    const [historyClock, setHistoryClock] = useState<number>(() => Date.now());
+
+    const groupedSessions = useMemo(() => {
+        const now = new Date();
+        const today = localDayStart(now);
+        const yesterday = new Date(today);
+        yesterday.setDate(today.getDate() - 1);
+
+        const sorted = [...sessions].sort((a, b) => {
+            const aDate = parseUtcTimestamp(a.updated_at || a.created_at)?.getTime() ?? 0;
+            const bDate = parseUtcTimestamp(b.updated_at || b.created_at)?.getTime() ?? 0;
+            return bDate - aDate;
+        });
+
+        const todaySessions: ChatSession[] = [];
+        const yesterdaySessions: ChatSession[] = [];
+        const previousSessions: ChatSession[] = [];
+
+        sorted.forEach((session) => {
+            const sessionDate = parseUtcTimestamp(session.updated_at || session.created_at);
+            if (!sessionDate) {
+                previousSessions.push(session);
+                return;
+            }
+
+            const sessionDay = localDayStart(sessionDate);
+            if (sessionDay.getTime() === today.getTime()) {
+                todaySessions.push(session);
+            } else if (sessionDay.getTime() === yesterday.getTime()) {
+                yesterdaySessions.push(session);
+            } else {
+                previousSessions.push(session);
+            }
+        });
+
+        return {
+            today: todaySessions,
+            yesterday: yesterdaySessions,
+            previous: previousSessions,
+        };
+    }, [sessions, historyClock]);
 
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -123,6 +251,14 @@ export default function ChatInterface() {
     // Load session history on mount
     useEffect(() => {
         loadSessions();
+    }, []);
+
+    // Keep history buckets in sync with local day boundaries (Today/Yesterday/Previous).
+    useEffect(() => {
+        const timer = window.setInterval(() => {
+            setHistoryClock(Date.now());
+        }, 60_000);
+        return () => window.clearInterval(timer);
     }, []);
 
     const loadDatasets = async () => {
@@ -310,72 +446,51 @@ export default function ChatInterface() {
             </div>
 
             <div className="flex-1 overflow-y-auto px-3 py-3 space-y-1.5">
-                <p className="text-[10px] font-semibold text-themed-muted uppercase tracking-widest px-2">Today</p>
-                {sessions.slice(0, 5).map(session => (
-                    <div
-                        key={session.id}
-                        className={`group w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition cursor-pointer ${currentSessionId === session.id
-                            ? 'bg-primary/10 border border-primary/30 text-primary'
-                            : 'text-themed-muted hover:bg-bg-hover hover:text-themed-main border border-transparent'
-                            }`}
-                        onClick={() => loadSession(session.id)}
-                    >
-                        <div className="flex items-start space-x-3 overflow-hidden">
-                            <span className={`material-symbols-outlined text-[16px] leading-none flex-shrink-0 mt-0.5 ${currentSessionId === session.id ? 'text-primary' : ''}`}>chat</span>
-                            <div className="min-w-0">
-                                <p className="font-medium truncate">{session.title || 'Untitled Chat'}</p>
-                                <p className="text-[10px] text-themed-muted truncate mt-0.5 uppercase tracking-wide">
-                                    {session.message_count} messages
-                                </p>
-                            </div>
-                        </div>
-                        <Button
-                            type="button"
-                            onClick={(e) => handleDeleteSession(e, session.id)}
-                            className={`p-1.5 rounded-sm hover:bg-red-500/10 text-red-500 hover:text-red-500 transition opacity-0 group-hover:opacity-100 ${currentSessionId === session.id ? 'opacity-100' : ''
-                                }`}
-                            title="Delete Session"
-                            variant="ghost"
-                            size="icon"
-                        >
-                            <span className="material-symbols-outlined text-[16px] leading-none">delete</span>
-                        </Button>
-                    </div>
-                ))}
+                {[
+                    { label: 'Today', items: groupedSessions.today },
+                    { label: 'Yesterday', items: groupedSessions.yesterday },
+                    { label: 'Previous', items: groupedSessions.previous },
+                ].map((group, groupIndex) => {
+                    if (!group.items.length) return null;
 
-                {sessions.length > 5 && (
-                    <>
-                        <p className="text-[10px] font-semibold text-themed-muted uppercase tracking-widest px-2 pt-3">Yesterday</p>
-                        {sessions.slice(5, 12).map(session => (
-                            <div
-                                key={session.id}
-                                className={`group w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition cursor-pointer ${currentSessionId === session.id
-                                    ? 'bg-primary/10 border border-primary/30 text-primary'
-                                    : 'text-themed-muted hover:bg-bg-hover hover:text-themed-main border border-transparent'
-                                    }`}
-                                onClick={() => loadSession(session.id)}
-                            >
-                                <div className="flex items-start space-x-3 overflow-hidden">
-                                    <span className={`material-symbols-outlined text-[16px] leading-none flex-shrink-0 mt-0.5 ${currentSessionId === session.id ? 'text-primary' : ''}`}>chat</span>
-                                    <div className="min-w-0">
-                                        <p className="font-medium truncate">{session.title || 'Untitled Chat'}</p>
-                                        <p className="text-[10px] text-themed-muted truncate mt-0.5 uppercase tracking-wide">{session.message_count} messages</p>
-                                    </div>
-                                </div>
-                                <Button
-                                    type="button"
-                                    onClick={(e) => handleDeleteSession(e, session.id)}
-                                    className={`p-1.5 rounded-sm hover:bg-red-500/10 hover:text-red-500 transition opacity-0 group-hover:opacity-100 ${currentSessionId === session.id ? 'opacity-100' : ''}`}
-                                    title="Delete Session"
-                                    variant="ghost"
-                                    size="icon"
+                    return (
+                        <div key={group.label}>
+                            <p className={`text-[10px] font-semibold text-themed-muted uppercase tracking-widest px-2 ${groupIndex > 0 ? 'pt-3' : ''}`}>
+                                {group.label}
+                            </p>
+                            {group.items.map(session => (
+                                <div
+                                    key={session.id}
+                                    className={`group w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm transition cursor-pointer ${currentSessionId === session.id
+                                        ? 'bg-primary/10 border border-primary/30 text-primary'
+                                        : 'text-themed-muted hover:bg-bg-hover hover:text-themed-main border border-transparent'
+                                        }`}
+                                    onClick={() => loadSession(session.id)}
                                 >
-                                    <span className="material-symbols-outlined text-[16px] leading-none">delete</span>
-                                </Button>
-                            </div>
-                        ))}
-                    </>
-                )}
+                                    <div className="flex items-start space-x-3 overflow-hidden">
+                                        <span className={`material-symbols-outlined text-[16px] leading-none flex-shrink-0 mt-0.5 ${currentSessionId === session.id ? 'text-primary' : ''}`}>chat</span>
+                                        <div className="min-w-0">
+                                            <p className="font-medium truncate">{session.title || 'Untitled Chat'}</p>
+                                            <p className="text-[10px] text-themed-muted truncate mt-0.5 uppercase tracking-wide">
+                                                {session.message_count} messages
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <Button
+                                        type="button"
+                                        onClick={(e) => handleDeleteSession(e, session.id)}
+                                        className={`p-1.5 rounded-sm hover:bg-red-500/10 hover:text-red-500 transition opacity-0 group-hover:opacity-100 ${currentSessionId === session.id ? 'opacity-100' : ''}`}
+                                        title="Delete Session"
+                                        variant="ghost"
+                                        size="icon"
+                                    >
+                                        <span className="material-symbols-outlined text-[16px] leading-none">delete</span>
+                                    </Button>
+                                </div>
+                            ))}
+                        </div>
+                    );
+                })}
 
                 {sessions.length === 0 && (
                     <div className="text-center py-8 text-themed-muted text-sm">
@@ -483,14 +598,86 @@ export default function ChatInterface() {
                                         <div className={`px-5 py-4 ${msg.role === 'user' ? 'bg-primary text-white rounded-xl shadow-sm' : 'bg-surface-container-lowest dark:bg-surface-container/80 dark:backdrop-blur-md border border-transparent dark:border-white/5 rounded-xl text-on-surface'} ${['analysis', 'visualization', 'dashboard', 'comparative', 'aggregative', 'trend'].includes(msg.intent_type || '') && msg.output_data?.type !== 'kpi' ? 'w-full' : ''} ${msg.output_data?.type === 'kpi' ? 'w-auto' : ''}`}>
                                             <div className="text-sm leading-relaxed">
                                                 {isInsightMessage(msg) ? (
-                                                    <div className="space-y-4 w-full">
-                                                        <div className="markdown-content text-themed-main">
-                                                            {renderInsightPoints(msg.content)}
-                                                        </div>
-                                                    </div>
+                                                    (() => {
+                                                        const insightSqlQueries = getInsightSqlQueries(msg);
+                                                        return (
+                                                            <div className="space-y-4 w-full">
+                                                                <div className="markdown-content text-themed-main">
+                                                                    {renderInsightPoints(msg.content)}
+                                                                </div>
+
+                                                                {insightSqlQueries.length > 0 && (
+                                                                    <div className="rounded-sm border border-border-main bg-bg-main/40">
+                                                                        <div className="flex items-center justify-between px-3 py-2 border-b border-border-main/70">
+                                                                            <div className="flex items-center gap-2.5">
+                                                                                <span className="text-[10px] font-semibold font-mono tracking-[0.16em] uppercase text-themed-muted">
+                                                                                    Insight SQL
+                                                                                </span>
+                                                                                <span className="text-[10px] font-medium font-mono tracking-widest uppercase px-2 py-0.5 rounded-sm bg-primary/15 text-primary border border-primary/30">
+                                                                                    {insightSqlQueries.length} queries
+                                                                                </span>
+                                                                            </div>
+                                                                        </div>
+
+                                                                        <div className="px-3 py-3 space-y-3">
+                                                                            {insightSqlQueries.map((item, idx) => {
+                                                                                const copyKey = `${msg.id}::insight-sql::${item.id}`;
+                                                                                return (
+                                                                                    <div key={copyKey} className="rounded-sm border border-border-main/70 bg-bg-card/70">
+                                                                                        <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border-main/70">
+                                                                                            <div className="flex items-center gap-2 flex-wrap min-w-0">
+                                                                                                <span className="text-[10px] font-medium font-mono tracking-widest uppercase px-1.5 py-0.5 rounded-sm bg-bg-main/70 text-themed-muted border border-border-main/70">
+                                                                                                    #{idx + 1}
+                                                                                                </span>
+                                                                                                <span className="text-xs font-semibold text-themed-main truncate">
+                                                                                                    {item.title}
+                                                                                                </span>
+                                                                                                {item.dimension && (
+                                                                                                    <span className="text-[10px] font-medium font-mono tracking-widest uppercase px-1.5 py-0.5 rounded-sm bg-primary/10 text-primary border border-primary/20">
+                                                                                                        {item.dimension}
+                                                                                                    </span>
+                                                                                                )}
+                                                                                                {typeof item.row_count === 'number' && (
+                                                                                                    <span className="text-[10px] font-medium font-mono tracking-widest uppercase px-1.5 py-0.5 rounded-sm bg-bg-main/70 text-themed-muted border border-border-main/70">
+                                                                                                        {item.row_count} rows
+                                                                                                    </span>
+                                                                                                )}
+                                                                                            </div>
+
+                                                                                            <Button
+                                                                                                type="button"
+                                                                                                onClick={() => {
+                                                                                                    navigator.clipboard.writeText(item.sql);
+                                                                                                    setCopiedSqlMsgId(copyKey);
+                                                                                                    setTimeout(() => setCopiedSqlMsgId(null), 2000);
+                                                                                                }}
+                                                                                                className="text-[10px] font-mono font-semibold tracking-widest uppercase text-themed-muted hover:text-primary transition-colors flex items-center gap-1 flex-shrink-0"
+                                                                                                variant="ghost"
+                                                                                                size="sm"
+                                                                                            >
+                                                                                                {copiedSqlMsgId === copyKey ? (
+                                                                                                    <><span className="material-symbols-outlined text-[13px] leading-none text-primary">check</span> Copied!</>
+                                                                                                ) : (
+                                                                                                    <><span className="material-symbols-outlined text-[13px] leading-none">content_copy</span> Copy</>
+                                                                                                )}
+                                                                                            </Button>
+                                                                                        </div>
+
+                                                                                        <pre className="mx-3 my-3 p-3 bg-bg-card border border-border-main/70 rounded-sm text-xs font-mono text-primary overflow-x-auto whitespace-pre-wrap leading-relaxed">
+                                                                                            <code>{item.sql}</code>
+                                                                                        </pre>
+                                                                                    </div>
+                                                                                );
+                                                                            })}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })()
                                                 ) : ['analysis', 'visualization', 'dashboard', 'comparative', 'aggregative', 'trend', 'text_query', 'clarification'].includes(msg.intent_type || '') ? (
                                                     <div className="space-y-4 w-full">
-                                                        {!isMultiMetricKPIMessage(msg) && (
+                                                        {!isKPIMessage(msg) && (
                                                             <div className="markdown-content text-themed-main">
                                                                 <ReactMarkdown
                                                                     remarkPlugins={[remarkGfm]}
