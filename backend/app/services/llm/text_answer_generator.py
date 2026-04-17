@@ -6,15 +6,76 @@ Responsibility: Generate text-only answers for non-visualization queries
 Restrictions: Returns formatted text responses without charts
 """
 
+import asyncio
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
+from app.core.llm_client import get_llm_client
 from app.core.logger import get_logger
 from app.services.llm.intent_schema import AnalysisIntent, Aggregation
 from app.services.llm.column_matcher import find_best_column_match, suggest_similar_columns
 
 logger = get_logger(__name__)
+
+
+TEXT_ANSWER_SYSTEM_PROMPT = """
+You are a helpful data analytics assistant.
+
+Rules:
+1. Write a natural, conversational reply.
+2. Use only the facts provided in the prompt.
+3. Do not invent numbers, column names, or dataset details.
+4. If the user is greeting you, answer warmly and briefly, then offer help with their data.
+5. If the user asks a general analytics question, explain it in 2-3 short sentences.
+6. If the user asked for a computed result, restate the exact result clearly and concisely.
+7. Keep the response to 1-3 sentences unless the prompt explicitly asks for more.
+8. Do not use bullet points, tables, or JSON.
+"""
+
+
+def _is_greeting_query(query: str) -> bool:
+    query_lower = query.lower().strip()
+    greeting_phrases = [
+        "hello", "hi", "hey", "greetings", "good morning", "good afternoon", "good evening",
+        "thanks", "thank you",
+    ]
+    return query_lower in greeting_phrases or (
+        len(query_lower) <= 12 and any(phrase in query_lower for phrase in greeting_phrases)
+    )
+
+
+def _is_general_data_analytics_question(query: str, metric: Optional[str], group_by: Optional[List[str]]) -> bool:
+    """Detect general knowledge questions that should not be forced into dataset summaries."""
+    query_lower = query.lower().strip()
+    if metric or group_by:
+        return False
+
+    general_data_phrases = [
+        "what is data analytics",
+        "what are data analytics",
+        "what is analytics",
+        "what is business intelligence",
+        "what is bi",
+        "define data analytics",
+        "explain data analytics",
+        "tell me about data analytics",
+        "tell me about analytics",
+    ]
+    return any(phrase in query_lower for phrase in general_data_phrases) or (
+        query_lower.startswith(("what is ", "define ", "explain ", "tell me about "))
+        and any(term in query_lower for term in ("analytics", "analysis", "data", "business intelligence"))
+    )
+
+
+def _build_general_knowledge_context(query: str) -> str:
+    """Build a prompt context for general knowledge questions."""
+    return (
+        "User asked a general analytics question that does not require dataset computation.\n"
+        f"User query: {query}\n\n"
+        "Write a concise, helpful explanation in 2-3 sentences. "
+        "If the query is about data analytics, explain the concept in plain language and mention that you can also help with their dataset."
+    )
 
 
 def _format_column_name(column_name: str) -> str:
@@ -48,7 +109,7 @@ def _resolve_metric(metric: Optional[str], columns: List[str]) -> Optional[str]:
     return metric  # Return original if no match
 
 
-def generate_text_answer(
+async def generate_text_answer_async(
     df: pd.DataFrame,
     intent: AnalysisIntent,
     query: str,
@@ -87,16 +148,56 @@ def generate_text_answer(
     if group_by:
         group_by = [_resolve_metric(g, columns) or g for g in group_by]
     
+    client = get_llm_client()
+
+    async def _compose_llm_reply(context_text: str, fallback_answer: str) -> str:
+        try:
+            response = await client.complete(
+                system_prompt=TEXT_ANSWER_SYSTEM_PROMPT,
+                user_prompt=context_text,
+                temperature=0.25,
+                max_tokens=220,
+                purpose="chat",
+            )
+            content = (response.content or "").strip()
+            return content or fallback_answer
+        except Exception as exc:
+            logger.warning(f"LLM text reply generation failed, using fallback: {exc}")
+            return fallback_answer
+
     # Handle chat/greetings
-    query_lower = query.lower().strip()
-    greetings = ["hello", "hi", "hey", "greetings", "good morning", "good afternoon", "thanks", "thank you"]
-    if query_lower in greetings or (len(query_lower) < 10 and any(g in query_lower for g in greetings)):
+    if _is_greeting_query(query):
+        answer = await _compose_llm_reply(
+            context_text=(
+                "User message is a greeting.\n"
+                f"User query: {query}\n\n"
+                "Reply with a warm, short greeting and offer help with their data."
+            ),
+            fallback_answer="Hello! How can I help you with your data?",
+        )
         return {
-            "answer": "Hello! I'm your analytics assistant. I can help you analyze your data, create visualizations, or answer specific questions. What would you like to know?",
+            "answer": answer,
             "value": None,
             "column": None,
             "aggregation": None,
             "methodology": []
+        }
+
+    if _is_general_data_analytics_question(query, metric=metric, group_by=group_by):
+        answer = await _compose_llm_reply(
+            context_text=_build_general_knowledge_context(query),
+            fallback_answer=(
+                "Data analytics is the process of examining data to find patterns and useful insights. "
+                "It helps teams make better decisions by turning raw numbers into information they can act on. "
+                "If you want, I can also show how that applies to your dataset."
+            ),
+        )
+        return {
+            "answer": answer,
+            "value": None,
+            "column": None,
+            "aggregation": None,
+            "methodology": [],
         }
     
     try:
@@ -198,6 +299,18 @@ def generate_text_answer(
             # Default: describe the dataset
             return _generate_data_summary(df, query)
         
+        answer = await _compose_llm_reply(
+            context_text=(
+                f"User query: {query}\n"
+                f"Exact answer from computation: {answer}\n"
+                f"Column: {metric or 'none'}\n"
+                f"Aggregation: {aggregation.value if aggregation else 'none'}\n"
+                f"Methodology: {'; '.join(methodology_steps) if methodology_steps else 'none'}\n\n"
+                "Turn this into a concise, natural reply. Keep the computed facts unchanged."
+            ),
+            fallback_answer=answer,
+        )
+
         return {
             "answer": answer,
             "value": value,
@@ -209,6 +322,24 @@ def generate_text_answer(
     except Exception as e:
         logger.error(f"Error generating text answer: {e}")
         return _error_response(str(e))
+
+
+def generate_text_answer(
+    df: pd.DataFrame,
+    intent: AnalysisIntent,
+    query: str,
+    contract: Optional[Any] = None,  # AnalysisContract
+) -> Dict[str, Any]:
+    """Synchronous compatibility wrapper for legacy callers."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(generate_text_answer_async(df=df, intent=intent, query=query, contract=contract))
+
+    raise RuntimeError(
+        "generate_text_answer() cannot be called from an active event loop; "
+        "await generate_text_answer_async() instead."
+    )
 
 
 def _format_number(value: float) -> str:
@@ -288,25 +419,28 @@ def _generate_data_summary(df: pd.DataFrame, query: str) -> Dict[str, Any]:
     numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
     
     summary_lines = [
-        f"Your dataset contains **{row_count:,}** rows and **{col_count}** columns.\n",
+        f"Your dataset contains **{row_count:,}** rows and **{col_count}** columns.",
     ]
     
     if numeric_cols:
-        summary_lines.append("**Numeric columns summary:**\n")
-        for col in numeric_cols[:5]:  # Limit to first 5
+        numeric_summaries = []
+        for col in numeric_cols[:3]:  # Keep the response short and readable.
             friendly_col = _format_column_name(col)
             total = df[col].sum()
             avg = df[col].mean()
-            summary_lines.append(f"- **{friendly_col}**: Total = {_format_number(total)}, Avg = {_format_number(avg)}")
+            numeric_summaries.append(f"{friendly_col} totals {_format_number(total)} with an average of {_format_number(avg)}")
+        summary_lines.append("Key numeric columns include " + "; ".join(numeric_summaries) + ".")
     
     # Add null info
     null_counts = df.isnull().sum()
     cols_with_nulls = null_counts[null_counts > 0]
     if len(cols_with_nulls) > 0:
-        summary_lines.append(f"\n**Note:** {len(cols_with_nulls)} columns have missing values.")
+        summary_lines.append(f"{len(cols_with_nulls)} columns have missing values that may need cleanup.")
+    else:
+        summary_lines.append("No missing values were detected in the columns I checked.")
     
     return {
-        "answer": "\n".join(summary_lines),
+        "answer": " ".join(summary_lines),
         "value": None,
         "column": None,
         "aggregation": "summary",
