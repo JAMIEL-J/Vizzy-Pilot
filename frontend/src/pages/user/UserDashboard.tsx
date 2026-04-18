@@ -197,8 +197,8 @@ const ThemedTooltip = ({ active, payload, label, formatter, chartTitle, valueLab
             if (formatter) return formatter(v, lbl);
             const lblLower = lbl.toLowerCase();
             const isTimeVariant = ['tenure', 'age', 'duration', 'months', 'years', 'days'].some(k => lblLower.includes(k));
-            const isCur = isCurrencyLabel(lbl) || (formatType === 'currency' && !isCountLabel(lbl) && !isPercentLabel(lbl) && !isTimeVariant);
-            const isPct = isPercentLabel(lbl) || lbl.includes('%') || (formatType === 'percentage' && !isCountLabel(lbl) && !isCur);
+            const isPct = isPercentLabel(lbl) || lbl.includes('%') || (formatType === 'percentage' && !isCountLabel(lbl));
+            const isCur = !isPct && (isCurrencyLabel(lbl) || (formatType === 'currency' && !isCountLabel(lbl) && !isTimeVariant));
 
             if (isCur) return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }).format(v);
             if (isPct) return `${v.toLocaleString(undefined, { maximumFractionDigits: 1 })}%`;
@@ -523,13 +523,13 @@ const ChartRenderer = ({
         if (typeof value !== 'number') return String(value ?? '');
         const label = String(metricLabel || '').toLowerCase();
 
-        if (isCurrencyMetricLabel(label) || (fallbackChartLevel && isMoney)) {
-            return compactNumber(value, true);
-        }
-
-        if (isPercentMetricLabel(label) || (fallbackChartLevel && isPercent)) {
+        if (isPercentMetricLabel(label) || (fallbackChartLevel && isPercent) || label.includes('%')) {
             const pctValue = Math.abs(value) <= 1 ? value * 100 : value;
             return `${new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(pctValue)}%`;
+        }
+
+        if (isCurrencyMetricLabel(label) || (fallbackChartLevel && isMoney)) {
+            return compactNumber(value, true);
         }
 
         return compactNumber(value, false);

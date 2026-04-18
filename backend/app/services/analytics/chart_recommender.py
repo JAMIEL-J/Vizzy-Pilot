@@ -113,8 +113,10 @@ COLUMN_TO_BUSINESS_TERM = {
     'quantity': 'Units Sold',
     'discount': 'Discount',
     'order_quantity': 'Order Quantity',
-    'order_profit_per_order': 'Profit per Order',
-    'benefit_per_order': 'Benefit per Order',
+    'order_profit_per_order': 'Profit',
+    'benefit_per_order': 'Profit',
+    'sales_per_order': 'Revenue',
+    'profit_per_order': 'Profit',
     
     # Orders
     'order_id': 'Order',
@@ -198,6 +200,7 @@ LOW_VALUE_COLUMN_PATTERNS = [
     'row_id', 'row_number',
     'customer_id', 'order_id', 'product_id',
     'latitude', 'longitude',
+    'customer_name', 'customername', 'first_name', 'last_name', 'firstname', 'lastname',
 ]
 
 EXACT_LOW_VALUE_WORDS = {'zip', 'postal', 'index', 'lat', 'lng', 'geo', 'id'}
@@ -318,13 +321,21 @@ def _create_smart_title(metric_col: Optional[str], dimension_col: str, chart_pur
     
     if metric_col:
         metric_name = _beautify_column_name(metric_col)
-        agg_prefix = "Average" if _should_average_metric(metric_col) else "Total"
         
-        # If the metric name already contains "Rate" or similar, "Average" might be redundant but "Total" is definitely wrong
-        if agg_prefix == "Average" and any(kw in metric_name.lower() for kw in ['rate', 'ratio', 'percentage', 'avg']):
-            return f"{metric_name} by {dim_name}"
+        # Determine if dimension is time-based
+        is_time = any(kw in dim_name.lower() for kw in ['date', 'time', 'year', 'month', 'day', 'trend', 'quarter'])
+        
+        if is_time:
+            return f"{metric_name} Trend Over Time"
             
-        return f"{agg_prefix} {metric_name} by {dim_name}"
+        agg_prefix = "Average" if _should_average_metric(metric_col) else ""
+        
+        if agg_prefix == "Average":
+            if any(kw in metric_name.lower() for kw in ['rate', 'ratio', 'percentage', 'avg']):
+                return f"{metric_name} by {dim_name}"
+            return f"Average {metric_name} by {dim_name}"
+            
+        return f"{metric_name} by {dim_name}"
     else:
         # Distribution chart
         return f"{dim_name} Distribution"
@@ -2037,7 +2048,7 @@ def _generate_sales_charts(df: pd.DataFrame, classification: ColumnClassificatio
         )
         if data:
             add_chart(ChartRecommendation(
-                slot='', title=_create_smart_title(revenue_col, date_col) + " Trend",
+                slot='', title=_create_smart_title(revenue_col, date_col),
                 chart_type='line', data=data, confidence='HIGH',
                 reason='Tier 1: Sales velocity and seasonality',
                 format_type="currency",
@@ -2391,7 +2402,7 @@ def _generate_geo_charts(df: pd.DataFrame, classification: ColumnClassification)
     if map_type:
         # Build a professional title
         metric_names = [_beautify_column_name(m) for m in financial_metrics[:3]]
-        title = f"{'& '.join(metric_names)} by {_beautify_column_name(best_geo)} Map" if len(metric_names) > 1 else _create_smart_title(primary_metric, best_geo) + " Map"
+        title = f"{' & '.join(metric_names)} by {_beautify_column_name(best_geo)}" if len(metric_names) > 1 else _create_smart_title(primary_metric, best_geo)
         
         charts.append(ChartRecommendation(
             slot="slot_geo",
@@ -2456,7 +2467,7 @@ def _generate_generic_charts(df: pd.DataFrame, classification: ColumnClassificat
         )
         if data:
             charts.append(ChartRecommendation(
-                slot="slot_3", title=_create_smart_title(metric, date_col) + " Trend",
+                slot="slot_3", title=_create_smart_title(metric, date_col),
                 chart_type="line", data=data, confidence="MEDIUM",
                 reason="Time series analysis",
                 dimension=date_col, metric=metric,
@@ -2601,7 +2612,7 @@ def _generate_marketing_charts(df: pd.DataFrame, classification: ColumnClassific
             role = metric_role(m)
             trend_data = _get_time_trend(df, date_col, m, aggregation=_trend_aggregation_for_metric(m))
             add_chart(ChartRecommendation(
-                '', f'{_beautify_column_name(m)} Trend', 'line', trend_data,
+                '', _create_smart_title(m, date_col), 'line', trend_data,
                 'HIGH', 'Temporal performance monitoring',
                 format_type='percentage' if role == 'rate' else 'currency' if role == 'currency' else 'number',
                 dimension=date_col, metric=m,
@@ -2966,7 +2977,7 @@ def _generate_templated_charts(df: pd.DataFrame, classification: ColumnClassific
             )
             if data:
                 charts.append(ChartRecommendation(
-                    slot='', title=_create_smart_title(metric, date_col) + " Trend",
+                    slot='', title=_create_smart_title(metric, date_col),
                     chart_type="line", data=data, confidence="HIGH",
                     reason="Phase 5: Time-series pattern recognition",
                     format_type="percentage" if _should_average_metric(metric) else None,
