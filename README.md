@@ -94,6 +94,24 @@ flowchart TD
 
 ---
 
+<div align="center">
+
+### 🛠️ Powered By
+<a href="https://skillicons.dev">
+  <img src="https://skillicons.dev/icons?i=react,ts,vite,tailwind,py,fastapi" />
+</a>
+
+<div style="margin-top: 10px;">
+  <img src="https://img.shields.io/badge/DuckDB-FEE200?style=flat-square&logo=duckdb&logoColor=black" />
+  <img src="https://img.shields.io/badge/Zustand-4433FF?style=flat-square&logo=react&logoColor=white" />
+  <img src="https://img.shields.io/badge/TanStack_Query-FF4154?style=flat-square&logo=react&logoColor=white" />
+  <img src="https://img.shields.io/badge/Recharts-FF7300?style=flat-square&logo=react&logoColor=white" />
+</div>
+
+</div>
+
+---
+
 ## 🚀 Getting Started
 
 ### 📋 Prerequisites
