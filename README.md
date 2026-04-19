@@ -1,186 +1,170 @@
-# ✨ Vizzy Analytics
+# <div align="center">✨ Vizzy Analytics</div>
 
 <div align="center">
 
-### 📊 AI-Powered Analytics • 🧠 Conversational Insights • ⚡ Fast Decisions
+**Turn raw tabular data into conversational insights, automated KPIs, and explainable visualizations.**
 
-![Repo](https://img.shields.io/badge/Repo-Vizzy--Analytics-111827?style=for-the-badge&logo=github)
-![Frontend](https://img.shields.io/badge/Frontend-React%2019-61DAFB?style=for-the-badge&logo=react&logoColor=000)
-![Backend](https://img.shields.io/badge/Backend-FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=fff)
-![Database](https://img.shields.io/badge/Engine-DuckDB-FFF000?style=for-the-badge&logo=duckdb&logoColor=000)
-![License](https://img.shields.io/badge/License-MIT-16a34a?style=for-the-badge)
+[![License](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](LICENSE)
+[![Backend](https://img.shields.io/badge/Backend-FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Frontend](https://img.shields.io/badge/Frontend-React_19-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
+[![Database](https://img.shields.io/badge/Engine-DuckDB-FEE200?style=for-the-badge&logo=duckdb&logoColor=black)](https://duckdb.org/)
+[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 
-**Turn raw files into dashboards, KPIs, and explainable insights using natural language.**
-
-[🚀 Quick Start](#-quick-start) • [🧩 Architecture](#-interactive-architecture) • [🎯 Features](#-feature-highlights) • [🛠️ Tech Stack](#️-tech-stack)
+[🚀 Quick Start](#-getting-started) • [🧩 Architecture](#-system-blueprint) • [🛠️ Tech Stack](#️-the-tech-stack) • [🗺️ Roadmap](#-product-roadmap)
 
 </div>
 
 ---
 
-## 🌟 Why Vizzy Analytics?
+## 🌟 The Vision
 
-- 💬 **Ask in plain English** — no SQL required for common analysis
-- 📈 **Auto visualizations** — get chart suggestions from your data shape
-- 🧼 **Data cleaning support** — profile quality and execute remediation actions
-- 🧠 **Context-aware analytics** — follow-up questions keep session context
-- 🔒 **Production-ready foundation** — API layer, validation, and scalable architecture
+Vizzy is a **trust-first analytics platform** designed to bridge the gap between raw data and decision-making. Instead of wrestling with SQL or complex BI tools, Vizzy allows users to interact with their data using **natural language**, providing a conversational interface that generates accurate KPIs, charts, and insights with deterministic guardrails.
 
----
+### ⚡ Key Value Propositions
 
-## 🎯 Feature Highlights
-
-| Area | What you get |
-|---|---|
-| 🤖 Conversational Analytics | Intent-aware query understanding and analytics workflows |
-| 📊 Smart Visualization | Chart recommendations + dashboard-ready outputs |
-| 🧽 Cleaning Studio | Duplicate/null/type/outlier handling with transparent logic |
-| 📚 Session Memory | Preserves context for multi-turn analysis |
-| ⚙️ Extensible Engine | API-first backend with modular services |
+- 💬 **Conversational Intelligence**: Ask questions in plain English. No SQL knowledge required.
+- 📈 **Smart Visualizations**: Auto-suggests the best chart type based on data dimensions and metrics.
+- 🧼 **Transparent Data Cleaning**: Guided remediation for nulls, duplicates, and outliers with a full audit trail.
+- 🧠 **Session Context**: Maintains conversational memory for deep-dive, multi-turn analysis.
+- 🔒 **Enterprise Foundation**: Built with an immutable versioning model and explicit approval workflows.
 
 ---
 
-## 🧩 Interactive Architecture
+## 🎯 Feature Matrix
 
-> Explore the system top-down, then expand each layer for details.
+| Feature | Description | Impact |
+| :--- | :--- | :--- |
+| **NL $\to$ SQL Engine** | Maps natural language intent to optimized DuckDB queries. | ⏱️ Zero-SQL Analysis |
+| **Visualization Studio** | Generates dashboard-ready charts (Pie, Bar, Line, Donut). | 📊 Instant Reporting |
+| **Cleaning Studio** | Profiling & remediation of tabular datasets. | 🧽 High Data Trust |
+| **Conversation Memory** | Retains state across multiple analytical queries. | 🔄 Fluid Exploration |
+| **Version Control** | Immutable snapshots of datasets and cleaning plans. | 🛡️ Full Auditability |
+
+---
+
+## 🧩 System Blueprint
+
+Vizzy employs a decoupled architecture to ensure scalability and reliability.
 
 ```mermaid
 flowchart TD
-    U[👤 User] --> F[🖥️ React Frontend]
-    F --> A[🌐 FastAPI Gateway]
-    A --> I[🧠 Intent & Analysis Services]
-    A --> C[🧼 Cleaning Services]
-    I --> D[(🦆 DuckDB)]
-    C --> D
-    I --> L[🔌 LLM Providers]
-    D --> O[📤 Insights & Visual Outputs]
+    User[👤 User] --> Frontend[🖥️ React Frontend]
+    Frontend --> Gateway[🌐 FastAPI Gateway]
+    
+    subgraph "Intelligence Core"
+        Gateway --> Orchestrator[🧠 Analysis Orchestrator]
+        Gateway --> Cleaner[🧼 Cleaning Service]
+        Orchestrator --> LLM[🔌 LLM Providers]
+        Orchestrator --> Guardrails[🛡️ SQL Guardrails]
+    end
+    
+    subgraph "Data Persistence"
+        Orchestrator --> DuckDB[(🦆 DuckDB)]
+        Cleaner --> DuckDB
+        DuckDB --> Storage[📂 Dataset Storage]
+    end
+    
+    Guardrails --> DuckDB
+    DuckDB --> Output[📤 Insights & Visuals]
 ```
 
-<details>
-  <summary><strong>🖥️ Frontend Layer (React + TypeScript)</strong></summary>
-
-- Modern UI built with React, TypeScript, Vite, Tailwind
-- Dashboard, analytics, and chat-driven experiences
-- State + async data flow via Zustand and TanStack Query
-
-</details>
-
-<details>
-  <summary><strong>🌐 API Gateway (FastAPI)</strong></summary>
-
-- Routes requests for analysis, cleaning, dashboards, and uploads
-- Central place for request validation and response formatting
-- Designed for secure and scalable integrations
-
-</details>
-
-<details>
-  <summary><strong>🧠 Intelligence Layer</strong></summary>
-
-- Intent mapping and query orchestration
-- Analysis planning and execution workflows
-- LLM-powered generation with deterministic safeguards
-
-</details>
-
-<details>
-  <summary><strong>🦆 Data Layer (DuckDB + Connectors)</strong></summary>
-
-- Fast in-memory analytics for uploaded datasets
-- Handles tabular processing and SQL execution
-- Ready for extension to external data sources
-
-</details>
-
-<details>
-  <summary><strong>🧼 Data Cleaning Layer</strong></summary>
-
-- Quality profiling and anomaly detection
-- Guided cleaning actions (nulls, duplicates, type fixes)
-- Produces cleaner data for more reliable analytics
-
-</details>
+### 🏗️ Layer Breakdown
+- **Frontend**: A high-performance React 19 application utilizing **Zustand** for state and **TanStack Query** for async synchronization.
+- **API Gateway**: A robust FastAPI layer handling authentication, request validation, and rate limiting.
+- **Intelligence Core**: A modular service layer that orchestrates LLM-generated SQL, validates it against security constraints, and executes it via DuckDB.
+- **Data Layer**: Leverages **DuckDB** for blazing-fast in-memory analytical processing of tabular data.
 
 ---
 
-## 🛠️ Tech Stack
+## 🛠️ The Tech Stack
 
-### Frontend
-- ⚛️ React 19
-- 🔷 TypeScript
-- ⚡ Vite
-- 🎨 Tailwind CSS
-- 🧠 Zustand
-- 🔄 TanStack Query
-- 📉 Recharts
+### 🎨 Frontend Experience
+- **Framework**: `React 19` + `TypeScript` + `Vite`
+- **Styling**: `Tailwind CSS` (Custom design system)
+- **State Management**: `Zustand`
+- **Data Fetching**: `TanStack Query`
+- **Visuals**: `Recharts`
 
-### Backend
-- 🚀 FastAPI
-- 🐍 Python 3.10+
-- 🦆 DuckDB
-- 🔌 LLM Integrations (Groq / Gemini style providers)
+### ⚙️ Backend Powerhouse
+- **Language**: `Python 3.10+`
+- **API Framework**: `FastAPI`
+- **Analytics Engine**: `DuckDB`
+- **Data Modeling**: `SQLModel`
+- **LLM Integration**: Groq / Gemini (Unified Client)
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Getting Started
 
-### 1) Backend setup
+### 📋 Prerequisites
+- Python 3.10+
+- Node.js 18+
+- An LLM API Key (Groq/Gemini)
 
+### 🛠️ Backend Installation
 ```bash
+# Navigate to backend
 cd backend
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+
+# Setup virtual environment
+python -m venv .venv
+# Windows: .\\.venv\\Scripts\\activate
+# Mac/Linux: source .venv/bin/activate
+
+# Install dependencies
 pip install -r requirements.txt
+
+# Environment configuration
 cp .env.example .env
-# Add your API keys and config
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+# Edit .env and add your API keys
+
+# Start the server
+python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
+**API Base**: `http://localhost:8000/api/v1` | **Docs**: `http://localhost:8000/docs`
 
-Backend URL: `http://localhost:8000`  
-API Docs: `http://localhost:8000/docs`
-
-### 2) Frontend setup
-
+### 💻 Frontend Installation
 ```bash
+# Navigate to frontend
 cd frontend
+
+# Install packages
 npm install
+
+# Environment configuration
 cp .env.example .env
+
+# Launch development server
 npm run dev
 ```
-
-Frontend URL: `http://localhost:5173`
-
----
-
-## 📂 Project Structure
-
-```text
-Vizzy-Analytics/
-├── backend/         # FastAPI services, API routes, business logic
-├── frontend/        # React app (analytics UI + dashboard)
-├── README.md
-└── .gitignore
-```
+**App URL**: `http://localhost:5173`
 
 ---
 
-## 🗺️ Product Direction
+## 🗺️ Product Roadmap
 
-- [ ] Faster low-latency analysis paths
-- [ ] Richer forecasting and predictive analytics
-- [ ] Collaborative dashboards and sharing
-- [ ] Expanded export/reporting options
-- [ ] Better metadata, lineage, and data cataloging
+- [ ] **⚡ Ultra-Low Latency**: Implementation of optimized caching layers for common queries.
+- [ ] **🔮 Predictive Analytics**: Integrating forecasting models for time-series data.
+- [ ] **🤝 Collaboration**: Shared workspaces and collaborative dashboard editing.
+- [ ] **📄 Advanced Export**: One-click export to PDF, Excel, and professional report formats.
+- [ ] **🏷️ Data Catalog**: Comprehensive metadata management and data lineage tracking.
 
 ---
 
 ## 🤝 Contributing
 
-Contributions are welcome. Open an issue first for major changes.
+We welcome contributions to make Vizzy even more powerful. Please follow these steps:
+1. Fork the repository.
+2. Create a feature branch (`git checkout -b feature/AmazingFeature`).
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`).
+4. Push to the branch (`git push origin feature/AmazingFeature`).
+5. Open a Pull Request.
+
+---
 
 ## 📄 License
 
-Licensed under the [MIT License](LICENSE).
+This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for details.
 
 ---
 
@@ -188,6 +172,6 @@ Licensed under the [MIT License](LICENSE).
 
 ### 💡 Make analytics feel effortless.
 
-If this project helps you, consider giving it a ⭐ on GitHub.
+If you find this project useful, consider giving it a ⭐ on GitHub to support its development!
 
 </div>
