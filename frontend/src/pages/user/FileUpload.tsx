@@ -158,127 +158,168 @@ export default function FileUpload() {
     };
 
     return (
-        <main className="flex-1 overflow-hidden w-full relative bg-background flex flex-col">
+        <main className="flex-1 overflow-hidden w-full relative bg-[#fafafa] dark:bg-[#09090b] flex flex-col">
             {/* Main Content Wrapper */}
-            <div className="flex-1 overflow-y-auto w-full z-10 relative flex flex-col">
-                <div className="p-8 lg:p-12 max-w-5xl mx-auto w-full flex-1 flex flex-col">
-                {/* Header Decor */}
-                <div className="mb-12 w-full">
-                    <h2 className="font-headline text-3xl font-bold tracking-tight text-on-surface">Import Data Source</h2>
-                    <p className="text-on-surface-variant font-body mt-1">Ready your workspace with new insights.</p>
-                </div>
-                
-                {/* Centered Upload Container */}
-                <div className="flex-1 flex flex-col items-center justify-center w-full">
-                    <div className="max-w-2xl w-full flex flex-col items-center z-10">
-                        {!file && (
-                    <div
-                        onDragOver={handleDragOver}
-                        onDragLeave={handleDragLeave}
-                        onDrop={handleDrop}
-                        onClick={() => fileInputRef.current?.click()}
-                        className={`w-full h-80 flex flex-col items-center justify-center transition-all cursor-pointer group mb-12 rounded-xl border-2 border-dashed
-                        ${isDragging ? 'bg-surface-container border-primary/50 text-primary scale-[1.02]' : 'bg-surface-container-low border-primary/20 hover:bg-surface-container'}`}
-                        style={{
-                            backgroundImage: !isDragging ? `url("data:image/svg+xml,%3csvg width='100%25' height='100%25' xmlns='http://www.w3.org/2000/svg'%3e%3crect width='100%25' height='100%25' fill='none' rx='12' ry='12' stroke='%233525CD' stroke-width='2' stroke-dasharray='12%2c 16' stroke-dashoffset='0' stroke-linecap='square'/%3e%3c/svg%3e")` : 'none',
-                            border: !isDragging ? 'none' : ''
-                        }}
-                    >
-                        <div className="w-16 h-16 rounded-full bg-surface-container-lowest flex items-center justify-center shadow-sm mb-6 group-hover:scale-110 transition-transform dark:bg-surface-container dark:border dark:border-primary/20">
-                            <span className="material-symbols-outlined text-primary text-3xl">cloud_upload</span>
-                        </div>
-                        <h3 className="font-headline text-xl font-semibold text-on-surface mb-2">Drop your data here</h3>
-                        <p className="text-on-surface-variant font-body text-sm px-8 text-center">(CSV, XLSX, XLS, JSON, XML, Parquet files supported up to 100MB)</p>
-                        
-                        <input
-                            type="file"
-                            ref={fileInputRef}
-                            accept=".csv,.xlsx,.xls,.json,.xml,.parquet"
-                            className="hidden"
-                            onChange={(e) => e.target.files && handleFile(e.target.files[0])}
-                        />
-
-                        <button type="button" className="mt-8 px-6 py-2.5 bg-primary text-on-primary font-label text-xs font-bold uppercase tracking-widest rounded-lg shadow-lg shadow-primary/20 hover:brightness-110 transition-all">
-                            Select File
-                        </button>
+            <div className="flex-1 overflow-hidden w-full z-10 relative flex flex-col">
+                <div className="p-4 lg:p-6 max-w-5xl mx-auto w-full flex-1 flex flex-col">
+                    {/* Header Decor */}
+                    <div className="w-full mb-4 lg:mb-6">
+                        <h2 className="text-[30px] lg:text-[32px] font-sans font-bold tracking-tight text-gray-900 dark:text-white">Import Data Source</h2>
+                        <p className="text-gray-500 dark:text-[#a09aab] font-sans mt-2 text-[15px]">Ready your workspace with new insights.</p>
                     </div>
-                )}
 
-                {/* Progress Bar Section */}
-                {file && !showSchema && (
-                    <div className="w-full bg-surface-container-low dark:bg-surface-container rounded-xl p-6 mb-12 border dark:border-outline-variant/30 border-transparent transition-all">
-                        <div className="flex justify-between items-end mb-4">
-                            <div className="space-y-1">
-                                <span className="text-xs font-label font-bold text-primary uppercase tracking-widest">
-                                    {uploadPhase === 'uploading' && 'Uploading'}
-                                    {uploadPhase === 'building' && 'Building DuckDB'}
-                                    {uploadPhase === 'failed' && 'Needs Attention'}
-                                    {uploadPhase === 'idle' && 'Preparing'}
-                                    {uploadPhase === 'ready' && 'Ready'}
-                                </span>
-                                <p className="text-sm font-body font-medium text-on-surface">{file.name}</p>
-                            </div>
-                            <span className="text-xs font-label font-bold text-on-surface-variant">{progress}%</span>
-                        </div>
-                        
-                        {/* Progress Track */}
-                        <div className="h-2 w-full bg-outline-variant/30 rounded-full overflow-hidden">
-                            <div 
-                                className="h-full bg-primary rounded-full transition-all duration-300 dark:shadow-[0_0_8px_rgba(108,99,255,0.6)]" 
-                                style={{ width: `${progress}%` }}
-                            ></div>
-                        </div>
-                        <div className="mt-4 flex items-center gap-2 text-xs text-on-surface-variant font-body">
-                            {uploadPhase !== 'failed' && (
-                                <span className="material-symbols-outlined text-[14px] animate-spin">sync</span>
-                            )}
-                            <span>
-                                {uploadPhase === 'uploading' && (isUploading ? 'Uploading and processing records...' : 'Finalizing upload...')}
-                                {uploadPhase === 'building' && `${statusMessage} (polling every 2s, attempt ${pollCount}/${DUCKDB_MAX_POLLS})`}
-                                {uploadPhase === 'failed' && statusMessage}
-                                {uploadPhase === 'idle' && 'Preparing upload...'}
-                                {uploadPhase === 'ready' && 'Ready'}
-                            </span>
-                        </div>
-
-                        {uploadPhase === 'failed' && (
-                            <div className="mt-4 rounded-lg border border-red-300/60 bg-red-50/60 dark:bg-red-900/20 p-4">
-                                <p className="text-xs font-semibold text-red-700 dark:text-red-300 uppercase tracking-widest mb-2">DuckDB Build Failed</p>
-                                <p className="text-sm text-red-700 dark:text-red-200 leading-relaxed">{failureMessage}</p>
-                                <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                    <button
-                                        type="button"
-                                        onClick={() => file && startUpload(file)}
-                                        className="w-full py-2.5 bg-primary text-on-primary font-label text-xs font-bold uppercase tracking-widest rounded-lg shadow hover:brightness-110 transition-all"
-                                    >
-                                        Retry Upload
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => navigate('/user/dashboard')}
-                                        className="w-full py-2.5 bg-surface-container text-on-surface font-label text-xs font-bold uppercase tracking-widest rounded-lg border border-outline-variant hover:bg-surface-container-high transition-colors"
-                                    >
-                                        Continue Limited Mode
-                                    </button>
-                                </div>
-                            </div>
-                        )}
-
-                        {uploadPhase === 'building' && uploadedDatasetId && (
-                            <div className="mt-4 flex justify-end">
-                                <button
-                                    type="button"
-                                    onClick={() => navigate('/user/dashboard')}
-                                    className="text-xs font-bold uppercase tracking-widest text-primary hover:underline"
+                    {/* Centered Upload Container */}
+                    <div className="flex-1 flex flex-col items-center justify-center w-full">
+                        <div className="max-w-2xl w-full flex flex-col items-center z-10">
+                            {!file && (
+                                <div
+                                    onDragOver={handleDragOver}
+                                    onDragLeave={handleDragLeave}
+                                    onDrop={handleDrop}
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className={`relative w-full overflow-hidden rounded-3xl border-2 transition-all duration-300 cursor-pointer group block ${
+                                        isDragging
+                                            ? 'bg-primary/5 border-primary scale-[1.01] shadow-[0_0_40px_rgba(108,99,255,0.15)]'
+                                            : 'bg-white/40 dark:bg-black/20 backdrop-blur-xl border-dashed border-gray-300 dark:border-white/10 hover:border-primary/50 hover:bg-white/60 dark:hover:bg-white/5'
+                                    }`}
                                 >
-                                    Open Dashboard While Building
-                                </button>
-                            </div>
-                        )}
+                                    {/* Inner Glow Effect */}
+                                    <div className="absolute inset-0 bg-gradient-to-b from-transparent to-primary/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none rounded-3xl" />
+
+                                    <div className="py-8 px-6 sm:px-8 flex flex-col items-center justify-center text-center relative z-10 min-h-[280px] lg:min-h-[320px]">
+                                        <div
+                                            className={`w-[56px] h-[32px] rounded-[18px] flex items-center justify-center shadow-[0_2px_10px_rgba(0,0,0,0.2)] mb-6 transition-transform duration-500 ${
+                                                isDragging
+                                                    ? 'bg-primary scale-110 text-white'
+                                                    : 'bg-[#111115] border border-white/5 text-primary group-hover:scale-110 group-hover:shadow-[0_4px_16px_rgba(108,99,255,0.2)]'
+                                            }`}
+                                        >
+                                            <span className="material-symbols-outlined text-[18px] leading-none text-[#7164ff] dark:text-[#7f74ff]">
+                                                {isDragging ? 'cloud_upload' : 'upload_file'}
+                                            </span>
+                                        </div>
+
+                                        <h3 className="text-[24px] lg:text-[26px] font-sans font-bold text-gray-900 dark:text-white mb-2 tracking-tight">
+                                            {isDragging ? 'Drop to Upload Dataset' : 'Drag & Drop Your Data'}
+                                        </h3>
+
+                                        <p className="text-gray-500 dark:text-[#a1a1aa] mb-8 max-w-[420px] leading-[1.6] text-[14px] font-sans">
+                                            Securely ingest your tabular data into the Vizzy analytical engine for instant insights.
+                                        </p>
+
+                                        <div className="flex flex-wrap justify-center items-center gap-3 mb-10 max-w-lg">
+                                            <span className="flex items-center gap-2 px-4 py-2 rounded-full bg-transparent border border-gray-200 dark:border-white/10 text-[11px] font-sans font-bold uppercase tracking-widest text-gray-500 dark:text-[#a1a1aa] shadow-sm">
+                                                <span className="material-symbols-outlined text-[17px] text-gray-600 dark:text-[#e4e4e7]">table_view</span> EXCEL
+                                            </span>
+                                            <span className="flex items-center gap-2 px-4 py-2 rounded-full bg-transparent border border-gray-200 dark:border-white/10 text-[11px] font-sans font-bold uppercase tracking-widest text-gray-500 dark:text-[#a1a1aa] shadow-sm">
+                                                <span className="material-symbols-outlined text-[17px] text-gray-600 dark:text-[#e4e4e7]">csv</span> CSV
+                                            </span>
+                                            <span className="flex items-center gap-2 px-4 py-2 rounded-full bg-transparent border border-gray-200 dark:border-white/10 text-[11px] font-sans font-bold uppercase tracking-widest text-gray-500 dark:text-[#a1a1aa] shadow-sm">
+                                                <span className="material-symbols-outlined text-[17px] text-gray-600 dark:text-[#e4e4e7]">data_object</span> JSON
+                                            </span>
+                                            <span className="flex items-center gap-2 px-4 py-2 rounded-full bg-transparent border border-gray-200 dark:border-white/10 text-[11px] font-sans font-bold uppercase tracking-widest text-gray-500 dark:text-[#a1a1aa] shadow-sm">
+                                                <span className="material-symbols-outlined text-[17px] text-gray-600 dark:text-[#e4e4e7]">database</span> PARQUET
+                                            </span>
+                                        </div>
+
+                                        <input
+                                            type="file"
+                                            ref={fileInputRef}
+                                            accept=".csv,.xlsx,.xls,.json,.xml,.parquet"
+                                            className="hidden"
+                                            onChange={(e) => e.target.files && handleFile(e.target.files[0])}
+                                        />
+
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                fileInputRef.current?.click();
+                                            }}
+                                            className="px-8 py-2.5 bg-[#6c63ff] text-white text-[14px] font-sans font-bold rounded-2xl shadow-[0_8px_20px_rgba(108,99,255,0.3)] border-0 hover:bg-[#5b54d6] hover:-translate-y-0.5 transition-all"
+                                        >
+                                            Browse Files
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Progress Bar Section */}
+                            {file && !showSchema && (
+                                <div className="w-full bg-surface-container-low dark:bg-surface-container rounded-xl p-6 mb-12 border dark:border-outline-variant/30 border-transparent transition-all">
+                                    <div className="flex justify-between items-end mb-4">
+                                        <div className="space-y-1">
+                                            <span className="text-xs font-label font-bold text-primary uppercase tracking-widest">
+                                                {uploadPhase === 'uploading' && 'Uploading'}
+                                                {uploadPhase === 'building' && 'Building DuckDB'}
+                                                {uploadPhase === 'failed' && 'Needs Attention'}
+                                                {uploadPhase === 'idle' && 'Preparing'}
+                                                {uploadPhase === 'ready' && 'Ready'}
+                                            </span>
+                                            <p className="text-sm font-body font-medium text-on-surface">{file.name}</p>
+                                        </div>
+                                        <span className="text-xs font-label font-bold text-on-surface-variant">{progress}%</span>
+                                    </div>
+
+                                    {/* Progress Track */}
+                                    <div className="h-2 w-full bg-outline-variant/30 rounded-full overflow-hidden">
+                                        <div
+                                            className="h-full bg-primary rounded-full transition-all duration-300 dark:shadow-[0_0_8px_rgba(108,99,255,0.6)]"
+                                            style={{ width: `${progress}%` }}
+                                        ></div>
+                                    </div>
+
+                                    <div className="mt-5 flex items-center gap-2.5 text-[14px] text-gray-500 dark:text-[#a09aab] font-sans">
+                                        {uploadPhase !== 'failed' && (
+                                            <span className="material-symbols-outlined text-[16px] animate-spin text-[#6c63ff]">sync</span>
+                                        )}
+                                        <span>
+                                            {uploadPhase === 'uploading' && (isUploading ? 'Uploading and processing records...' : 'Finalizing upload...')}
+                                            {uploadPhase === 'building' && `${statusMessage} (polling every 2s, attempt ${pollCount}/${DUCKDB_MAX_POLLS})`}
+                                            {uploadPhase === 'failed' && statusMessage}
+                                            {uploadPhase === 'idle' && 'Preparing upload...'}
+                                            {uploadPhase === 'ready' && 'Ready'}
+                                        </span>
+                                    </div>
+
+                                    {uploadPhase === 'failed' && (
+                                        <div className="mt-4 rounded-lg border border-red-300/60 bg-red-50/60 dark:bg-red-900/20 p-4">
+                                            <p className="text-xs font-semibold text-red-700 dark:text-red-300 uppercase tracking-widest mb-2">DuckDB Build Failed</p>
+                                            <p className="text-sm text-red-700 dark:text-red-200 leading-relaxed">{failureMessage}</p>
+                                            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => file && startUpload(file)}
+                                                    className="w-full py-2.5 bg-primary text-on-primary font-label text-xs font-bold uppercase tracking-widest rounded-lg shadow hover:brightness-110 transition-all"
+                                                >
+                                                    Retry Upload
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => navigate('/user/dashboard')}
+                                                    className="w-full py-2.5 bg-surface-container text-on-surface font-label text-xs font-bold uppercase tracking-widest rounded-lg border border-outline-variant hover:bg-surface-container-high transition-colors"
+                                                >
+                                                    Continue Limited Mode
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {uploadPhase === 'building' && uploadedDatasetId && (
+                                        <div className="mt-4 flex justify-end">
+                                            <button
+                                                type="button"
+                                                onClick={() => navigate('/user/dashboard')}
+                                                className="text-xs font-bold uppercase tracking-widest text-primary hover:underline"
+                                            >
+                                                Open Dashboard While Building
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
                     </div>
-                )}
-                    </div>
-                </div>
                 </div>
             </div>
 

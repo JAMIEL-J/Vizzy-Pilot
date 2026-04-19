@@ -143,8 +143,8 @@ export default function DatasetList() {
     }, [filteredDatasets]);
 
     return (
-        <main className="flex-1 flex flex-col min-w-0 bg-background overflow-hidden relative selection:bg-primary selection:text-white">
-            <div className="flex-1 overflow-y-auto p-8 max-w-7xl mx-auto w-full">
+        <main className="flex-1 flex flex-col min-w-0 bg-background relative selection:bg-primary selection:text-white">
+            <div className="p-8 max-w-7xl mx-auto w-full">
                 {/* Page Header Section */}
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
                     <div>

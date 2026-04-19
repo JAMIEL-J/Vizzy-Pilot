@@ -7,7 +7,9 @@ import ChartRenderer from '../../components/chat/ChartRenderer';
 import { ShiningText } from '../../components/ui/shining-text';
 import { Button } from '@/components/ui/button';
 import { AIInput } from '@/components/ui/ai-input';
-
+import RuixenMoonChat from '../../components/ui/ruixen-moon-chat';
+import { ChevronDown } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -185,6 +187,25 @@ export default function ChatInterface() {
     const [chartModes, setChartModes] = useState<Record<string, 'chart' | 'table'>>({});
     const [copiedSqlMsgId, setCopiedSqlMsgId] = useState<string | null>(null);
 
+    // Enhanced Dropdown State
+    const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+    const dropdownRef = useRef<HTMLDivElement>(null);
+
+    // Close dropdown on click outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+                setIsDropdownOpen(false);
+            }
+        };
+        if (isDropdownOpen) {
+            document.addEventListener("mousedown", handleClickOutside);
+        }
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+        };
+    }, [isDropdownOpen]);
+
     // Session History State
     const [sessions, setSessions] = useState<ChatSession[]>([]);
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -265,9 +286,6 @@ export default function ChatInterface() {
         try {
             const data = await datasetService.listDatasets();
             setDatasets(data);
-            if (data.length > 0 && !selectedDatasetId) {
-                setSelectedDatasetId(data[0].id);
-            }
         } catch (error) {
             console.error('Failed to load datasets:', error);
         }
@@ -290,6 +308,8 @@ export default function ChatInterface() {
             // If session has a dataset, select it
             if (session.dataset_id) {
                 setSelectedDatasetId(session.dataset_id);
+            } else {
+                setSelectedDatasetId('');
             }
 
             const msgs = await chatService.getMessages(sessionId);
@@ -375,12 +395,30 @@ export default function ChatInterface() {
     const handleSendMessage = async (text: string) => {
         if (!text.trim()) return;
 
+        if (!selectedDatasetId) {
+            setMessages(prev => [...prev, {
+                id: Date.now().toString(),
+                role: 'assistant',
+                content: 'Please select a dataset before sending analytics questions.',
+                sequence: prev.length + 1,
+                intent_type: 'error'
+            }]);
+            return;
+        }
+
         let sessionId = currentSessionId;
+        const currentSession = sessionId ? sessions.find(s => s.id === sessionId) : undefined;
+
+        // If selected dataset changed, force a new session bound to the current selection.
+        if (sessionId && currentSession && (currentSession.dataset_id || '') !== selectedDatasetId) {
+            sessionId = null;
+            setCurrentSessionId(null);
+        }
 
         if (!sessionId) {
             try {
                 const title = text.length > 30 ? text.substring(0, 30) + '...' : text;
-                const newSession = await chatService.createSession(selectedDatasetId || undefined, undefined, title);
+                const newSession = await chatService.createSession(selectedDatasetId, undefined, title);
                 sessionId = newSession.id;
                 setCurrentSessionId(sessionId);
                 loadSessions();
@@ -514,10 +552,26 @@ export default function ChatInterface() {
     );
 
     return (
-        <div className="flex h-full bg-bg-main text-themed-main font-display antialiased relative selection:bg-primary selection:text-white">
-            <div className="grain-overlay z-0"></div>
+        <div className="flex h-full bg-white dark:bg-bg-main text-themed-main font-display antialiased relative selection:bg-primary selection:text-white">
+            
+            {messages.length > 0 && (
+                <>
+                    <div 
+                        className="absolute inset-0 z-0 transition-all duration-700 invert hue-rotate-180 opacity-60 dark:invert-0 dark:hue-rotate-0 dark:opacity-100"
+                        style={{
+                            backgroundImage: "url('https://pub-940ccf6255b54fa799a9b01050e6c227.r2.dev/ruixen_moon_2.png')",
+                            backgroundSize: 'cover',
+                            backgroundPosition: 'center',
+                            backgroundAttachment: 'fixed',
+                        }}
+                    />
+                    <div className="absolute inset-0 bg-white/70 dark:bg-bg-main/80 backdrop-blur-2xl z-0 transition-opacity duration-700"></div>
+                </>
+            )}
+            
+            <div className="grain-overlay z-0 relative pointer-events-none"></div>
             {/* Desktop Sidebar */}
-            <div className={`hidden md:flex ${isSidebarOpen ? 'w-72' : 'w-0'} bg-bg-card border-r border-border-main/30 transition-all duration-300 flex-col flex-shrink-0 overflow-hidden relative z-10`}>
+            <div className={`hidden md:flex ${isSidebarOpen ? 'w-72' : 'w-0'} bg-white/70 dark:bg-bg-card/70 backdrop-blur-xl border-r border-border-main/30 transition-all duration-300 flex-col flex-shrink-0 overflow-hidden relative z-10`}>
                 {renderHistoryList()}
             </div>
 
@@ -525,7 +579,7 @@ export default function ChatInterface() {
             {isSidebarOpen && (
                 <>
                     <div className="md:hidden fixed inset-0 bg-black/50 z-20" onClick={() => setIsSidebarOpen(false)} />
-                    <div className="md:hidden fixed inset-y-0 left-0 w-72 bg-bg-card border-r border-border-main/30 z-30 flex flex-col">
+                    <div className="md:hidden fixed inset-y-0 left-0 w-72 bg-white/70 dark:bg-bg-card/70 backdrop-blur-xl border-r border-border-main/30 z-30 flex flex-col">
                         {renderHistoryList()}
                     </div>
                 </>
@@ -549,43 +603,15 @@ export default function ChatInterface() {
 
                 {/* Chat Area */}
                 <div className="flex-1 overflow-y-auto w-full">
-                    <div className="p-6 md:p-10 space-y-8 max-w-5xl mx-auto w-full">
-                        {messages.length === 0 ? (
-                        <div className="flex justify-center mt-6 w-full z-10">
-                            <div className="text-center max-w-xl w-full">
-                                <div className="w-16 h-16 bg-primary rounded-sm flex items-center justify-center mx-auto mb-4 font-mono text-2xl text-white border-b-4 border-[#4f46e5]">
-                                    VX
-                                </div>
-                                <h3 className="text-xl font-bold text-themed-main mb-2">Start asking questions!</h3>
-                                <p className="text-themed-muted mb-6">I'm your AI analytics assistant. Ask me anything about your data.</p>
-
-                                <div className="mb-4 flex items-center justify-center gap-2">
-                                    <span className="text-[10px] uppercase tracking-widest text-themed-muted">Dataset</span>
-                                    <select
-                                        value={selectedDatasetId}
-                                        onChange={(e) => setSelectedDatasetId(e.target.value)}
-                                        className="px-3 py-1.5 bg-bg-card border border-border-main rounded-full text-xs text-themed-main focus:border-primary outline-none min-w-[220px] transition-colors appearance-none cursor-pointer"
-                                    >
-                                        <option value="">Select a dataset...</option>
-                                        {datasets.map(ds => (
-                                            <option key={ds.id} value={ds.id}>{ds.name}</option>
-                                        ))}
-                                    </select>
-                                </div>
-
-                                {selectedDatasetId && (
-                                    <div className="grid grid-cols-2 gap-3 text-sm">
-                                        <Button type="button" onClick={() => handleSendMessage('What is the total sales?')} className="p-4 bg-surface-container-low dark:bg-white/5 border border-transparent dark:border-white/5 rounded-xl hover:bg-surface-container transition text-left group" variant="ghost">
-                                            <span className="text-themed-main group-hover:text-primary font-mono text-xs uppercase tracking-widest transition-colors"><span className="text-primary mr-2">/</span> What is the total sales?</span>
-                                        </Button>
-                                        <Button type="button" onClick={() => handleSendMessage('Show me revenue by region')} className="p-4 bg-surface-container-low dark:bg-white/5 border border-transparent dark:border-white/5 rounded-xl hover:bg-surface-container transition text-left group" variant="ghost">
-                                            <span className="text-themed-main group-hover:text-primary font-mono text-xs uppercase tracking-widest transition-colors"><span className="text-primary mr-2">/</span> Show me revenue by region</span>
-                                        </Button>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
+                    {messages.length === 0 ? (
+                        <RuixenMoonChat
+                            onSendMessage={handleSendMessage}
+                            datasets={datasets}
+                            selectedDatasetId={selectedDatasetId}
+                            onDatasetChange={setSelectedDatasetId}
+                        />
                     ) : (
+                    <div className="p-6 md:p-10 space-y-8 max-w-5xl mx-auto w-full">
                         <>
                             {messages.map((msg) => (
                                 <div key={msg.id} id={`msg-${msg.id}`} className={`flex w-full mb-8 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -917,6 +943,7 @@ export default function ChatInterface() {
                                                                         type="button"
                                                                         key={idx}
                                                                         onClick={() => handleSendMessage(suggestion)}
+                                                                        disabled={!selectedDatasetId}
                                                                         className="px-3 py-1.5 bg-primary/10 border border-primary/20 rounded-sm text-xs font-medium text-primary hover:bg-primary hover:text-white transition-colors"
                                                                         variant="ghost"
                                                                     >
@@ -954,31 +981,96 @@ export default function ChatInterface() {
                                 </div>
                             )}
                         </>
+                    </div>
                     )}
                     <div ref={messagesEndRef} />
-                    </div>
                 </div>
 
-                {/* Input Area */}
-                <div className="bg-gradient-to-t from-bg-main via-bg-main/95 to-transparent p-6 flex-shrink-0 transition-colors duration-500 z-10 w-full relative">
-                    <div className="max-w-4xl mx-auto">
-                        <div className="px-2">
-                            <AIInput
-                                id="chat-analytics-input"
-                                placeholder={selectedDatasetId ? 'Ask vizzy to analyze the Data' : 'Select a dataset to start chatting'}
-                                minHeight={52}
-                                maxHeight={180}
-                                disabled={!selectedDatasetId}
-                                isLoading={isTyping}
-                                onSubmit={(value) => handleSendMessage(value)}
-                                onStop={handleStop}
-                                className="py-2"
-                            />
+                {/* Input Area (Only show when there are messages because RuixenMoonChat has its own) */}
+                {messages.length > 0 && (
+                    <div className="bg-white/40 dark:bg-bg-main/60 backdrop-blur-md border-t border-border-main/30 p-6 flex-shrink-0 transition-colors duration-500 z-10 w-full relative">
+                        <div className="max-w-4xl mx-auto">
+                            
+                            <div className="px-2 mb-3">
+                                {datasets.length > 0 && (
+                                    <div className="flex items-center justify-start">
+                                        <div className="flex items-center bg-white/60 dark:bg-black/40 backdrop-blur-xl border border-white/60 dark:border-white/10 rounded-full p-1 shadow-lg relative z-50" ref={dropdownRef}>
+                                            <span className="text-[10px] md:text-xs uppercase tracking-widest text-neutral-700 dark:text-neutral-300 font-bold bg-white/80 dark:bg-white/10 px-3 md:px-4 py-1.5 md:py-2 rounded-full mr-2">
+                                                Dataset
+                                            </span>
+                                            <button
+                                                type="button"
+                                                onClick={() => setIsDropdownOpen((prev) => !prev)}
+                                                className="flex items-center justify-between gap-3 px-3 md:px-4 py-1.5 md:py-2 bg-white/90 dark:bg-[#111116] border border-transparent dark:border-white/5 rounded-full text-xs md:text-sm font-medium text-neutral-800 dark:text-gray-200 focus:outline-none min-w-[200px] md:min-w-[260px] transition-all hover:bg-white dark:hover:bg-[#1a1a21]"
+                                            >
+                                                <span className="truncate max-w-[150px] md:max-w-[200px] text-left">
+                                                    {selectedDatasetId
+                                                        ? datasets.find((d) => d.id === selectedDatasetId)?.name
+                                                        : "Select a dataset..."}
+                                                </span>
+                                                <ChevronDown className={cn("w-3 h-3 md:w-4 md:h-4 text-neutral-500 dark:text-neutral-400 transition-transform", isDropdownOpen && "rotate-180")} />
+                                            </button>
+
+                                            {isDropdownOpen && (
+                                                <div className="absolute bottom-[calc(100%+8px)] left-0 mt-0 w-full min-w-[280px] md:min-w-[300px] max-h-[250px] md:max-h-[300px] overflow-y-auto bg-white dark:bg-[#18181b] border border-neutral-200 dark:border-neutral-800 rounded-xl shadow-2xl z-50 flex flex-col py-1.5 animate-in fade-in zoom-in-95 duration-150">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setSelectedDatasetId("");
+                                                            setIsDropdownOpen(false);
+                                                        }}
+                                                        className={cn(
+                                                            "px-4 py-2.5 text-left text-xs md:text-sm transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800/80 mx-1.5 rounded-md",
+                                                            selectedDatasetId === ""
+                                                                ? "bg-blue-100 dark:bg-[#9ec8ff] text-blue-800 dark:text-black font-semibold"
+                                                                : "text-neutral-700 dark:text-neutral-300"
+                                                        )}
+                                                    >
+                                                        Select a dataset...
+                                                    </button>
+                                                    {datasets.map((ds) => (
+                                                        <button
+                                                            key={ds.id}
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setSelectedDatasetId(ds.id);
+                                                                setIsDropdownOpen(false);
+                                                            }}
+                                                            className={cn(
+                                                                "px-4 py-2.5 text-left text-xs md:text-sm transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800/80 mx-1.5 rounded-md truncate",
+                                                                selectedDatasetId === ds.id
+                                                                    ? "bg-blue-100 dark:bg-[#9ec8ff] text-blue-800 dark:text-black font-semibold"
+                                                                    : "text-neutral-700 dark:text-neutral-300"
+                                                            )}
+                                                        >
+                                                            {ds.name}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="px-2">
+                                <AIInput
+                                    id="chat-analytics-input"
+                                    placeholder={selectedDatasetId ? 'Ask vizzy to analyze the Data' : 'Select a dataset to start chatting'}
+                                    minHeight={52}
+                                    maxHeight={180}
+                                    disabled={!selectedDatasetId}
+                                    isLoading={isTyping}
+                                    onSubmit={(value) => handleSendMessage(value)}
+                                    onStop={handleStop}
+                                    className="py-2"
+                                />
+                            </div>
+                            {!selectedDatasetId && <p className="text-xs text-red-500 mt-2">Please select a dataset to start chatting</p>}
+                            <p className="text-[10px] text-themed-muted mt-2 text-center">Vizzy can make mistakes. Check important info.</p>
                         </div>
-                        {!selectedDatasetId && <p className="text-xs text-red-500 mt-2">Please select a dataset to start chatting</p>}
-                        <p className="text-[10px] text-themed-muted mt-2 text-center">Vizzy can make mistakes. Check important info.</p>
                     </div>
-                </div>
+                )}
             </div>
         </div>
     );

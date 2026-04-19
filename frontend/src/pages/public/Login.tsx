@@ -126,7 +126,7 @@ export default function Login() {
                         </div>
                     </div>
                 </main>
-                <footer className="flex justify-center space-x-6 py-8 w-full bg-transparent relative z-10">
+                <footer className="flex justify-center space-x-6 py-8 w-full max-w-[1024px] mx-auto bg-transparent relative z-10">
                     <div className="flex items-center space-x-6">
                         <a href="#" className="font-label text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant hover:text-primary transition-all">Privacy</a>
                         <a href="#" className="font-label text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant hover:text-primary transition-all">Terms</a>
@@ -158,7 +158,7 @@ export default function Login() {
                                     <span className="material-symbols-outlined text-white" style={{ fontVariationSettings: "'FILL' 1" }}>dataset</span>
                                 </div>
                                 <Link to="/">
-                                    <span className="font-headline text-3xl font-extrabold text-primary tracking-tight mb-12 block hover:opacity-80 transition-opacity">Vizzy</span>
+                                    <span className="font-headline text-3xl font-extrabold text-primary tracking-tight hover:opacity-80 transition-opacity">Vizzy</span>
                                 </Link>
                             </div>
                             <div className="max-w-md">
@@ -274,7 +274,7 @@ export default function Login() {
                 </main>
             </div>
             
-            <footer className="w-full flex justify-center space-x-6 py-8 relative z-10">
+            <footer className="w-full max-w-[1024px] mx-auto flex justify-center space-x-6 py-8 relative z-10">
                 <span className="font-label text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant">© 2024 Alabaster & Slate. All rights reserved.</span>
                 <div className="flex space-x-6">
                     <a href="#" className="font-label text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant hover:text-primary transition-all">Privacy</a>

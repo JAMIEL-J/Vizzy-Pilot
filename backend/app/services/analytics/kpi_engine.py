@@ -1390,6 +1390,8 @@ def _generate_marketing_kpis(df: pd.DataFrame, classification: ColumnClassificat
 
         if kpi_format == 'number' and role == 'volume_sum':
             value_out: Any = int(round(float(kpi_value)))
+        elif kpi_format == 'number' and title_prefix == 'Avg' and _is_lifecycle_column(metric_col):
+            value_out = int(round(float(kpi_value)))
         elif kpi_format == 'number' and title_prefix == 'Avg':
             value_out = round(float(kpi_value), 2)
         elif kpi_format == 'number':

@@ -18,6 +18,26 @@ from app.core.logger import get_logger
 logger = get_logger(__name__)
 
 
+WHOLE_NUMBER_AVERAGE_KEYWORDS = [
+    "age", "tenure", "duration", "day", "days", "month", "months", "year", "years", "los", "lengthofstay"
+]
+
+
+def _is_whole_number_metric(metric: Optional[str]) -> bool:
+    token = str(metric or "").lower().replace("_", "").replace("-", "").replace(" ", "")
+    if not token:
+        return False
+    return any(keyword in token for keyword in WHOLE_NUMBER_AVERAGE_KEYWORDS)
+
+
+def _format_aggregate_value(value: Any, metric: Optional[str], aggregation: str) -> float:
+    if not isinstance(value, (int, float)):
+        return 0
+    if aggregation == "avg" and _is_whole_number_metric(metric):
+        return int(round(float(value)))
+    return round(float(value), 2)
+
+
 def refresh_widget(
     df: pd.DataFrame,
     widget_spec: Dict[str, Any],
@@ -151,7 +171,7 @@ def _refresh_bar_widget(
         
         grouped = grouped.sort_values(ascending=False).head(limit)
         rows = [
-            {"category": str(k), "value": round(float(v), 2)}
+            {"category": str(k), "value": _format_aggregate_value(v, metric, aggregation)}
             for k, v in grouped.items()
         ]
     
@@ -192,7 +212,7 @@ def _refresh_line_widget(
         series = [
             {
                 "timestamp": row[time_column].isoformat(),
-                "value": round(float(row[metric]), 2),
+                "value": _format_aggregate_value(row[metric], metric, "avg"),
             }
             for _, row in grouped.iterrows()
             if pd.notna(row[metric])

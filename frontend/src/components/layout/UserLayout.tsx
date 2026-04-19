@@ -51,11 +51,6 @@ export default function UserLayout() {
 
     const isActive = (path: string) => location.pathname === path;
 
-    const pageTitle = (() => {
-        const item = NAV_ITEMS.find((nav) => isActive(nav.path));
-        return item?.label ?? 'Workspace';
-    })();
-
     return (
         <div
             className="flex h-screen overflow-hidden font-serif selection:bg-primary selection:text-white transition-colors duration-300"
@@ -142,12 +137,6 @@ export default function UserLayout() {
 
             {/* Main Content Area */}
             <div className="flex-1 flex flex-col h-screen min-w-0 overflow-hidden relative">
-                <header className="h-16 shrink-0 px-6 border-b border-border-main/30 bg-bg-main/80 backdrop-blur-md flex items-center justify-start">
-                    <div className="flex items-center gap-4">
-                        <h1 className="text-lg font-semibold tracking-wide text-themed-main">{pageTitle}</h1>
-                    </div>
-                </header>
-
                 <main
                     className="flex-1 flex flex-col overflow-y-auto custom-scrollbar relative z-10 w-full h-full transition-colors duration-300"
                     style={{ background: 'var(--bg-main)' }}

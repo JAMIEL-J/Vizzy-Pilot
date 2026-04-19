@@ -17,6 +17,18 @@ from app.core.logger import get_logger
 logger = get_logger(__name__)
 
 
+WHOLE_NUMBER_AVERAGE_KEYWORDS = [
+    "age", "tenure", "duration", "day", "days", "month", "months", "year", "years", "los", "lengthofstay"
+]
+
+
+def _is_whole_number_metric_column(column: Optional[str]) -> bool:
+    token = str(column or "").lower().replace("_", "").replace("-", "").replace(" ", "")
+    if not token:
+        return False
+    return any(keyword in token for keyword in WHOLE_NUMBER_AVERAGE_KEYWORDS)
+
+
 class KPIType(str, Enum):
     """Supported KPI calculation types."""
     COUNT = "count"
@@ -79,7 +91,8 @@ def calculate_kpi(
     elif kpi_type == KPIType.AVERAGE:
         if not column:
             raise ValueError("Column required for AVERAGE KPI")
-        value = float(df[column].mean())
+        raw_value = float(df[column].mean())
+        value = int(round(raw_value)) if _is_whole_number_metric_column(column) else raw_value
         label = f"Avg {column}"
         
     elif kpi_type == KPIType.MEDIAN:
@@ -219,13 +232,14 @@ def auto_generate_kpis(df: pd.DataFrame, max_kpis: int = 4) -> List[Dict[str, An
     
     for col in numeric_cols[:2]:  # Max 2 numeric KPIs
         avg_val = float(df[col].mean())
+        avg_value_out = int(round(avg_val)) if _is_whole_number_metric_column(col) else round(avg_val, 2)
         kpis.append({
             "id": f"kpi_avg_{col}",
             "type": "kpi",
             "title": f"Avg {col}",
-            "value": round(avg_val, 2),
+            "value": avg_value_out,
             "label": f"Avg {col}",
-            "formatted": _format_value(avg_val, KPIType.AVERAGE),
+            "formatted": _format_value(avg_value_out, KPIType.AVERAGE),
         })
     
     # 3. Unique count for first categorical column
@@ -257,6 +271,8 @@ def _format_value(value: Union[int, float], kpi_type: KPIType) -> str:
         return f"{value:.2f}x"
     
     if isinstance(value, float):
+        if value.is_integer():
+            return f"{int(value):,}"
         if abs(value) >= 1_000_000:
             return f"{value/1_000_000:.1f}M"
         elif abs(value) >= 1_000:

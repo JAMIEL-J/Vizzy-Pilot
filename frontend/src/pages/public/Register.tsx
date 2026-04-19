@@ -189,7 +189,7 @@ export default function Register() {
                 </main>
                 
                 {/* Footer Component */}
-                <footer className="w-full flex justify-between items-center px-12 py-6 bg-transparent mt-4 opacity-70">
+                <footer className="w-full max-w-6xl mx-auto flex justify-between items-center px-12 py-6 bg-transparent mt-4 opacity-70">
                     <div className="text-xs font-['Inter'] tracking-wide text-on-surface-variant">
                         © 2024 Alabaster Systems Inc.
                     </div>
@@ -400,6 +400,16 @@ export default function Register() {
                     </div>
                 </section>
             </main>
+            <footer className="w-full max-w-6xl mx-auto flex justify-between items-center px-12 py-6 bg-transparent mt-4 opacity-70">
+                <div className="text-xs font-['Inter'] tracking-wide text-on-surface-variant">
+                    © 2024 Alabaster Systems Inc.
+                </div>
+                <div className="flex gap-6">
+                    <a href="#" className="text-xs font-['Inter'] tracking-wide text-on-surface-variant hover:text-primary underline-offset-4 hover:underline transition-all duration-200">Privacy</a>
+                    <a href="#" className="text-xs font-['Inter'] tracking-wide text-on-surface-variant hover:text-primary underline-offset-4 hover:underline transition-all duration-200">Terms</a>
+                    <a href="#" className="text-xs font-['Inter'] tracking-wide text-on-surface-variant hover:text-primary underline-offset-4 hover:underline transition-all duration-200">Help</a>
+                </div>
+            </footer>
         </div>
     );
 }

@@ -114,6 +114,13 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
         return currency || '$';
     };
 
+    const isWholeNumberMetric = (metricKey?: string) => {
+        const key = String(metricKey || '').toLowerCase();
+        if (!key) return false;
+        return ['age', 'tenure', 'duration', 'day', 'days', 'month', 'months', 'year', 'years', 'los', 'length of stay', 'lengthofstay']
+            .some((kw) => key.includes(kw));
+    };
+
     // Determine if this should be formatted as a percentage
     const isPercentage =
         data.is_percentage === true ||
@@ -230,6 +237,16 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
             }).format(val).replace('$', symbol);
         }
 
+        if (isWholeNumberMetric(metricKey || data.value_label || data.metric || title)) {
+            return new Intl.NumberFormat('en-US', {
+                style: 'decimal',
+                notation: 'compact',
+                compactDisplay: 'short',
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 0
+            }).format(Math.round(val));
+        }
+
         return new Intl.NumberFormat('en-US', {
             style: 'decimal',
             notation: "compact",
@@ -246,6 +263,11 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
     const toHumanLabel = (key?: string) => {
         const raw = String(key || '').trim();
         if (!raw) return 'Value';
+        const normalized = raw.toLowerCase();
+        const chartContext = `${String(data.metric || '').toLowerCase()} ${String(title || '').toLowerCase()}`;
+        if (normalized === 'days' && chartContext.includes('age')) {
+            return 'Age';
+        }
         return raw
             .replace(/_/g, ' ')
             .replace(/\s+/g, ' ')

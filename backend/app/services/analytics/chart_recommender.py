@@ -231,12 +231,44 @@ AVG_KEYWORDS = [
     'probability', 'likelihood'
 ]
 
+WHOLE_NUMBER_AVERAGE_KEYWORDS = [
+    'age', 'tenure', 'duration', 'day', 'days', 'month', 'months', 'year', 'years', 'los', 'lengthofstay'
+]
+
 def _should_average_metric(metric: str) -> bool:
     """Return True if the metric should be aggregated using mean instead of sum."""
     if not metric:
         return False
     metric_lower = metric.lower().replace('-', '').replace('_', '').replace(' ', '')
     return any(kw in metric_lower for kw in AVG_KEYWORDS)
+
+
+def _is_whole_number_average_metric(metric: Optional[str]) -> bool:
+    """Return True when average values should be displayed as whole numbers."""
+    if not metric:
+        return False
+    metric_lower = str(metric).lower().replace('-', '').replace('_', '').replace(' ', '')
+    return any(kw in metric_lower for kw in WHOLE_NUMBER_AVERAGE_KEYWORDS)
+
+
+def _round_mean_value(value: Any, metric: Optional[str]) -> float:
+    """Apply metric-aware rounding for mean aggregations."""
+    numeric_value = float(value)
+    if _is_whole_number_average_metric(metric):
+        return int(round(numeric_value))
+    return round(numeric_value, 4)
+
+
+def _infer_time_value_label(*candidates: Optional[str]) -> str:
+    """Infer a human-readable time label for chart values."""
+    combined = ' '.join(str(c or '').lower() for c in candidates)
+    if 'age' in combined:
+        return 'Age'
+    if 'tenure' in combined or 'month' in combined:
+        return 'Months'
+    if 'year' in combined:
+        return 'Years'
+    return 'Days'
 
 
 def _trend_aggregation_for_metric(metric: Optional[str]) -> str:
@@ -647,10 +679,10 @@ def _safe_groupby_mean(df: pd.DataFrame, group_col: str, value_col: str, limit: 
         if outlier_mask.sum() > 0:
             outliers = {"count": int(outlier_mask.sum()), "metric": value_col}
             cleaned = df[~outlier_mask].groupby(group_col)[value_col].mean().sort_values(ascending=False).head(limit)
-            data_clean = [{"name": str(k), "value": round(float(v), 4)} for k, v in cleaned.items()]
+            data_clean = [{"name": str(k), "value": _round_mean_value(v, value_col)} for k, v in cleaned.items()]
 
         grouped = df.groupby(group_col)[value_col].mean().sort_values(ascending=False).head(limit)
-        return AggregationData([{"name": str(k), "value": round(float(v), 4)} for k, v in grouped.items()], outliers, data_clean)
+        return AggregationData([{"name": str(k), "value": _round_mean_value(v, value_col)} for k, v in grouped.items()], outliers, data_clean)
     except Exception:
         return AggregationData([])
 
@@ -3169,7 +3201,7 @@ def recommend_charts(df: pd.DataFrame, domain: DomainType, classification: Colum
             elif any(kw in title_lower for kw in ['tenure', 'age', 'duration', 'months', 'years', 'days']):
                 format_type = "number"
                 if not getattr(chart, "value_label", None):
-                    chart.value_label = "Months" if 'tenure' in title_lower or 'month' in title_lower else "Years" if 'year' in title_lower else "Days"
+                    chart.value_label = _infer_time_value_label(title_lower, getattr(chart, "metric", None), getattr(chart, "dimension", None))
         
         result[slot] = {
             "title": chart.title,

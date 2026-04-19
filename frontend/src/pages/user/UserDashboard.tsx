@@ -202,6 +202,7 @@ const ThemedTooltip = ({ active, payload, label, formatter, chartTitle, valueLab
 
             if (isCur) return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }).format(v);
             if (isPct) return `${v.toLocaleString(undefined, { maximumFractionDigits: 1 })}%`;
+            if (isTimeVariant) return Math.round(v).toLocaleString();
             return Number.isInteger(v) ? v.toLocaleString() : v.toLocaleString(undefined, { maximumFractionDigits: 2 });
         };
         return (
@@ -227,7 +228,9 @@ const ThemedTooltip = ({ active, payload, label, formatter, chartTitle, valueLab
 
     // If backend provided an explicit value_label (e.g. "Orders", "Customers"), use it
     if (valueLabel) {
-        metricName = valueLabel;
+        const lowerValueLabel = String(valueLabel).toLowerCase().trim();
+        const lowerTitle = String(chartTitle || '').toLowerCase();
+        metricName = lowerValueLabel === 'days' && lowerTitle.includes('age') ? 'Age' : valueLabel;
     }
 
     if (chartTitle) {
@@ -499,6 +502,12 @@ const ChartRenderer = ({
         return ['rate', 'percent', 'percentage', 'pct', 'ctr', 'cvr', 'ratio', 'margin'].some((kw) => token.includes(kw));
     };
 
+    const isWholeNumberMetricLabel = (label?: string) => {
+        const token = String(label || '').toLowerCase();
+        return ['tenure', 'age', 'duration', 'month', 'months', 'year', 'years', 'day', 'days', 'los', 'length of stay', 'lengthofstay']
+            .some((kw) => token.includes(kw));
+    };
+
     const compactNumber = (value: number, currency = false) => {
         const absValue = Math.abs(value);
         const sign = value < 0 ? '-' : '';
@@ -522,6 +531,7 @@ const ChartRenderer = ({
     const formatByLabel = (value: any, metricLabel?: string, fallbackChartLevel = true): string => {
         if (typeof value !== 'number') return String(value ?? '');
         const label = String(metricLabel || '').toLowerCase();
+        const chartLevelLabel = String(chart.value_label || chart.metric || chart.title || '').toLowerCase();
 
         if (isPercentMetricLabel(label) || (fallbackChartLevel && isPercent) || label.includes('%')) {
             const pctValue = Math.abs(value) <= 1 ? value * 100 : value;
@@ -530,6 +540,14 @@ const ChartRenderer = ({
 
         if (isCurrencyMetricLabel(label) || (fallbackChartLevel && isMoney)) {
             return compactNumber(value, true);
+        }
+
+        if (isWholeNumberMetricLabel(label) || (fallbackChartLevel && isWholeNumberMetricLabel(chartLevelLabel))) {
+            return new Intl.NumberFormat('en-US', {
+                notation: 'compact',
+                compactDisplay: 'short',
+                maximumFractionDigits: 0,
+            }).format(Math.round(value));
         }
 
         return compactNumber(value, false);

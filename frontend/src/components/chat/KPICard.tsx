@@ -23,13 +23,18 @@ export const KPICard: React.FC<KPICardProps> = ({
     compact = false,
     metrics,
 }) => {
+    const lowerLabel = String(label || '').toLowerCase();
+    const lowerSuffix = String(suffix || '').toLowerCase();
+    const useWholeNumber = ['age', 'tenure', 'duration', 'day', 'days', 'month', 'months', 'year', 'years', 'los', 'length of stay', 'lengthofstay']
+        .some((kw) => lowerLabel.includes(kw) || lowerSuffix.includes(kw));
+
     // Format value if it's a number
     const formattedValue = typeof value === 'number'
         ? new Intl.NumberFormat('en-US', {
             minimumFractionDigits: 0,
-            maximumFractionDigits: 2,
+            maximumFractionDigits: useWholeNumber ? 0 : 2,
             notation: compact && Math.abs(value) >= 1000 ? "compact" : "standard"
-        }).format(value)
+        }).format(useWholeNumber ? Math.round(value) : value)
         : value;
 
     const containerClasses = variant === 'default'

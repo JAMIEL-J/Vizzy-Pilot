@@ -66,6 +66,35 @@ def _is_currency_metric(label: str, metric_col: Optional[str], column_metadata: 
     return any(kw in text for kw in currency_keywords)
 
 
+def _humanize_label(value: str) -> str:
+    return str(value or "").replace("_", " ").strip().title()
+
+
+def _is_whole_number_metric(*candidates: Optional[str]) -> bool:
+    token = " ".join(str(candidate or "").lower() for candidate in candidates)
+    keywords = ["age", "tenure", "duration", "day", "days", "month", "months", "year", "years", "los", "length of stay", "lengthofstay"]
+    return any(keyword in token for keyword in keywords)
+
+
+def _infer_value_label(value_col: Optional[str], title: Optional[str], y_axis: Optional[str]) -> str:
+    merged = f"{value_col or ''} {title or ''} {y_axis or ''}".lower()
+    if "age" in merged:
+        return "Age"
+    if "tenure" in merged or "month" in merged:
+        return "Months"
+    if "year" in merged:
+        return "Years"
+    if "day" in merged or "los" in merged or "length of stay" in merged:
+        return "Days"
+    return _humanize_label(value_col or "Value")
+
+
+def _normalize_metric_value(value: Any, use_whole_number: bool) -> Any:
+    if not isinstance(value, (int, float)):
+        return value
+    return int(round(float(value))) if use_whole_number else value
+
+
 def _auto_chart_type(chart_type: str, data: List[Dict[str, Any]], columns: List[str]) -> str:
     """Upgrade generic chart hints to better chart types based on result shape."""
     if not data or not columns:
@@ -214,9 +243,11 @@ def _build_kpi(data: list, columns: list, title: str, x_axis: str, y_axis: str, 
         if isinstance(val, (int, float)):
             is_percentage = _is_likely_percentage(col)
             metric_value = val * 100 if is_percentage and -1.0 <= val <= 1.0 else val
+            if not is_percentage:
+                metric_value = _normalize_metric_value(metric_value, _is_whole_number_metric(col, title, y_axis))
             metrics.append({
                 "key": col,
-                "label": col.replace("_", " ").title(),
+                "label": _humanize_label(col),
                 "value": metric_value,
                 "is_percentage": is_percentage,
                 "format_type": "percentage" if is_percentage else ("currency" if _is_currency_metric(title or col, col, column_metadata) else "number"),
@@ -245,6 +276,8 @@ def _build_kpi(data: list, columns: list, title: str, x_axis: str, y_axis: str, 
         suffix = "%"
     elif is_percentage:
         suffix = "%"
+    elif isinstance(value, (int, float)):
+        value = _normalize_metric_value(value, _is_whole_number_metric(label, title, y_axis))
 
     return {
         "type": "kpi",
@@ -291,6 +324,8 @@ def _build_bar(data: list, columns: list, title: str, x_axis: str, y_axis: str, 
 
     # Detect if value column is a percentage
     is_percentage = _is_likely_percentage(value_col)
+    value_label = _infer_value_label(value_col, title, y_axis)
+    use_whole_number = _is_whole_number_metric(value_col, title, y_axis, value_label)
 
     rows = []
     for row in data:
@@ -298,6 +333,8 @@ def _build_bar(data: list, columns: list, title: str, x_axis: str, y_axis: str, 
         # Scale if it's a ratio
         if is_percentage and isinstance(val, (int, float)) and -1.0 <= val <= 1.0:
             val = val * 100
+        elif isinstance(val, (int, float)):
+            val = _normalize_metric_value(val, use_whole_number)
             
         rows.append({
             category_col: str(row.get(category_col, "")),
@@ -315,12 +352,12 @@ def _build_bar(data: list, columns: list, title: str, x_axis: str, y_axis: str, 
         "title": title,
         "data": {"rows": rows, "is_percentage": is_percentage},
         "format_type": format_type,
-        "value_label": value_col.replace("_", " ").title(),
+        "value_label": value_label,
         "metric": value_col,
         "dimension": category_col,
         "axes": {
-            "x": x_axis or category_col.replace("_", " ").title(),
-            "y": y_axis or value_col.replace("_", " ").title(),
+            "x": x_axis or _humanize_label(category_col),
+            "y": y_axis or value_label,
         },
     }
 
@@ -384,6 +421,8 @@ def _build_line(data: list, columns: list, title: str, x_axis: str, y_axis: str,
 
     # Detect if value column is a percentage
     is_percentage = _is_likely_percentage(value_col)
+    value_label = _infer_value_label(value_col, title, y_axis)
+    use_whole_number = _is_whole_number_metric(value_col, title, y_axis, value_label)
 
     series = []
     for row in data:
@@ -392,6 +431,8 @@ def _build_line(data: list, columns: list, title: str, x_axis: str, y_axis: str,
         # Scale if it's a ratio
         if is_percentage and isinstance(val, (int, float)) and -1.0 <= val <= 1.0:
             val = val * 100
+        elif isinstance(val, (int, float)):
+            val = _normalize_metric_value(val, use_whole_number)
             
         if timestamp is not None:
             series.append({
@@ -403,9 +444,12 @@ def _build_line(data: list, columns: list, title: str, x_axis: str, y_axis: str,
         "type": "line",
         "title": title,
         "data": {"series": series, "is_percentage": is_percentage},
+        "value_label": value_label,
+        "metric": value_col,
+        "dimension": time_col,
         "axes": {
-            "x": x_axis or time_col.replace("_", " ").title(),
-            "y": y_axis or value_col.replace("_", " ").title(),
+            "x": x_axis or _humanize_label(time_col),
+            "y": y_axis or value_label,
         },
     }
 

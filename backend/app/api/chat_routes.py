@@ -763,10 +763,12 @@ async def send_message(
             user_id=UUID(current_user.user_id),
         )
 
+        has_dataset_attached = bool(chat_session.dataset_version_id)
+
         # Deterministic replay with pre-check: only hit DB when replay is likely.
         normalized_query = _normalize_query_text(request.content)
         cached_content, cached_output, cached_intent = (None, None, None)
-        if _should_attempt_replay_lookup(chat_session.id, chat_session.message_count, normalized_query):
+        if has_dataset_attached and _should_attempt_replay_lookup(chat_session.id, chat_session.message_count, normalized_query):
             session_messages = chat_service.get_session_messages(
                 session=session,
                 session_id=session_id,
@@ -848,7 +850,7 @@ async def send_message(
                 )
 
         # Run analysis if dataset is attached
-        if chat_session.dataset_version_id:
+        if has_dataset_attached:
             # ── Intent Detection (6-type heuristic) ──
             detected_intent, intent_confidence, intent_label = classify_intent_fast(request.content)
             is_dashboard = detected_intent == 'dashboard'
@@ -1100,8 +1102,11 @@ async def send_message(
 
 
         else:
-            # No dataset - just acknowledge
-            assistant_content = "Please attach a dataset to this conversation to analyze data."
+            # No dataset - do not replay or generate analytics values.
+            if _is_simple_chat_query(request.content):
+                assistant_content = _build_simple_chat_response(request.content, has_dataset=False)
+            else:
+                assistant_content = "Please select and attach a dataset to this conversation before running analytics queries."
             output_data = None
             intent_type = None
 
