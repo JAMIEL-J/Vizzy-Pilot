@@ -1,17 +1,12 @@
 import React from 'react';
 import {
-    AreaChart,
-    Area,
-    XAxis,
-    YAxis,
-    CartesianGrid,
-    Tooltip,
-    ResponsiveContainer,
-    PieChart,
-    Pie,
-    Cell,
-    Legend,
-} from 'recharts';
+    Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Title, Tooltip as ChartTooltip, Legend as ChartLegend, Filler
+} from 'chart.js';
+import { Line, Pie } from 'react-chartjs-2';
+
+ChartJS.register(
+    CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Title, ChartTooltip, ChartLegend, Filler
+);
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 
@@ -195,64 +190,47 @@ export default function AdminDashboard() {
                             <Button type="button" variant="ghost" size="sm" className="px-3 py-1 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors">Weekly</Button>
                         </div>
                     </div>
-                    <ResponsiveContainer width="100%" height={250}>
-                        <AreaChart data={userGrowthData}>
-                            <defs>
-                                <linearGradient id="colorNew" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="#7c3aed" stopOpacity={0.8} />
-                                    <stop offset="95%" stopColor="#7c3aed" stopOpacity={0} />
-                                </linearGradient>
-                                <linearGradient id="colorActive" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="#00c2ff" stopOpacity={0.8} />
-                                    <stop offset="95%" stopColor="#00c2ff" stopOpacity={0} />
-                                </linearGradient>
-                            </defs>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} className="dark:opacity-10" />
-                            <XAxis dataKey="month" stroke="#6b7280" fontSize={12} tickLine={false} axisLine={false} />
-                            <YAxis stroke="#6b7280" fontSize={12} tickLine={false} axisLine={false} />
-                            <Tooltip
-                                contentStyle={{ backgroundColor: '#111827', borderRadius: '8px', border: '1px solid #374151', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.3)' }}
-                                itemStyle={{ fontSize: '12px', color: '#F3F4FB' }}
-                                labelStyle={{ color: '#9CA3AF', marginBottom: '4px' }}
-                            />
-                            <Area type="monotone" dataKey="newUsers" stroke="#7c3aed" fillOpacity={1} fill="url(#colorNew)" name="New Users" />
-                            <Area type="monotone" dataKey="activeUsers" stroke="#00c2ff" fillOpacity={1} fill="url(#colorActive)" name="Active Users" />
-                        </AreaChart>
-                    </ResponsiveContainer>
+                    <div style={{ height: 250, width: '100%' }}>
+                        <Line
+                            data={{
+                                labels: userGrowthData.map(d => d.month),
+                                datasets: [{
+                                    label: 'New Users',
+                                    data: userGrowthData.map(d => d.newUsers),
+                                    fill: true,
+                                    backgroundColor: 'rgba(124, 58, 237, 0.2)',
+                                    borderColor: '#7c3aed',
+                                    tension: 0.4
+                                },
+                                {
+                                    label: 'Active Users',
+                                    data: userGrowthData.map(d => d.activeUsers),
+                                    fill: true,
+                                    backgroundColor: 'rgba(34, 197, 94, 0.2)',
+                                    borderColor: '#22c55e',
+                                    tension: 0.4
+                                }]
+                            }}
+                            options={{ maintainAspectRatio: false }}
+                        />
+                    </div>
                 </div>
 
                 {/* Activity Distribution */}
                 <div className="bg-white dark:bg-[#111827] rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-800">
                     <h3 className="text-lg font-bold text-navy dark:text-white mb-4">Platform Activity</h3>
-                    <ResponsiveContainer width="100%" height={250}>
-                        <PieChart>
-                            <Pie
-                                data={activityData}
-                                cx="50%"
-                                cy="50%"
-                                innerRadius={60}
-                                outerRadius={80}
-                                paddingAngle={5}
-                                dataKey="value"
-                                stroke="none"
-                            >
-                                {activityData.map((entry, index) => (
-                                    <Cell key={`cell-${index}`} fill={entry.color} />
-                                ))}
-                            </Pie>
-                            <Tooltip
-                                contentStyle={{ backgroundColor: '#111827', borderRadius: '8px', border: '1px solid #374151', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.3)' }}
-                                itemStyle={{ fontSize: '12px', fontWeight: 500 }}
-                            />
-                            <Legend
-                                iconType="circle"
-                                layout="vertical"
-                                verticalAlign="middle"
-                                align="right"
-                                wrapperStyle={{ fontSize: '12px', paddingLeft: '20px', color: '#9CA3AF' }}
-                            />
-                        </PieChart>
-                    </ResponsiveContainer>
+                    <div style={{ height: 250, width: '100%' }}>
+                        <Pie
+                            data={{
+                                labels: activityData.map(d => d.name),
+                                datasets: [{
+                                    data: activityData.map(d => d.value),
+                                    backgroundColor: activityData.map(d => d.color),
+                                }]
+                            }}
+                            options={{ maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }}
+                        />
+                    </div>
                 </div>
             </div>
 

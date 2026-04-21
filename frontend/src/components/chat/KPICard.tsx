@@ -20,7 +20,7 @@ export const KPICard: React.FC<KPICardProps> = ({
     suffix = '',
     trendLabel = 'vs last period',
     variant = 'default',
-    compact = false,
+    compact: _compact = false,
     metrics,
 }) => {
     const lowerLabel = String(label || '').toLowerCase();
@@ -32,8 +32,7 @@ export const KPICard: React.FC<KPICardProps> = ({
     const formattedValue = typeof value === 'number'
         ? new Intl.NumberFormat('en-US', {
             minimumFractionDigits: 0,
-            maximumFractionDigits: useWholeNumber ? 0 : 2,
-            notation: compact && Math.abs(value) >= 1000 ? "compact" : "standard"
+            maximumFractionDigits: useWholeNumber ? 0 : 2
         }).format(useWholeNumber ? Math.round(value) : value)
         : value;
 

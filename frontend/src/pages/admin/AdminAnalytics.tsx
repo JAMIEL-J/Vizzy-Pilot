@@ -1,18 +1,11 @@
 import {
-    LineChart,
-    Line,
-    XAxis,
-    YAxis,
-    CartesianGrid,
-    Tooltip,
-    ResponsiveContainer,
-    BarChart,
-    Bar,
-    AreaChart,
-    Area,
-    Legend,
-    Cell,
-} from 'recharts';
+    Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip as ChartTooltip, Legend as ChartLegend, Filler
+} from 'chart.js';
+import { Bar, Line } from 'react-chartjs-2';
+
+ChartJS.register(
+    CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, ChartTooltip, ChartLegend, Filler
+);
 
 // Mock data
 const dailyActiveUsers = [
@@ -77,72 +70,65 @@ export default function AdminAnalytics() {
                 {/* Daily Active Users */}
                 <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
                     <h3 className="text-lg font-bold text-navy mb-4">Daily Active Users</h3>
-                    <ResponsiveContainer width="100%" height={250}>
-                        <AreaChart data={dailyActiveUsers}>
-                            <defs>
-                                <linearGradient id="colorUsers" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="#7c3aed" stopOpacity={0.8} />
-                                    <stop offset="95%" stopColor="#7c3aed" stopOpacity={0} />
-                                </linearGradient>
-                            </defs>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                            <XAxis dataKey="date" stroke="#6b7280" fontSize={12} tickLine={false} axisLine={false} />
-                            <YAxis stroke="#6b7280" fontSize={12} tickLine={false} axisLine={false} />
-                            <Tooltip
-                                contentStyle={{ backgroundColor: '#fff', borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
-                                itemStyle={{ fontSize: '12px', fontWeight: 500 }}
-                            />
-                            <Area type="monotone" dataKey="users" stroke="#7c3aed" fillOpacity={1} fill="url(#colorUsers)" />
-                        </AreaChart>
-                    </ResponsiveContainer>
+                    <div style={{ height: 250, width: '100%' }}>
+                        <Line
+                            data={{
+                                labels: dailyActiveUsers.map(d => d.date),
+                                datasets: [{
+                                    label: 'Users',
+                                    data: dailyActiveUsers.map(d => d.users),
+                                    fill: true,
+                                    backgroundColor: 'rgba(124, 58, 237, 0.2)',
+                                    borderColor: '#7c3aed',
+                                    tension: 0.4
+                                }]
+                            }}
+                            options={{ maintainAspectRatio: false }}
+                        />
+                    </div>
                 </div>
 
                 {/* Query Types */}
                 <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
                     <h3 className="text-lg font-bold text-navy mb-4">Query Types Distribution</h3>
-                    <ResponsiveContainer width="100%" height={250}>
-                        <BarChart data={queryTypes}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                            <XAxis dataKey="type" stroke="#6b7280" fontSize={12} tickLine={false} axisLine={false} />
-                            <YAxis stroke="#6b7280" fontSize={12} tickLine={false} axisLine={false} />
-                            <Tooltip
-                                contentStyle={{ backgroundColor: '#fff', borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
-                                cursor={{ fill: '#f3f4f6' }}
-                            />
-                            <Bar dataKey="count" radius={[4, 4, 4, 4]} barSize={40}>
-                                {queryTypes.map((entry, index) => (
-                                    <Cell key={`cell-${index}`} fill={entry.color} />
-                                ))}
-                            </Bar>
-                            <Legend wrapperStyle={{ paddingTop: '20px' }} iconType="circle" />
-                        </BarChart>
-                    </ResponsiveContainer>
+                    <div style={{ height: 250, width: '100%' }}>
+                        <Bar
+                            data={{
+                                labels: queryTypes.map(d => d.type),
+                                datasets: [{
+                                    label: 'Count',
+                                    data: queryTypes.map(d => d.count),
+                                    backgroundColor: queryTypes.map(d => d.color),
+                                    borderRadius: 4
+                                }]
+                            }}
+                            options={{ maintainAspectRatio: false }}
+                        />
+                    </div>
                 </div>
             </div>
 
             {/* Storage Usage */}
             <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
                 <h3 className="text-lg font-bold text-navy mb-4">Storage Usage (GB)</h3>
-                <ResponsiveContainer width="100%" height={250}>
-                    <LineChart data={storageUsage}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                        <XAxis dataKey="month" stroke="#6b7280" fontSize={12} tickLine={false} axisLine={false} />
-                        <YAxis stroke="#6b7280" fontSize={12} tickLine={false} axisLine={false} />
-                        <Tooltip
-                            contentStyle={{ backgroundColor: '#fff', borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
-                        />
-                        <Legend wrapperStyle={{ paddingTop: '10px' }} />
-                        <Line
-                            type="monotone"
-                            dataKey="storage"
-                            stroke="#ff6b35"
-                            strokeWidth={3}
-                            dot={{ stroke: '#ff6b35', strokeWidth: 2, r: 4, fill: '#fff' }}
-                            activeDot={{ r: 6, strokeWidth: 0 }}
-                            name="Storage (GB)"
-                        />
-                    </LineChart>
-                </ResponsiveContainer>
+                <div style={{ height: 250, width: '100%' }}>
+                    <Line
+                        data={{
+                            labels: storageUsage.map(d => d.month),
+                            datasets: [{
+                                label: 'Storage (GB)',
+                                data: storageUsage.map(d => d.storage),
+                                borderColor: '#ff6b35',
+                                backgroundColor: '#fff',
+                                pointBackgroundColor: '#fff',
+                                pointBorderColor: '#ff6b35',
+                                pointRadius: 4,
+                                pointHoverRadius: 6
+                            }]
+                        }}
+                        options={{ maintainAspectRatio: false }}
+                    />
+                </div>
             </div>
         </div>
     );

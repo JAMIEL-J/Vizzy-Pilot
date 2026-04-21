@@ -1,14 +1,19 @@
-import React, { useState, useMemo } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-    ComposableMap,
-    Geographies,
-    Geography,
-    ZoomableGroup
-} from "react-simple-maps";
-import { scaleLinear } from "d3-scale";
-import { Button } from '@/components/ui/button';
-import { VIZZY_THEME } from '../../theme/tokens';
+    Chart as ChartJS,
+    Legend as ChartLegend,
+    Tooltip as ChartTooltip,
+} from 'chart.js';
+import {
+    ChoroplethController,
+    ColorScale,
+    GeoFeature,
+    ProjectionScale,
+} from 'chartjs-chart-geo';
+import { Chart as ReactChart } from 'react-chartjs-2';
+import { feature as topojsonFeature } from 'topojson-client';
+
+ChartJS.register(ChoroplethController, GeoFeature, ProjectionScale, ColorScale, ChartTooltip, ChartLegend);
 
 // ─── TopoJSON Sources ─────────────────────────────────────────────────────────
 const GEO_URLS = {
@@ -45,7 +50,12 @@ const WORLD_ALIAS: Record<string, string> = {
 };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-interface GeoDataPoint { name: string; value: number; metrics?: Record<string, number>; }
+interface GeoDataPoint {
+    name: string;
+    value?: number;
+    metrics?: Record<string, number>;
+    [key: string]: any;
+}
 
 interface GeoMapCardProps {
     data: GeoDataPoint[];
@@ -53,66 +63,72 @@ interface GeoMapCardProps {
     chartTitle?: string;
     formatType?: string;
     isDark?: boolean;
+    quickReact?: boolean;
 }
 
-// ─── Map config per type ──────────────────────────────────────────────────────
-const MAP_CONFIG = {
-    world: { center: [10, 0] as [number, number], scale: 140, maxZoom: 6 },
-    us_states: { center: [-96, 38] as [number, number], scale: 800, maxZoom: 8 },
-};
-
-// ─── Component ────────────────────────────────────────────────────────────────
-const GeoMapCard: React.FC<GeoMapCardProps> = ({ data, mapType = 'world', chartTitle, formatType, isDark = true }) => {
-    const [tooltipContent, setTooltipContent] = useState<{ title: string, dimension: string, value: string, metric: string, hasData: boolean, multiMetrics?: { label: string, formatted: string }[] } | null>(null);
-    const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
-    const [zoom, setZoom] = useState(1);
+const GeoMapCard: React.FC<GeoMapCardProps> = ({ data, mapType = 'world', chartTitle, formatType, isDark = true, quickReact = false }) => {
+    const [features, setFeatures] = useState<any[]>([]);
+    const [loading, setLoading] = useState<boolean>(true);
+    const [zoom, setZoom] = useState<number>(1);
+    const [selectedMetric, setSelectedMetric] = useState<string>('value');
 
     const geoUrl = GEO_URLS[mapType];
-    const cfg = MAP_CONFIG[mapType];
+
+    useEffect(() => {
+        let cancelled = false;
+        const load = async () => {
+            setLoading(true);
+            try {
+                const res = await fetch(geoUrl);
+                const topo = await res.json();
+                const objectKey = mapType === 'us_states' ? 'states' : 'countries';
+                const obj = topo?.objects?.[objectKey];
+                const geo = obj ? (topojsonFeature(topo, obj) as any) : null;
+                if (!cancelled) {
+                    setFeatures(Array.isArray(geo?.features) ? geo.features : []);
+                }
+            } catch {
+                if (!cancelled) setFeatures([]);
+            } finally {
+                if (!cancelled) setLoading(false);
+            }
+        };
+        load();
+        return () => {
+            cancelled = true;
+        };
+    }, [geoUrl, mapType]);
 
     // Build O(1) lookup map from normalized name → data point
     const dataLookup = useMemo(() => {
         const map = new Map<string, GeoDataPoint>();
-        data.forEach(d => {
+        data.forEach((d) => {
             const raw = d.name.trim();
             const lower = raw.toLowerCase();
-            // Raw match
             map.set(lower, d);
 
-            // ONLY expand abbreviations if it's a US states map
             if (mapType === 'us_states') {
                 const expanded = US_ABBREV_TO_FULL[raw.toUpperCase()];
                 if (expanded) map.set(expanded.toLowerCase(), d);
             }
 
-            // ONLY apply world aliases if it's a world map
             if (mapType === 'world') {
                 const aliased = WORLD_ALIAS[lower];
                 if (aliased) map.set(aliased.toLowerCase(), d);
             }
         });
-        console.log(`[GeoMapCard] mapType=${mapType} data=`, data.length, 'entries');
         return map;
     }, [data, mapType]);
 
-    const maxValue = useMemo(() =>
-        data.length > 0 ? Math.max(...data.map(d => d.value)) : 1,
-        [data]);
+    const resolveDataByName = (name: string): GeoDataPoint | undefined => {
+        const lower = String(name || '').toLowerCase().trim();
+        if (!lower) return undefined;
+        if (dataLookup.has(lower)) return dataLookup.get(lower);
 
-    // Choropleth scale: dark base → indigo primary
-    const colorScale = useMemo(() =>
-        scaleLinear<string>()
-            .domain([0, maxValue * 0.1, maxValue])
-            .range(isDark ? ["#111318", VIZZY_THEME.primaryDark, VIZZY_THEME.primary] : ["#f1f3ff", "#9f99ff", VIZZY_THEME.primary])
-            .clamp(true),
-        [maxValue, isDark]);
-
-    const resolveData = (geo: any): GeoDataPoint | undefined => {
-        const name = geo.properties?.name?.toLowerCase().trim() ?? '';
-        if (dataLookup.has(name)) return dataLookup.get(name);
-        // Reverse alias: TopoJSON name → raw alias
-        const reverseAlias = Object.entries(WORLD_ALIAS).find(([, v]) => v.toLowerCase() === name);
-        if (reverseAlias && dataLookup.has(reverseAlias[0])) return dataLookup.get(reverseAlias[0]);
+        if (mapType === 'world') {
+            const reverseAlias = Object.entries(WORLD_ALIAS).find(([, canonical]) => canonical.toLowerCase() === lower);
+            if (reverseAlias && dataLookup.has(reverseAlias[0])) return dataLookup.get(reverseAlias[0]);
+        }
         return undefined;
     };
 
@@ -122,169 +138,310 @@ const GeoMapCard: React.FC<GeoMapCardProps> = ({ data, mapType = 'world', chartT
         .some(k => chartTitleLower.includes(k)));
     const isPercent = formatType === 'percentage' || formatType === 'percent' || (!formatType && (chartTitleLower.includes('rate') || chartTitleLower.includes('%')));
 
-    const fmtVal = (v: any): string => {
+    const isCurrencyMetricLabel = (label?: string) => {
+        const token = String(label || '').toLowerCase();
+        if (!token) return false;
+        return ['revenue', 'cost', 'costs', 'spend', 'budget', 'income', 'sales', 'profit', 'payment', 'charge', 'charges', 'price', 'amount', 'roi', 'roas'].some((kw) => token.includes(kw));
+    };
+
+    const isPercentMetricLabel = (label?: string) => {
+        const token = String(label || '').toLowerCase();
+        if (!token) return false;
+        return ['rate', 'percent', 'percentage', 'pct', 'ctr', 'cvr', 'ratio', 'margin'].some((kw) => token.includes(kw));
+    };
+
+    const prettyLabel = (value: string) => {
+        const raw = String(value || '').trim();
+        if (!raw) return 'Value';
+        return raw.replace(/_/g, ' ').replace(/\s+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    };
+
+    const fmtVal = (v: any, metricLabel?: string): string => {
         if (typeof v !== 'number') return String(v ?? '');
-        if (isMoney) return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }).format(v);
-        if (isPercent) return `${v.toLocaleString(undefined, { maximumFractionDigits: 1 })}%`;
+        const labelLooksCurrency = isCurrencyMetricLabel(metricLabel);
+        const labelLooksPercent = isPercentMetricLabel(metricLabel);
+
+        if (labelLooksCurrency || (isMoney && !labelLooksPercent)) {
+            return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }).format(v);
+        }
+        if (labelLooksPercent || isPercent) {
+            return `${v.toLocaleString(undefined, { maximumFractionDigits: 1 })}%`;
+        }
         if (formatType === 'number') return v.toLocaleString(undefined, { maximumFractionDigits: 0 });
         return Number.isInteger(v) ? v.toLocaleString() : v.toLocaleString(undefined, { maximumFractionDigits: 2 });
     };
+    const metricLabel = useMemo(() => {
+        if (!chartTitle) return 'Value';
+        const parts = chartTitle.split(/ by | per /i);
+        return parts.length === 2 ? parts[0].trim() : chartTitle;
+    }, [chartTitle]);
 
-    const handleMouseEnter = (geo: any, d: GeoDataPoint | undefined, e: React.MouseEvent) => {
-        const name = geo.properties?.name ?? '';
-        const value = d ? fmtVal(d.value) : 'No data';
+    const choroplethRows = useMemo(() => {
+        return features.map((featureItem: any) => {
+            const name = String(featureItem?.properties?.name || '').trim();
+            const matched = resolveDataByName(name);
 
-        let metricName = "Value";
-        if (chartTitle) {
-            const parts = chartTitle.split(/ by | per /i);
-            if (parts.length === 2) {
-                metricName = parts[0].trim();
-            } else {
-                metricName = chartTitle;
-            }
-        }
+            const explicitMetrics = matched?.metrics && typeof matched.metrics === 'object'
+                ? Object.fromEntries(
+                    Object.entries(matched.metrics)
+                        .filter(([, val]) => typeof val === 'number' && Number.isFinite(val))
+                )
+                : undefined;
 
-        // Build multi-metric entries for the tooltip
-        let multiMetrics: { label: string, formatted: string }[] | undefined;
-        if (d?.metrics && Object.keys(d.metrics).length > 0) {
-            multiMetrics = Object.entries(d.metrics).map(([label, val]) => ({
-                label,
-                formatted: fmtVal(val)
-            }));
-        }
+            const derivedMetrics = matched
+                ? Object.fromEntries(
+                    Object.entries(matched)
+                        .filter(([key, val]) => !['name', 'value', 'metrics'].includes(key) && typeof val === 'number' && Number.isFinite(val))
+                )
+                : undefined;
 
-        setTooltipContent({
-            title: chartTitle || metricName,
-            dimension: name,
-            value: value,
-            metric: metricName,
-            hasData: !!d,
-            multiMetrics
+            const metrics = explicitMetrics && Object.keys(explicitMetrics).length > 0
+                ? explicitMetrics
+                : (derivedMetrics && Object.keys(derivedMetrics).length > 0 ? derivedMetrics : undefined);
+
+            const rowValue = matched && Number.isFinite(Number(matched.value))
+                ? Number(matched.value)
+                : (metrics ? Number(Object.values(metrics)[0]) : undefined);
+
+            return {
+                feature: featureItem,
+                name,
+                value: rowValue,
+                metrics,
+            };
         });
-        setTooltipPos({ x: e.clientX, y: e.clientY });
+    }, [features, dataLookup]);
+
+    const metricKeys = useMemo(() => {
+        const keys = new Set<string>();
+        choroplethRows.forEach((row) => {
+            Object.keys(row.metrics || {}).forEach((key) => keys.add(key));
+        });
+        return Array.from(keys);
+    }, [choroplethRows]);
+
+    useEffect(() => {
+        if (!metricKeys.length) {
+            setSelectedMetric('value');
+            return;
+        }
+
+        setSelectedMetric((prev) => {
+            if (metricKeys.includes(prev)) return prev;
+
+            const title = chartTitleLower;
+            const revenueKey = metricKeys.find((k) => /revenue|sales|income|amount/i.test(k));
+            const profitKey = metricKeys.find((k) => /profit|margin|earnings/i.test(k));
+
+            if (title.includes('revenue') && revenueKey) return revenueKey;
+            if (title.includes('profit') && profitKey) return profitKey;
+            if (revenueKey) return revenueKey;
+            if (profitKey) return profitKey;
+            return metricKeys[0];
+        });
+    }, [metricKeys, chartTitleLower]);
+
+    const metricDisplayName = useMemo(() => {
+        if (selectedMetric === 'value') return metricLabel;
+        return prettyLabel(selectedMetric);
+    }, [selectedMetric, metricLabel]);
+
+    const rowMetricValue = (row: { value?: number; metrics?: Record<string, number> }) => {
+        if (selectedMetric !== 'value' && row.metrics && Number.isFinite(Number(row.metrics[selectedMetric]))) {
+            return Number(row.metrics[selectedMetric]);
+        }
+        return Number.isFinite(Number(row.value)) ? Number(row.value) : undefined;
     };
 
-    const matchedCount = useMemo(() => [...dataLookup.keys()].length, [dataLookup]);
+    const selectedMetricValues = useMemo(() => {
+        return choroplethRows
+            .map((row) => rowMetricValue(row))
+            .filter((v): v is number => Number.isFinite(Number(v)));
+    }, [choroplethRows, selectedMetric]);
+
+    const maxValue = useMemo(() => {
+        const vals = selectedMetricValues.filter((v) => Number.isFinite(v) && v > 0);
+        return vals.length ? Math.max(...vals) : 1;
+    }, [selectedMetricValues]);
+
+    const minValue = useMemo(() => {
+        const vals = selectedMetricValues.filter((v) => Number.isFinite(v));
+        return vals.length ? Math.min(...vals) : 0;
+    }, [selectedMetricValues]);
+
+    const matchedCount = useMemo(() => {
+        return choroplethRows.filter((row) => {
+            const v = rowMetricValue(row);
+            return typeof v === 'number' && Number.isFinite(v);
+        }).length;
+    }, [choroplethRows, selectedMetric]);
+
+    const selectedMetricInterpolate = useMemo(() => {
+        const key = String(selectedMetric || '').toLowerCase();
+        if (/revenue|sales|income|amount/.test(key)) return 'blues';
+        if (/profit|margin|earnings/.test(key)) return 'greens';
+        return 'purples';
+    }, [selectedMetric]);
+
+    const selectedMetricLegendGradient = useMemo(() => {
+        const key = String(selectedMetric || '').toLowerCase();
+        if (/revenue|sales|income|amount/.test(key)) {
+            return isDark
+                ? 'linear-gradient(to right, #0b254a, #1d4ed8, #60a5fa)'
+                : 'linear-gradient(to right, #dbeafe, #60a5fa, #1d4ed8)';
+        }
+        if (/profit|margin|earnings/.test(key)) {
+            return isDark
+                ? 'linear-gradient(to right, #052e16, #047857, #34d399)'
+                : 'linear-gradient(to right, #dcfce7, #34d399, #047857)';
+        }
+        return isDark
+            ? 'linear-gradient(to right, #1f1637, #6d28d9, #a78bfa)'
+            : 'linear-gradient(to right, #ede9fe, #a78bfa, #6d28d9)';
+    }, [selectedMetric, isDark]);
+
+    const chartData = useMemo(() => {
+        return {
+            labels: choroplethRows.map((row) => row.name),
+            datasets: [
+                {
+                    label: metricDisplayName,
+                    outline: choroplethRows.map((row) => row.feature),
+                    data: choroplethRows.map((row) => ({
+                        feature: row.feature,
+                        value: rowMetricValue(row),
+                        metrics: row.metrics,
+                    })),
+                },
+            ],
+        };
+    }, [choroplethRows, metricDisplayName, selectedMetric]);
+
+    const options = useMemo(() => {
+        return {
+            maintainAspectRatio: false,
+            responsive: true,
+            animation: {
+                duration: quickReact ? 140 : 650,
+                easing: quickReact ? 'linear' : 'easeOutCubic',
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: isDark ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.95)',
+                    titleColor: isDark ? '#ffffff' : '#0f172a',
+                    bodyColor: isDark ? '#d1d5db' : '#334155',
+                    borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.15)',
+                    borderWidth: 1,
+                    cornerRadius: 8,
+                    displayColors: false,
+                    callbacks: {
+                        title: (items: any[]) => {
+                            const raw = items?.[0]?.raw;
+                            return String(raw?.feature?.properties?.name || items?.[0]?.label || 'Region');
+                        },
+                        label: (ctx: any) => {
+                            const rawVal = ctx?.raw?.value;
+                            const rawMetrics = ctx?.raw?.metrics && typeof ctx.raw.metrics === 'object' ? ctx.raw.metrics : null;
+                            if (rawMetrics && Object.keys(rawMetrics).length > 0) {
+                                return Object.entries(rawMetrics).map(([key, val]) => {
+                                    if (!Number.isFinite(Number(val))) return ` ${prettyLabel(key)}: No data`;
+                                    return ` ${prettyLabel(key)}: ${fmtVal(Number(val), key)}`;
+                                });
+                            }
+                            if (!Number.isFinite(rawVal)) return ` ${metricDisplayName}: No data`;
+                            return ` ${metricDisplayName}: ${fmtVal(rawVal, selectedMetric)}`;
+                        },
+                    },
+                },
+            },
+            scales: {
+                projection: {
+                    axis: 'x',
+                    projection: mapType === 'us_states' ? 'albersUsa' : 'equalEarth',
+                },
+                color: {
+                    display: false,
+                    axis: 'x',
+                    min: 0,
+                    max: Math.max(1, maxValue),
+                    quantize: 6,
+                    interpolate: selectedMetricInterpolate,
+                    missing: isDark ? '#1a1a1a' : '#f1f5f9',
+                    ticks: { display: false },
+                    grid: { display: false },
+                    legend: {
+                        display: false,
+                    },
+                },
+            },
+            elements: {
+                geoFeature: {
+                    borderColor: isDark ? '#0b0f17' : '#d1d5db',
+                    borderWidth: mapType === 'us_states' ? 0.5 : 0.3,
+                    hoverBorderColor: isDark ? '#ffffff55' : '#4f46e5',
+                    hoverBorderWidth: 0.8,
+                },
+            },
+        } as any;
+    }, [fmtVal, isDark, mapType, maxValue, metricDisplayName, quickReact, selectedMetric, selectedMetricInterpolate]);
 
     return (
         <div className="relative w-full h-[220px] overflow-hidden rounded-xl bg-surface-container-lowest dark:bg-surface-container/80 dark:backdrop-blur-md border border-transparent dark:border-white/5 shadow-sm dark:shadow-none transition-colors duration-300">
-            {/* Top badge */}
-            <div className="absolute top-2 left-2 z-10 flex items-center gap-1.5 bg-bg-card/50 dark:bg-black/50 backdrop-blur-md px-2 py-0.5 border border-border-main rounded-sm shadow-sm transition-colors">
-                <svg className="w-3 h-3 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
-                        d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064" />
-                </svg>
+            <div className="absolute top-2 left-2 z-10 flex items-center gap-1.5 bg-bg-card/55 dark:bg-black/55 backdrop-blur-md px-2 py-0.5 border border-border-main rounded-sm shadow-sm">
                 <span className="text-[9px] font-mono tracking-widest uppercase font-bold text-primary">
                     {mapType === 'us_states' ? 'US States' : 'World Map'}
                 </span>
                 <span className="text-[8px] font-mono uppercase tracking-widest text-themed-muted">· {matchedCount} regions</span>
             </div>
 
-            {/* Zoom controls */}
-            <div className="absolute top-2 right-8 z-10 flex flex-col gap-0.5">
-                <Button type="button" variant="ghost" size="icon" onClick={() => setZoom(z => Math.min(z * 1.4, cfg.maxZoom))}
-                    className="w-5 h-5 flex items-center justify-center bg-bg-card/50 dark:bg-black/50 backdrop-blur-md border border-border-main rounded-sm text-themed-muted text-xs hover:text-primary transition-all shadow-sm cursor-pointer">+</Button>
-                <Button type="button" variant="ghost" size="icon" onClick={() => setZoom(z => Math.max(z / 1.4, 1))}
-                    className="w-5 h-5 flex items-center justify-center bg-bg-card/50 dark:bg-black/50 backdrop-blur-md border border-border-main rounded-sm text-themed-muted text-xs hover:text-primary transition-all shadow-sm cursor-pointer">−</Button>
+            <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
+                {metricKeys.length > 1 && (
+                    <select
+                        value={selectedMetric}
+                        onChange={(e) => setSelectedMetric(e.target.value)}
+                        className="h-6 text-[10px] px-2 rounded bg-bg-card/70 dark:bg-black/60 border border-border-main text-themed-main"
+                        aria-label="Select map metric"
+                    >
+                        {metricKeys.map((key) => (
+                            <option key={key} value={key}>{prettyLabel(key)}</option>
+                        ))}
+                    </select>
+                )}
+                <button
+                    type="button"
+                    onClick={() => setZoom((z) => Math.min(2.5, Number((z + 0.2).toFixed(2))))}
+                    className="h-6 w-6 rounded bg-bg-card/70 dark:bg-black/60 border border-border-main text-themed-main text-xs"
+                    aria-label="Zoom in map"
+                >
+                    +
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setZoom((z) => Math.max(1, Number((z - 0.2).toFixed(2))))}
+                    className="h-6 w-6 rounded bg-bg-card/70 dark:bg-black/60 border border-border-main text-themed-main text-xs"
+                    aria-label="Zoom out map"
+                >
+                    -
+                </button>
             </div>
 
-            <ComposableMap
-                projectionConfig={{ scale: cfg.scale }}
-                style={{ width: "100%", height: "100%" }}
-                projection={mapType === 'us_states' ? 'geoAlbersUsa' : 'geoMercator'}
-            >
-                <ZoomableGroup center={cfg.center} zoom={zoom} maxZoom={cfg.maxZoom}>
-                    <Geographies geography={geoUrl}>
-                        {({ geographies }: { geographies: any[] }) =>
-                            geographies.map((geo: any) => {
-                                const d = resolveData(geo);
-                                return (
-                                    <Geography
-                                        key={geo.rsmKey}
-                                        geography={geo}
-                                        onMouseEnter={(e: React.MouseEvent) => handleMouseEnter(geo, d, e)}
-                                        onMouseMove={(e: React.MouseEvent) => setTooltipPos({ x: e.clientX, y: e.clientY })}
-                                        onMouseLeave={() => setTooltipContent(null)}
-                                        style={{
-                                            default: {
-                                                fill: d ? colorScale(d.value) : (isDark ? "#1a1a1a" : "#f1f5f9"),
-                                                outline: "none",
-                                                stroke: isDark ? "#0a0a0a" : "#cbd5e1",
-                                                strokeWidth: mapType === 'us_states' ? 0.4 : 0.15,
-                                                transition: "fill 0.2s ease, stroke 0.2s ease",
-                                            },
-                                            hover: {
-                                                fill: d ? VIZZY_THEME.primary : (isDark ? "#2a2a2a" : "#e2e8f0"),
-                                                outline: "none",
-                                                stroke: isDark ? "#ffffff30" : VIZZY_THEME.primary,
-                                                strokeWidth: 0.5,
-                                                cursor: "pointer",
-                                            },
-                                            pressed: {
-                                                fill: VIZZY_THEME.primaryDark,
-                                                outline: "none",
-                                            }
-                                        }}
-                                    />
-                                );
-                            })
-                        }
-                    </Geographies>
-                </ZoomableGroup>
-            </ComposableMap>
-
-            {/* Floating tooltip */}
-            {tooltipContent && typeof document !== 'undefined' && createPortal(
-                <div
-                    className="fixed z-[99999] pointer-events-none rounded-sm px-4 py-3 border border-border-main backdrop-blur-md transition-colors duration-75 min-w-[160px] bg-bg-card/95 dark:bg-black/95 shadow-xl text-themed-main font-mono"
-                    style={{
-                        left: tooltipPos.x,
-                        top: tooltipPos.y - 12,
-                        transform: 'translate(-50%, -100%)'
-                    }}
-                >
-                    {tooltipContent.title && <p className="text-[10px] uppercase font-bold tracking-widest mb-2 pb-2 border-b border-border-main opacity-70 leading-tight">{tooltipContent.title}</p>}
-                    <div className="mb-3">
-                        <p className="text-[10px] opacity-50 uppercase tracking-widest mb-0.5">{mapType === 'us_states' ? 'State' : 'Region'}</p>
-                        <p className="text-sm font-bold truncate max-w-[200px] text-primary">{tooltipContent.dimension}</p>
+            {loading ? (
+                <div className="h-full w-full flex items-center justify-center text-themed-muted text-xs">Loading map...</div>
+            ) : features.length === 0 ? (
+                <div className="h-full w-full flex items-center justify-center text-themed-muted text-xs">Unable to load map geography.</div>
+            ) : (
+                <div className="h-full w-full pt-6 pb-6 px-1 overflow-hidden">
+                    <div style={{ transform: `scale(${zoom})`, transformOrigin: 'center center', transition: 'transform 160ms ease-out' }}>
+                        <ReactChart type={'choropleth' as any} data={chartData as any} options={options as any} />
                     </div>
-
-                    <div className="flex flex-col gap-2">
-                        {tooltipContent.multiMetrics ? (
-                            tooltipContent.multiMetrics.map((m, idx) => (
-                                <div key={m.label} className="flex items-center justify-between gap-6">
-                                    <div className="flex items-center gap-2">
-                                        <span className={`w-2 h-2 rounded-full inline-block ${idx === 0 ? 'bg-[#818CF8]' : idx === 1 ? 'bg-[#00D4AA]' : 'bg-[#8BE6D1]'}`} />
-                                        <span className="text-xs opacity-70 whitespace-nowrap">{m.label}:</span>
-                                    </div>
-                                    <span className="text-sm font-bold tabular-nums">{m.formatted}</span>
-                                </div>
-                            ))
-                        ) : (
-                            <div className="flex items-center justify-between gap-6">
-                                <div className="flex items-center gap-2">
-                                    <span className={`w-2 h-2 rounded-full inline-block ${tooltipContent.hasData ? 'bg-[#818CF8]' : 'bg-gray-400'}`} />
-                                    <span className="text-xs opacity-70 whitespace-nowrap">{tooltipContent.metric}:</span>
-                                </div>
-                                <span className="text-sm font-bold tabular-nums">
-                                    {tooltipContent.value}
-                                </span>
-                            </div>
-                        )}
-                    </div>
-                </div>,
-                document.body
+                </div>
             )}
 
-            {/* Legend */}
-            <div className="absolute bottom-2 right-2 flex items-center gap-1.5 bg-bg-card/50 dark:bg-black/50 border border-border-main backdrop-blur-md px-2 py-1 rounded-sm transition-colors font-mono shadow-sm">
-                <span className="text-[8px] text-themed-muted uppercase tracking-widest">Low</span>
-                <div className="w-14 h-1 rounded-sm opacity-80" style={{
-                    background: isDark 
-                        ? `linear-gradient(to right, #111318, ${VIZZY_THEME.primaryDark}, ${VIZZY_THEME.primary})`
-                        : `linear-gradient(to right, #f1f3ff, #9f99ff, ${VIZZY_THEME.primary})`
-                }} />
-                <span className="text-[8px] text-primary font-bold transition-colors uppercase tracking-widest">Peak</span>
+            <div className="absolute bottom-2 right-2 z-10 flex items-center gap-1.5 bg-bg-card/65 dark:bg-black/65 border border-border-main backdrop-blur-md px-2 py-1 rounded-sm shadow-sm">
+                <span className="text-[8px] text-themed-muted uppercase tracking-widest">{fmtVal(minValue, selectedMetric)}</span>
+                <div className="w-20 h-1 rounded-sm" style={{ background: selectedMetricLegendGradient }} />
+                <span className="text-[8px] text-primary uppercase tracking-widest">{fmtVal(maxValue, selectedMetric)}</span>
             </div>
         </div>
     );

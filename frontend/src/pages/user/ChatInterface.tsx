@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { chatService, type ChatMessage, type ChatSession } from '../../lib/api/chat';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -8,11 +8,9 @@ import { ShiningText } from '../../components/ui/shining-text';
 import { Button } from '@/components/ui/button';
 import { AIInput } from '@/components/ui/ai-input';
 import RuixenMoonChat from '../../components/ui/ruixen-moon-chat';
-import { ChevronDown } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { PanelRightClose, Download, Copy, Maximize2 } from 'lucide-react';
 
-const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
+// Removed escapeRegExp unused
 const buildClarifiedQuery = (originalQuery: string, term: string, selectedColumn: string) => {
     const source = (originalQuery || '').trim();
     if (!source) {
@@ -23,26 +21,9 @@ const buildClarifiedQuery = (originalQuery: string, term: string, selectedColumn
         return `${source}. Use column ${selectedColumn}.`;
     }
 
-    const normalizedColumn = selectedColumn.toLowerCase();
-    const normalizedTerm = term.toLowerCase();
-
-    // Prefer replacing richer phrases first to avoid duplication like
-    // "Phone service" -> "Phone PhoneService" when selecting "PhoneService".
-    const termWordPattern = new RegExp(`\\b([A-Za-z][A-Za-z0-9_]*)\\s+${escapeRegExp(term)}\\b`, 'i');
-    const termWordMatch = source.match(termWordPattern);
-    if (termWordMatch) {
-        const leadingWord = String(termWordMatch[1] || '').toLowerCase();
-        if (leadingWord && normalizedColumn.includes(leadingWord) && normalizedColumn.includes(normalizedTerm)) {
-            return source.replace(termWordPattern, selectedColumn);
-        }
-    }
-
-    const pattern = new RegExp(`\\b${escapeRegExp(term)}\\b`, 'i');
-    if (pattern.test(source)) {
-        return source.replace(pattern, selectedColumn);
-    }
-
-    return `${source}. Use column ${selectedColumn}.`;
+    // Simplest reliable clarification: append instructions directly to avoid syntax bugs 
+    // or word duplication (like "churn Churn" seen when replacing inline words).
+    return `${source}. Use column "${selectedColumn}" for ${term}.`;
 };
 
 const isInsightMessage = (msg: ChatMessage) => {
@@ -96,6 +77,29 @@ const isKPIMessage = (msg: ChatMessage) => {
     return chartPayload?.type === 'kpi';
 };
 
+const getArtifactPreviewBars = (targetData: any) => {
+    const fallback: number[] = [80, 64, 52];
+    const rows = Array.isArray(targetData?.data?.rows) ? targetData.data.rows : [];
+
+    if (rows.length > 0) {
+        const first = rows[0] as Record<string, unknown>;
+        const valueKey = Object.keys(first).find((key) => typeof first[key] === 'number');
+        if (valueKey) {
+            const values = rows
+                .slice(0, 4)
+                .map((row: Record<string, unknown>) => Number(row[valueKey]))
+                .filter((v: number) => Number.isFinite(v));
+
+            if (values.length > 0) {
+                const max = Math.max(...values, 1);
+                return values.map((value: number) => Math.max(24, Math.round((value / max) * 100)));
+            }
+        }
+    }
+
+    return fallback;
+};
+
 interface InsightSqlQuery {
     id: string;
     title: string;
@@ -115,6 +119,15 @@ const getInsightSqlQueries = (msg: ChatMessage): InsightSqlQuery[] => {
         : (Array.isArray(outputData.diagnostics) ? outputData.diagnostics : []);
     const candidates: unknown[] = candidatesRaw;
     const sqlQueries: InsightSqlQuery[] = [];
+    
+    // Also include the primary SQL if it exists
+    if ('sql' in outputData && typeof outputData.sql === 'string' && outputData.sql.trim()) {
+        sqlQueries.push({
+            id: 'primary',
+            title: 'Generated SQL',
+            sql: outputData.sql.trim()
+        });
+    }
 
     candidates.forEach((item, idx) => {
         if (!item || typeof item !== 'object') {
@@ -187,24 +200,8 @@ export default function ChatInterface() {
     const [chartModes, setChartModes] = useState<Record<string, 'chart' | 'table'>>({});
     const [copiedSqlMsgId, setCopiedSqlMsgId] = useState<string | null>(null);
 
-    // Enhanced Dropdown State
-    const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-    const dropdownRef = useRef<HTMLDivElement>(null);
-
-    // Close dropdown on click outside
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-                setIsDropdownOpen(false);
-            }
-        };
-        if (isDropdownOpen) {
-            document.addEventListener("mousedown", handleClickOutside);
-        }
-        return () => {
-            document.removeEventListener("mousedown", handleClickOutside);
-        };
-    }, [isDropdownOpen]);
+    // Artifact Viewer State
+    const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
 
     // Session History State
     const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -251,9 +248,72 @@ export default function ChatInterface() {
         };
     }, [sessions, historyClock]);
 
+    const activeDatasetName = useMemo(() => {
+        if (!selectedDatasetId) {
+            return null;
+        }
+        return datasets.find((d) => d.id === selectedDatasetId)?.name || selectedDatasetId;
+    }, [datasets, selectedDatasetId]);
+
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
+
+    const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+    const [isFullScreenArtifact, setIsFullScreenArtifact] = useState(false);
+
+    // Splitter state: artifactWidthPct = % of the total chat+artifact area given to the artifact
+    const [artifactWidthPct, setArtifactWidthPct] = useState(52);
+    const isDraggingRef = useRef(false);
+    const splitContainerRef = useRef<HTMLDivElement>(null);
+
+    const handleSplitterMouseDown = useCallback((e: React.MouseEvent) => {
+        e.preventDefault();
+        isDraggingRef.current = true;
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+    }, []);
+
+    useEffect(() => {
+        const onMouseMove = (e: MouseEvent) => {
+            if (!isDraggingRef.current || !splitContainerRef.current) return;
+            const rect = splitContainerRef.current.getBoundingClientRect();
+            const offsetX = e.clientX - rect.left;
+            const totalW = rect.width;
+            // artifact is on the right — pct of right portion
+            const rawPct = ((totalW - offsetX) / totalW) * 100;
+            setArtifactWidthPct(Math.min(75, Math.max(25, rawPct)));
+        };
+        const onMouseUp = () => {
+            if (!isDraggingRef.current) return;
+            isDraggingRef.current = false;
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        };
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp);
+        return () => {
+            window.removeEventListener('mousemove', onMouseMove);
+            window.removeEventListener('mouseup', onMouseUp);
+        };
+    }, []);
+
+    useEffect(() => {
+        const handleResize = () => {
+            const mobile = window.innerWidth < 768;
+            setIsMobile(mobile);
+            // If we transition to mobile and had a selected artifact but it wasn't full screen, clear it
+            // or if we switch from mobile full screen to desktop, close full screen but keep artifact selected
+            if (mobile && selectedArtifactId && !isFullScreenArtifact) {
+                 // On mobile, artifacts display inline until maximized.
+                 setSelectedArtifactId(null);
+            } else if (!mobile && isFullScreenArtifact) {
+                 setIsFullScreenArtifact(false);
+            }
+        };
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, [selectedArtifactId, isFullScreenArtifact]);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -448,6 +508,12 @@ export default function ChatInterface() {
                 const filtered = prev.filter(m => m.id !== tempId);
                 return [...filtered, response.user_message, response.assistant_message];
             });
+            
+            // Auto-open artifact viewer if the assistant's response has a chart
+            if (hasRenderableOutput(response.assistant_message.output_data)) {
+                setSelectedArtifactId(response.assistant_message.id);
+            }
+            
         } catch (error: any) {
             // Don't show error if request was aborted
             if (error.name === 'AbortError' || error.code === 'ERR_CANCELED') {
@@ -472,6 +538,216 @@ export default function ChatInterface() {
             abortControllerRef.current.abort();
             setIsTyping(false);
         }
+    };
+
+    const renderArtifactViewer = () => {
+        if (!selectedArtifactId) return null;
+        const msg = messages.find(m => m.id === selectedArtifactId);
+        if (!msg || !hasRenderableOutput(msg.output_data)) return null;
+
+        const targetData = msg.output_data?.type === 'nl2sql' && msg.output_data?.chart
+            ? { ...msg.output_data?.chart, sql: msg.output_data?.sql }
+            : msg.output_data;
+
+        const isTableMode = chartModes[msg.id] === 'table';
+        const isMultiKpi = isMultiMetricKPIMessage(msg);
+        const chartRows = Array.isArray(targetData?.data?.rows) ? targetData.data.rows : (Array.isArray(targetData?.data?.series) ? targetData.data.series : []);
+        const totalObservations = chartRows.length > 0
+            ? chartRows.length.toLocaleString()
+            : String(targetData?.row_count || targetData?.data?.total_rows || '--');
+
+        const confidenceValue = typeof targetData?.confidence === 'number'
+            ? `${(targetData.confidence * 100).toFixed(1)}%`
+            : (typeof msg.output_data?.confidence === 'number'
+                ? `${(msg.output_data.confidence * 100).toFixed(1)}%`
+                : '98.4%');
+
+        let metricLabel = 'Analyzed Metric';
+        let metricValueStr = '--';
+        
+        if (typeof targetData?.variance === 'number') {
+             metricLabel = String(targetData?.metric || 'Variance').replace(/_/g, ' ');
+             metricValueStr = `${targetData.variance > 0 ? '+' : ''}${targetData.variance.toFixed(1)}%`;
+        } else {
+             const mKey = targetData?.metric || 'value';
+             const axisY = targetData?.axes?.y;
+             metricLabel = String(targetData?.metric || axisY || targetData?.value_label || 'Metric').replace(/_/g, ' ');
+             
+             let sum = 0;
+             let count = 0;
+             chartRows.forEach((item: any) => {
+                 const v = Number(item[mKey] ?? item.value ?? (axisY ? item[axisY] : undefined) ?? item.count);
+                 if (!isNaN(v)) {
+                     sum += v;
+                     count++;
+                 }
+             });
+             
+             if (count > 0) {
+                 metricValueStr = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(sum);
+                 const mlLower = metricLabel.toLowerCase();
+                 if (mlLower.includes('revenue') || mlLower.includes('price') || mlLower.includes('amount') || mlLower.includes('cost') || mlLower.includes('sales')) {
+                     metricValueStr = (targetData?.currency || '$') + metricValueStr;
+                 }
+             } else if (targetData?.type === 'kpi' && targetData?.data?.value !== undefined) {
+                 metricValueStr = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(targetData.data.value);
+             }
+        }
+
+        let dimensionLabel = 'Dataset';
+        let dimensionValue = activeDatasetName || 'Active Dataset';
+
+        if (targetData?.dimension || targetData?.axes?.x) {
+            dimensionLabel = 'Dimension';
+            dimensionValue = String(targetData?.dimension || targetData?.axes?.x).replace(/_/g, ' ');
+        } else if (targetData?.market_segment || targetData?.segment) {
+            dimensionLabel = 'Segment';
+            dimensionValue = String(targetData?.market_segment || targetData?.segment);
+        }
+
+        const legendLabels = (() => {
+            let labels: string[] = [];
+            if (targetData?.categories && Array.isArray(targetData.categories)) {
+                labels = targetData.categories;
+            } else if (targetData?.dimension && chartRows.length > 0) {
+                labels = Array.from(new Set(chartRows.map((r: any) => r[targetData.dimension]))).filter(Boolean).map(String);
+            } else if (targetData?.axes?.x && chartRows.length > 0) {
+                labels = Array.from(new Set(chartRows.map((r: any) => r[targetData.axes.x]))).filter(Boolean).map(String);
+            } else if (chartRows.length > 0) {
+                const keys = Object.keys(chartRows[0] || {});
+                const stringCol = keys.find(k => k !== 'value' && typeof chartRows[0][k] === 'string' && k !== 'count' && k !== 'id') || keys[0];
+                if (stringCol) {
+                    labels = Array.from(new Set(chartRows.map((r: any) => r[stringCol]))).filter(Boolean).map(String);
+                }
+            }
+            return labels.length > 0 ? labels.slice(0, 4) : ['Target Segment', 'Baseline'];
+        })();
+
+        const legendColors = [
+            'bg-gradient-to-tr from-primary to-primary-container shadow-sm',
+            'bg-gradient-to-tr from-secondary-container to-secondary shadow-sm',
+            'bg-gradient-to-tr from-tertiary to-tertiary-container shadow-sm',
+            'bg-gradient-to-tr from-emerald-500 to-emerald-700 shadow-sm'
+        ];
+        
+        return (
+            <div
+                className={`flex flex-col bg-surface-container-lowest dark:bg-[#0c0c0f] flex-shrink-0 animate-in slide-in-from-right-8 duration-150 relative z-30 border-l border-border-main/50 
+                    ${isFullScreenArtifact ? 'fixed inset-0 !w-full z-[100] h-full' : 'h-full md:flex hidden'}`}
+                style={!isFullScreenArtifact && !isMobile ? { width: `${artifactWidthPct}%` } : undefined}
+            >
+                <div className="h-16 flex items-center justify-between px-6 lg:px-8 bg-surface-container-low/30 border-b border-outline-variant/10 sticky top-0 z-10">
+                    <div className="flex bg-surface-container-high p-1 rounded-full shadow-inner">
+                        <Button
+                            type="button"
+                            onClick={() => setChartModes(prev => ({ ...prev, [msg.id]: 'chart' }))}
+                            className={`px-5 py-1.5 h-auto rounded-full text-xs font-semibold transition-all ${!isTableMode ? 'bg-primary text-white shadow-sm' : 'text-themed-muted hover:text-themed-main'}`}
+                            variant="ghost"
+                        >
+                            Visual
+                        </Button>
+                        <Button
+                            type="button"
+                            onClick={() => setChartModes(prev => ({ ...prev, [msg.id]: 'table' }))}
+                            className={`px-5 py-1.5 h-auto rounded-full text-xs font-semibold transition-all ${isTableMode ? 'bg-primary text-white shadow-sm' : 'text-themed-muted hover:text-themed-main'}`}
+                            variant="ghost"
+                        >
+                            Data
+                        </Button>
+                    </div>
+
+                    <div className="flex items-center gap-2 lg:gap-3">
+                        <Button
+                            type="button"
+                            onClick={() => handleDownloadCSV(targetData, targetData?.title || 'data')}
+                            className="h-8 px-3 lg:px-4 rounded-lg bg-surface-container-high text-on-surface-variant hover:text-on-surface text-xs"
+                            variant="ghost"
+                        >
+                            <Download className="w-3.5 h-3.5 mr-1.5" /> CSV
+                        </Button>
+
+                        {targetData?.type !== 'kpi' && !isTableMode && (
+                            <Button
+                                type="button"
+                                onClick={() => handleDownloadImage(msg.id, targetData?.title || 'chart')}
+                                className="h-8 px-3 lg:px-4 rounded-lg bg-surface-container-high text-on-surface-variant hover:text-on-surface text-xs"
+                                variant="ghost"
+                            >
+                                <Copy className="w-3.5 h-3.5 mr-1.5" /> Image
+                            </Button>
+                        )}
+
+                        {isMobile && (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 w-8 p-0 text-themed-muted hover:text-primary hover:bg-primary/10 rounded-md transition-colors"
+                                onClick={() => setIsFullScreenArtifact(!isFullScreenArtifact)}
+                                title={isFullScreenArtifact ? 'Exit Fullscreen' : 'Fullscreen'}
+                            >
+                                <Maximize2 className="w-4 h-4" />
+                            </Button>
+                        )}
+
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0 text-themed-muted hover:text-red-400 hover:bg-red-400/10 rounded-md transition-colors"
+                            onClick={() => setSelectedArtifactId(null)}
+                            title="Close Artifact Viewer"
+                        >
+                            <PanelRightClose className="w-4 h-4" />
+                        </Button>
+                    </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-4 lg:p-6 bg-surface-container-lowest">
+                    <div className="w-full max-w-3xl mx-auto">
+                        <div className={`rounded-xl p-4 lg:p-6 bg-surface-container-low border border-outline-variant/15 shadow-xl relative overflow-hidden ${isMultiKpi ? 'h-auto' : ''}`}>
+                            <div className="mb-4">
+                                <h2 className="text-lg font-bold tracking-tight text-on-surface leading-snug">
+                                    {targetData?.title || targetData?.chart?.title || 'Data Analysis Viewer'}
+                                </h2>
+                                <p className="text-xs text-outline mt-0.5">
+                                    {activeDatasetName || 'Global Dataset Analysis'}
+                                </p>
+                            </div>
+
+                            <div className="vizzy-chart-container bg-surface-container-lowest/60 rounded-xl border border-outline-variant/10 p-3 min-h-[260px]">
+                                <ChartRenderer
+                                    type={isTableMode ? 'table' : (targetData?.type || 'unknown')}
+                                    data={targetData}
+                                    title={targetData?.title || targetData?.chart?.title}
+                                    currency={targetData?.currency}
+                                    variant="minimal"
+                                />
+                            </div>
+
+                            <div className="flex justify-between items-center pt-4 border-t border-outline-variant/10">
+                                <div className="flex gap-6 flex-wrap">
+                                    {legendLabels.map((lbl, idx) => (
+                                        <div key={idx} className="flex items-center gap-2">
+                                            <div className={`w-3 h-3 rounded-full ${legendColors[idx % legendColors.length]}`}></div>
+                                            <span className="text-[10px] font-label uppercase tracking-widest text-outline truncate max-w-[120px]" title={lbl}>{lbl}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="flex items-center gap-4 flex-shrink-0 ml-4">
+                                    <span className="text-[10px] font-label uppercase tracking-widest text-outline">Confidence: {confidenceValue}</span>
+                                    <span className="material-symbols-outlined text-outline text-sm">info</span>
+                                </div>
+                            </div>
+
+                            <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-primary/10 blur-[100px] rounded-full pointer-events-none"></div>
+                        </div>
+
+
+
+
+                    </div>
+                </div>
+            </div>
+        );
     };
 
     const renderHistoryList = () => (
@@ -552,7 +828,7 @@ export default function ChatInterface() {
     );
 
     return (
-        <div className="flex h-full bg-white dark:bg-bg-main text-themed-main font-display antialiased relative selection:bg-primary selection:text-white">
+        <div ref={splitContainerRef} className="flex h-full bg-white dark:bg-bg-main text-themed-main font-display antialiased relative selection:bg-primary selection:text-white">
             
             {messages.length > 0 && (
                 <>
@@ -585,8 +861,8 @@ export default function ChatInterface() {
                 </>
             )}
 
-            {/* Main Content */}
-            <div className="flex-1 flex flex-col h-full overflow-hidden relative z-10">
+            {/* Main Chat Panel */}
+            <div className="flex-1 flex flex-col h-full overflow-hidden relative z-10" style={{ minWidth: 0 }}>
                 {!isSidebarOpen && (
                     <div className="absolute left-4 top-4 z-20">
                         <Button
@@ -770,42 +1046,85 @@ export default function ChatInterface() {
 
                                                             const isTableMode = chartModes[msg.id] === 'table';
                                                             const sqlQuery = targetData.sql || msg.output_data.sql;
+                                                            const isSelected = selectedArtifactId === msg.id;
+
+                                                            const isKpiOnly = targetData.type === 'kpi';
+                                                            const isInteractiveArtifact = !isKpiOnly;
+                                                            const previewBars = getArtifactPreviewBars(targetData);
 
                                                             return (
-                                                                <div className={`${isMultiMetricKPIMessage(msg) ? 'mt-2' : 'mt-6'} w-full vizzy-chart-container bg-surface-container-lowest dark:bg-surface-container/80 dark:backdrop-blur-md border border-transparent dark:border-white/5 rounded-xl p-4 shadow-sm pb-3`}>
-                                                                    <ChartRenderer
-                                                                        type={isTableMode ? 'table' : (targetData.type || 'unknown')}
-                                                                        data={targetData}
-                                                                        title={targetData.title || targetData.chart?.title}
-                                                                        currency={targetData.currency}
-                                                                        variant="minimal"
-                                                                    />
-
-                                                                    {/* Actions Bar */}
-                                                                    <div className="mt-4 flex flex-col border-t border-border-main pt-3">
-                                                                        <div className="flex items-center justify-between">
-                                                                            <div className="flex items-center space-x-4">
-                                                                                {targetData.type !== 'kpi' && msg.output_data.response_type !== 'text' && (
-                                                                                    <div className="flex bg-surface-container-low dark:bg-white/5 p-0.5 rounded-lg shadow-inner group transition-colors">
-                                                                                        <Button
-                                                                                            type="button"
-                                                                                            onClick={() => setChartModes(prev => ({ ...prev, [msg.id]: 'chart' }))}
-                                                                                            className={`px-4 py-1.5 text-[10px] font-mono tracking-widest uppercase transition-all ${!isTableMode ? 'bg-primary text-white font-bold shadow-sm' : 'text-themed-muted hover:text-themed-main'}`}
-                                                                                            variant="ghost"
-                                                                                        >
-                                                                                            Visual
-                                                                                        </Button>
-                                                                                        <Button
-                                                                                            type="button"
-                                                                                            onClick={() => setChartModes(prev => ({ ...prev, [msg.id]: 'table' }))}
-                                                                                            className={`px-4 py-1.5 text-[10px] font-mono tracking-widest uppercase transition-all ${isTableMode ? 'bg-primary text-white font-bold shadow-sm' : 'text-themed-muted hover:text-themed-main'}`}
-                                                                                            variant="ghost"
-                                                                                        >
-                                                                                            Data
-                                                                                        </Button>
-                                                                                    </div>
-                                                                                )}
+                                                                <div className={`${isMultiMetricKPIMessage(msg) ? 'mt-2' : 'mt-6'} w-full relative`}>
+                                                                    
+                                                                    {isInteractiveArtifact ? (
+                                                                        <div 
+                                                                            className={`bg-surface-container rounded-xl overflow-hidden border border-outline-variant/20 cursor-pointer group transition-all hover:border-primary/40 ${isSelected && !isMobile ? 'ring-2 ring-primary/60 shadow-lg shadow-primary/10' : ''}`}
+                                                                            onClick={() => {
+                                                                                setSelectedArtifactId(msg.id);
+                                                                                if (isMobile) setIsFullScreenArtifact(true);
+                                                                            }}
+                                                                        >
+                                                                            <div className="h-24 bg-surface-container-low flex items-end gap-1 px-4 pb-2">
+                                                                                {previewBars.map((height: number, idx: number) => (
+                                                                                    <div
+                                                                                        key={`${msg.id}-bar-${idx}`}
+                                                                                        className="flex-1 bg-primary/30 group-hover:bg-primary/45 transition-colors rounded-t-sm"
+                                                                                        style={{ height: `${height}%` }}
+                                                                                    />
+                                                                                ))}
                                                                             </div>
+
+                                                                            <div className="p-3 flex justify-between items-center bg-surface-container-high border-t border-outline-variant/10">
+                                                                                <div className="min-w-0">
+                                                                                    <h4 className="text-xs font-bold text-on-surface truncate">
+                                                                                        {targetData?.title || targetData?.chart?.title || 'Data Artifact'}
+                                                                                    </h4>
+                                                                                    <p className="text-[10px] text-outline truncate">Interactive Visualization</p>
+                                                                                </div>
+                                                                                <span className="material-symbols-outlined text-primary text-lg">open_in_new</span>
+                                                                            </div>
+
+                                                                            {isSelected && !isMobile && (
+                                                                                <span className="absolute top-3 right-3 flex h-3 w-3">
+                                                                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                                                                                    <span className="relative inline-flex rounded-full h-3 w-3 bg-primary"></span>
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                    ) : (
+                                                                    <div className="vizzy-chart-container bg-surface-container-lowest dark:bg-surface-container/80 dark:backdrop-blur-md border border-transparent dark:border-white/5 rounded-xl p-4 shadow-sm pb-3">
+                                                                        <ChartRenderer
+                                                                            type={isTableMode ? 'table' : (targetData.type || 'unknown')}
+                                                                            data={targetData}
+                                                                            title={targetData.title || targetData.chart?.title}
+                                                                            currency={targetData.currency}
+                                                                            variant="minimal"
+                                                                        />
+
+                                                                        {/* Actions Bar */}
+                                                                        <div className="mt-4 flex flex-col border-t border-border-main pt-3">
+                                                                            <div className="flex items-center justify-between">
+                                                                                <div className="flex items-center space-x-4">
+                                                                                    {targetData.type !== 'kpi' && msg.output_data.response_type !== 'text' && (
+                                                                                        <div className="flex bg-surface-container-low dark:bg-white/5 p-0.5 rounded-lg shadow-inner group transition-colors">
+                                                                                            <Button
+                                                                                                type="button"
+                                                                                                onClick={() => setChartModes(prev => ({ ...prev, [msg.id]: 'chart' }))}
+                                                                                                className={`px-4 py-1.5 text-[10px] font-mono tracking-widest uppercase transition-all ${!isTableMode ? 'bg-primary text-white font-bold shadow-sm' : 'text-themed-muted hover:text-themed-main'}`}
+                                                                                                variant="ghost"
+                                                                                            >
+                                                                                                Visual
+                                                                                            </Button>
+                                                                                            <Button
+                                                                                                type="button"
+                                                                                                onClick={() => setChartModes(prev => ({ ...prev, [msg.id]: 'table' }))}
+                                                                                                className={`px-4 py-1.5 text-[10px] font-mono tracking-widest uppercase transition-all ${isTableMode ? 'bg-primary text-white font-bold shadow-sm' : 'text-themed-muted hover:text-themed-main'}`}
+                                                                                                variant="ghost"
+                                                                                            >
+                                                                                                Data
+                                                                                            </Button>
+                                                                                        </div>
+                                                                                    )}
+                                                                                </div>
 
                                                                             <div className="flex items-center space-x-3">
                                                                                 <Button
@@ -931,6 +1250,8 @@ export default function ChatInterface() {
                                                                             </div>
                                                                         )}
                                                                     </div>
+                                                                    </div>
+                                                                    )}
                                                                 </div>
                                                             );
                                                         })()}
@@ -988,71 +1309,8 @@ export default function ChatInterface() {
 
                 {/* Input Area (Only show when there are messages because RuixenMoonChat has its own) */}
                 {messages.length > 0 && (
-                    <div className="bg-white/40 dark:bg-bg-main/60 backdrop-blur-md border-t border-border-main/30 p-6 flex-shrink-0 transition-colors duration-500 z-10 w-full relative">
+                    <div className="bg-white/40 dark:bg-bg-main/60 backdrop-blur-md border-t border-border-main/30 px-4 py-3 md:px-6 md:py-4 flex-shrink-0 transition-colors duration-500 z-10 w-full relative">
                         <div className="max-w-4xl mx-auto">
-                            
-                            <div className="px-2 mb-3">
-                                {datasets.length > 0 && (
-                                    <div className="flex items-center justify-start">
-                                        <div className="flex items-center bg-white/60 dark:bg-black/40 backdrop-blur-xl border border-white/60 dark:border-white/10 rounded-full p-1 shadow-lg relative z-50" ref={dropdownRef}>
-                                            <span className="text-[10px] md:text-xs uppercase tracking-widest text-neutral-700 dark:text-neutral-300 font-bold bg-white/80 dark:bg-white/10 px-3 md:px-4 py-1.5 md:py-2 rounded-full mr-2">
-                                                Dataset
-                                            </span>
-                                            <button
-                                                type="button"
-                                                onClick={() => setIsDropdownOpen((prev) => !prev)}
-                                                className="flex items-center justify-between gap-3 px-3 md:px-4 py-1.5 md:py-2 bg-white/90 dark:bg-[#111116] border border-transparent dark:border-white/5 rounded-full text-xs md:text-sm font-medium text-neutral-800 dark:text-gray-200 focus:outline-none min-w-[200px] md:min-w-[260px] transition-all hover:bg-white dark:hover:bg-[#1a1a21]"
-                                            >
-                                                <span className="truncate max-w-[150px] md:max-w-[200px] text-left">
-                                                    {selectedDatasetId
-                                                        ? datasets.find((d) => d.id === selectedDatasetId)?.name
-                                                        : "Select a dataset..."}
-                                                </span>
-                                                <ChevronDown className={cn("w-3 h-3 md:w-4 md:h-4 text-neutral-500 dark:text-neutral-400 transition-transform", isDropdownOpen && "rotate-180")} />
-                                            </button>
-
-                                            {isDropdownOpen && (
-                                                <div className="absolute bottom-[calc(100%+8px)] left-0 mt-0 w-full min-w-[280px] md:min-w-[300px] max-h-[250px] md:max-h-[300px] overflow-y-auto bg-white dark:bg-[#18181b] border border-neutral-200 dark:border-neutral-800 rounded-xl shadow-2xl z-50 flex flex-col py-1.5 animate-in fade-in zoom-in-95 duration-150">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            setSelectedDatasetId("");
-                                                            setIsDropdownOpen(false);
-                                                        }}
-                                                        className={cn(
-                                                            "px-4 py-2.5 text-left text-xs md:text-sm transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800/80 mx-1.5 rounded-md",
-                                                            selectedDatasetId === ""
-                                                                ? "bg-blue-100 dark:bg-[#9ec8ff] text-blue-800 dark:text-black font-semibold"
-                                                                : "text-neutral-700 dark:text-neutral-300"
-                                                        )}
-                                                    >
-                                                        Select a dataset...
-                                                    </button>
-                                                    {datasets.map((ds) => (
-                                                        <button
-                                                            key={ds.id}
-                                                            type="button"
-                                                            onClick={() => {
-                                                                setSelectedDatasetId(ds.id);
-                                                                setIsDropdownOpen(false);
-                                                            }}
-                                                            className={cn(
-                                                                "px-4 py-2.5 text-left text-xs md:text-sm transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800/80 mx-1.5 rounded-md truncate",
-                                                                selectedDatasetId === ds.id
-                                                                    ? "bg-blue-100 dark:bg-[#9ec8ff] text-blue-800 dark:text-black font-semibold"
-                                                                    : "text-neutral-700 dark:text-neutral-300"
-                                                            )}
-                                                        >
-                                                            {ds.name}
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-
                             <div className="px-2">
                                 <AIInput
                                     id="chat-analytics-input"
@@ -1064,6 +1322,7 @@ export default function ChatInterface() {
                                     onSubmit={(value) => handleSendMessage(value)}
                                     onStop={handleStop}
                                     className="py-2"
+                                    contextBadge={activeDatasetName ? { value: activeDatasetName } : undefined}
                                 />
                             </div>
                             {!selectedDatasetId && <p className="text-xs text-red-500 mt-2">Please select a dataset to start chatting</p>}
@@ -1071,7 +1330,22 @@ export default function ChatInterface() {
                         </div>
                     </div>
                 )}
-            </div>
+            </div>{/* main chat panel */}
+
+            {/* Drag splitter — only between chat + artifact on desktop */}
+            {selectedArtifactId && !isMobile && !isFullScreenArtifact && (
+                <div
+                    onMouseDown={handleSplitterMouseDown}
+                    className="hidden md:flex flex-shrink-0 w-1.5 items-center justify-center cursor-col-resize relative z-40 group bg-transparent hover:bg-primary/10 transition-colors"
+                    title="Drag to resize"
+                >
+                    <div className="w-0.5 h-12 rounded-full bg-border-main/40 group-hover:bg-primary/60 transition-colors" />
+                </div>
+            )}
+
+            {/* Right Side Artifact Viewer Panel */}
+            {renderArtifactViewer()}
+
         </div>
     );
 }

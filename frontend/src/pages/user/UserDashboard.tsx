@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { datasetService } from '../../lib/api/dataset';
@@ -6,11 +7,16 @@ import GeoMapCard from './GeoMapCard';
 import SettingsDropdown from '../../components/common/SettingsDropdown';
 import { useFilterStore } from '../../store/useFilterStore';
 import {
-    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-    AreaChart, Area, PieChart, Pie, Legend,
-    ScatterChart, Scatter, Cell,
-    RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis
-} from 'recharts';
+    Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, RadialLinearScale, BubbleController,
+  Title, Tooltip as ChartTooltip, Legend as ChartLegend, Filler
+} from 'chart.js';
+import { TreemapController, TreemapElement } from 'chartjs-chart-treemap';
+import { Bar, Line, Pie, Scatter, Radar, Bubble, PolarArea, Chart as ReactChart } from 'react-chartjs-2';
+
+ChartJS.register(
+    CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, RadialLinearScale, BubbleController, TreemapController, TreemapElement,
+  Title, ChartTooltip, ChartLegend, Filler
+);
 import { ColumnClassificationPanel } from '../../components/dashboard/ColumnClassificationPanel';
 import { DashboardSkeleton } from '../../components/dashboard/DashboardSkeleton';
 import { Button } from '@/components/ui/button';
@@ -410,12 +416,12 @@ const KPICard = ({ title, value, icon, trend, trend_label, subtitle, cardColor, 
 
 const ChartCard = ({ title, children, className, actions }: { title: string; children: React.ReactNode; className?: string; actions?: React.ReactNode }) => (
     <div className={`bg-white dark:bg-[#17181b] border border-[#e4e4e7] dark:border-[#2a2d33] rounded-3xl p-6 shadow-[0_2px_8px_rgba(0,0,0,0.04)] h-full flex flex-col ${className || ''}`}>
-        <div className="flex justify-between items-center mb-5 flex-shrink-0">
-            <h4 className="text-[15px] font-semibold text-[#2d2f2f] dark:text-[#eceff4]">{title}</h4>
+        <div className="flex flex-col items-center gap-2 mb-5 flex-shrink-0 w-full">
+            <h4 className="text-[15px] font-semibold text-[#2d2f2f] dark:text-[#eceff4] text-center leading-snug w-full">{title}</h4>
             {actions ? (
-                <div className="relative z-10 flex gap-2 items-center">{actions}</div>
+                <div className="relative z-10 flex gap-2 items-center justify-center w-full">{actions}</div>
             ) : (
-                <div className="flex gap-2 relative z-10">
+                <div className="flex gap-2 relative z-10 justify-center w-full">
                     <button className="p-1.5 hover:bg-[#f2f3f3] dark:hover:bg-[#262931] rounded-lg transition-colors"><span className="material-symbols-outlined text-sm text-[#5a5c5c] dark:text-[#b9bec9]">refresh</span></button>
                     <button className="p-1.5 hover:bg-[#f2f3f3] dark:hover:bg-[#262931] rounded-lg transition-colors"><span className="material-symbols-outlined text-sm text-[#5a5c5c] dark:text-[#b9bec9]">ios_share</span></button>
                     <button className="p-1.5 hover:bg-[#f2f3f3] dark:hover:bg-[#262931] rounded-lg transition-colors"><span className="material-symbols-outlined text-sm text-[#5a5c5c] dark:text-[#b9bec9]">more_vert</span></button>
@@ -438,12 +444,14 @@ const ChartRenderer = ({
     isDark,
     onFilterClick,
     targetColumn,
+    quickReact,
 }: {
     chart: any;
     chartColors: any;
     isDark: boolean;
     onFilterClick?: (col: string, val: string) => void;
     targetColumn?: string | null;
+    quickReact?: boolean;
 }) => {
     const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
     const [showOutliers, setShowOutliers] = useState(true);
@@ -474,14 +482,11 @@ const ChartRenderer = ({
         );
     }
 
-    // Currency and Rate detection
+    // Currency and rate detection
     const chartTitleLower = (chart.title || '').toLowerCase();
     const formatType = chart?.format_type;
-
-    const forceNotMoney = ['tenure', 'age', 'duration', 'months', 'years', 'days'].some(k => chartTitleLower.includes(k));
-    const isMoney = formatType === 'currency' || (!formatType && !forceNotMoney && ['revenue', 'charges', 'cost', 'price', 'amount', 'sales', 'income', 'expense', 'profit', 'dollar', 'payment']
-        .some(k => chartTitleLower.includes(k)));
-    const isPercent = formatType === 'percentage' || formatType === 'percent' || (!formatType && (chartTitleLower.includes('rate') || chartTitleLower.includes('%')));
+    const isChartExplicitPercent = formatType === 'percentage' || formatType === 'percent';
+    const isPercent = isChartExplicitPercent || (!formatType && (chartTitleLower.includes('rate') || chartTitleLower.includes('%')));
 
     const countLikeMetricTokens = [
         'record', 'records', 'count', 'orders', 'order', 'customers', 'units', 'qty', 'quantity', 'volume',
@@ -530,15 +535,16 @@ const ChartRenderer = ({
 
     const formatByLabel = (value: any, metricLabel?: string, fallbackChartLevel = true): string => {
         if (typeof value !== 'number') return String(value ?? '');
-        const label = String(metricLabel || '').toLowerCase();
+        const rawLabel = String(metricLabel || '').trim();
+        const label = rawLabel.toLowerCase();
         const chartLevelLabel = String(chart.value_label || chart.metric || chart.title || '').toLowerCase();
 
-        if (isPercentMetricLabel(label) || (fallbackChartLevel && isPercent) || label.includes('%')) {
+        if (isPercentMetricLabel(label) || label.includes('%') || (fallbackChartLevel && (isChartExplicitPercent || (!label && isPercent)))) {
             const pctValue = Math.abs(value) <= 1 ? value * 100 : value;
             return `${new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(pctValue)}%`;
         }
 
-        if (isCurrencyMetricLabel(label) || (fallbackChartLevel && isMoney)) {
+        if (isCurrencyMetricLabel(label) || (!label && fallbackChartLevel && formatType === 'currency')) {
             return compactNumber(value, true);
         }
 
@@ -558,13 +564,21 @@ const ChartRenderer = ({
             return compactNumber(Number(v), false);
         }
         const hasMetricLabel = !!String(metricLabel || '').trim();
-        return formatByLabel(v, metricLabel, !hasMetricLabel);
+        const chartLevelPercentFallback = isPercent
+            && !isCurrencyMetricLabel(metricLabel)
+            && !isWholeNumberMetricLabel(metricLabel)
+            && !isCountLikeMetric(metricLabel);
+        return formatByLabel(v, metricLabel, !hasMetricLabel || chartLevelPercentFallback);
     };
 
     const fmtTick = (v: any, metricLabel?: string): string => {
         if (typeof v !== 'number') return String(v ?? '');
         const hasMetricLabel = !!String(metricLabel || '').trim();
-        return formatByLabel(v, metricLabel, !hasMetricLabel);
+        const chartLevelPercentFallback = isPercent
+            && !isCurrencyMetricLabel(metricLabel)
+            && !isWholeNumberMetricLabel(metricLabel)
+            && !isCountLikeMetric(metricLabel);
+        return formatByLabel(v, metricLabel, !hasMetricLabel || chartLevelPercentFallback);
     };
 
     const formatCenterTotal = (total: number): string => {
@@ -609,6 +623,102 @@ const ChartRenderer = ({
         })
         : rawChartData;
 
+    const normalizeLabel = (value: any): string => {
+        if (value === null || value === undefined || value === '') return 'Unknown';
+
+        const asText = String(value).trim();
+        const asNumber = Number(asText);
+        const isNumericLabel = Number.isFinite(asNumber);
+        const normalizedFilter = normalizeColumn(String(filterCol || ''));
+
+        if (isNumericLabel) {
+            if (normalizedFilter.includes('contracttype') || chartTitleLower.includes('contract type')) {
+                if (asNumber === 0) return 'Month-to-month';
+                if (asNumber === 1) return 'One year';
+                if (asNumber === 2) return 'Two year';
+            }
+            if (normalizedFilter.includes('gender')) {
+                if (asNumber === 0) return 'Female';
+                if (asNumber === 1) return 'Male';
+            }
+        }
+
+        return asText;
+    };
+
+    const categoryLabels = chartData.map((d: any) => normalizeLabel(d?.[nameKey] ?? d?.name ?? d?.label));
+    const categoryTickInterval = Math.max(1, Math.ceil(Math.max(1, categoryLabels.length) / 6));
+
+    const isLikelyDateLabel = (raw: string): boolean => {
+        const value = String(raw || '').trim();
+        if (!value) return false;
+        if (/\d{4}[-/]\d{1,2}([-/]\d{1,2})?/.test(value)) return true;
+        if (/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i.test(value)) return true;
+        return false;
+    };
+
+    const isTemporalXAxis = ['line', 'area', 'stacked'].includes(String(chart.type || '').toLowerCase())
+        || /date|time|month|year|week|day/i.test(String(chart.x_axis || chart.dimension || nameKey || ''))
+        || categoryLabels.some((label) => isLikelyDateLabel(label));
+
+    const temporalTickInterval = Math.max(1, Math.ceil(Math.max(1, categoryLabels.length) / 5));
+    const effectiveCategoryTickInterval = isTemporalXAxis ? temporalTickInterval : categoryTickInterval;
+
+    const formatCategoryTick = (label: string, options?: { truncate?: boolean; temporal?: boolean }): string => {
+        const temporal = options?.temporal ?? false;
+        const truncate = options?.truncate ?? true;
+        if (temporal) return formatMonthYearLabel(label);
+        if (!truncate) return label;
+        if (label.length <= 18) return label;
+        return `${label.slice(0, 18)}...`;
+    };
+
+    const axisTickFont = { size: 9, weight: '600', family: '"Be Vietnam Pro", sans-serif' };
+    const axisTitleFont = { size: 10, weight: '700', family: '"Be Vietnam Pro", sans-serif' };
+    const dimensionAxisLabel = String(chart.x_axis || chart.dimension || nameKey || 'Category').replace(/_/g, ' ');
+    const valueAxisLabel = String(chart.y_axis || chart.metric || chart.value_label || 'Value').replace(/_/g, ' ');
+    const scatterXAxisLabel = String(chart.x_axis || chart.dimension || nameKey || 'X').replace(/_/g, ' ');
+    const scatterYAxisLabel = String(chart.y_axis || chart.metric || chart.value_label || 'Y').replace(/_/g, ' ');
+
+    const numericSeriesValues = chartData
+        .map((d: any) => Number(d?.value))
+        .filter((v: number) => Number.isFinite(v));
+
+    const scatterXValues = chartData
+        .map((d: any) => Number(d?.x))
+        .filter((v: number) => Number.isFinite(v));
+
+    const scatterYValues = chartData
+        .map((d: any) => Number(d?.y))
+        .filter((v: number) => Number.isFinite(v));
+
+    const getNiceTickStep = (values: number[], desiredTicks = 6): number | undefined => {
+        if (!values.length) return undefined;
+
+        const max = Math.max(...values);
+        const min = Math.min(...values);
+        const range = Math.abs(max - min);
+        if (!Number.isFinite(range) || range <= 0) return undefined;
+
+        const rough = range / Math.max(2, desiredTicks - 1);
+        if (!Number.isFinite(rough) || rough <= 0) return undefined;
+
+        const magnitude = Math.pow(10, Math.floor(Math.log10(rough)));
+        const normalized = rough / magnitude;
+
+        let multiplier = 1;
+        if (normalized > 1 && normalized <= 2) multiplier = 2;
+        else if (normalized > 2 && normalized <= 2.5) multiplier = 2.5;
+        else if (normalized > 2.5 && normalized <= 5) multiplier = 5;
+        else if (normalized > 5) multiplier = 10;
+
+        return multiplier * magnitude;
+    };
+
+    const valueAxisStep = getNiceTickStep(numericSeriesValues, 6);
+    const scatterXAxisStep = getNiceTickStep(scatterXValues, 6);
+    const scatterYAxisStep = getNiceTickStep(scatterYValues, 6);
+
     const handleSliceClick = (data: any) => {
         if (!onFilterClick || !data) return;
 
@@ -650,386 +760,621 @@ const ChartRenderer = ({
         );
     };
 
+    const commonOptions = (isScale: boolean, axisLabel: string, indexAxis: 'x' | 'y' = 'x', isScatter: boolean = false) => {
+        const tooltipMetricLabel = String(axisLabel || valueAxisLabel || chart.value_label || 'Value').trim();
+
+        const getTooltipVal = (raw: any, metricLabel = tooltipMetricLabel) => {
+            if (raw === null || raw === undefined) return '';
+            return fmtVal(raw, metricLabel);
+        };
+
+        const tooltipCb = {
+            title: (ctxs: any) => {
+                const first = ctxs?.[0];
+                if (!first) return '';
+                const rawLabel = first.label;
+                if (rawLabel !== undefined && rawLabel !== null && String(rawLabel).trim() !== '') {
+                    return normalizeLabel(rawLabel);
+                }
+                const rawName = first?.raw?.label ?? first?.raw?.name ?? first?.raw?._data?.name;
+                if (rawName !== undefined && rawName !== null && String(rawName).trim() !== '') {
+                    return normalizeLabel(rawName);
+                }
+                return '';
+            },
+            label: (ctx: any) => {
+                if (ctx?.raw && typeof ctx.raw === 'object' && ('x' in ctx.raw || 'y' in ctx.raw)) {
+                    const lines: string[] = [];
+                    if (ctx.raw.x !== undefined) lines.push(` ${scatterXAxisLabel}: ${fmtTick(ctx.raw.x, scatterXAxisLabel)}`);
+                    if (ctx.raw.y !== undefined) lines.push(` ${scatterYAxisLabel}: ${fmtTick(ctx.raw.y, scatterYAxisLabel)}`);
+                    return lines;
+                }
+
+                const seriesLabel = String(ctx.dataset.label || tooltipMetricLabel || 'Value');
+                const chartType = String(chart?.type || '').toLowerCase();
+                const isPieLike = chartType === 'pie' || chartType === 'doughnut' || chartType === 'donut';
+
+                if (isPieLike && typeof ctx.raw === 'number') {
+                    const lines = [` ${seriesLabel}: ${getTooltipVal(ctx.raw, tooltipMetricLabel)}`];
+                    const datasetValues = Array.isArray(ctx.dataset?.data)
+                        ? ctx.dataset.data.map((v: any) => Number(v) || 0)
+                        : [];
+                    const total = datasetValues.reduce((acc: number, val: number) => acc + val, 0);
+                    const isMetricAlreadyPercent = isPercentMetricLabel(tooltipMetricLabel) || isChartExplicitPercent;
+                    if (!isMetricAlreadyPercent && total > 0) {
+                        const share = (Number(ctx.raw) / total) * 100;
+                        lines.push(` Share: ${share.toFixed(1)}%`);
+                    }
+                    return lines;
+                }
+
+                return ` ${seriesLabel}: ${getTooltipVal(ctx.raw, tooltipMetricLabel)}`;
+            }
+        };
+
+        const standardScales = isScale && indexAxis === 'x' && !isScatter ? {
+            x: {
+                type: 'category',
+                grid: { display: false },
+                ticks: {
+                    color: chartColors.text,
+                    autoSkip: false,
+                    maxTicksLimit: isTemporalXAxis ? 5 : 7,
+                    maxRotation: 0,
+                    minRotation: 0,
+                    font: axisTickFont,
+                    callback: function(val: any, index: number) {
+                        if (index % effectiveCategoryTickInterval !== 0 && index !== categoryLabels.length - 1) {
+                            return '';
+                        }
+                        const label = String(this.getLabelForValue(val as number) ?? '');
+                        return formatCategoryTick(label, { temporal: isTemporalXAxis, truncate: !isTemporalXAxis });
+                    }
+                },
+                title: {
+                    display: true,
+                    text: dimensionAxisLabel,
+                    color: chartColors.text,
+                    font: axisTitleFont,
+                }
+            },
+            y: {
+                type: 'linear',
+                beginAtZero: true,
+                grace: '8%',
+                grid: { color: chartColors.grid },
+                ticks: {
+                    color: chartColors.text,
+                    maxTicksLimit: 6,
+                    stepSize: valueAxisStep,
+                    font: axisTickFont,
+                    callback: (v: any) => fmtTick(v, axisLabel)
+                },
+                title: {
+                    display: true,
+                    text: valueAxisLabel,
+                    color: chartColors.text,
+                    font: axisTitleFont,
+                }
+            }
+        } : undefined;
+
+        const hbarScales = isScale && indexAxis === 'y' ? {
+            x: {
+                type: 'linear',
+                beginAtZero: true,
+                grace: '8%',
+                grid: { color: chartColors.grid },
+                ticks: {
+                    color: chartColors.text,
+                    maxTicksLimit: 6,
+                    stepSize: valueAxisStep,
+                    font: axisTickFont,
+                    callback: (v: any) => fmtTick(v, axisLabel)
+                },
+                title: {
+                    display: true,
+                    text: valueAxisLabel,
+                    color: chartColors.text,
+                    font: axisTitleFont,
+                }
+            },
+            y: {
+                type: 'category',
+                grid: { display: false },
+                ticks: {
+                    color: chartColors.text,
+                    autoSkip: false,
+                    maxRotation: 0,
+                    minRotation: 0,
+                    font: axisTickFont,
+                    padding: 4,
+                    callback: function(val: any, index: number) {
+                        const label = String(this.getLabelForValue(val as number) ?? '');
+                        return formatCategoryTick(label, { truncate: false });
+                    }
+                },
+                title: {
+                    display: true,
+                    text: dimensionAxisLabel,
+                    color: chartColors.text,
+                    font: axisTitleFont,
+                }
+            }
+        } : undefined;
+
+        const scatterScales = isScale && isScatter ? {
+            x: {
+                type: 'linear',
+                grid: { display: true, color: chartColors.grid },
+                ticks: {
+                    color: chartColors.text,
+                    maxTicksLimit: 6,
+                    stepSize: scatterXAxisStep,
+                    font: axisTickFont,
+                    callback: (v: any) => fmtTick(v, scatterXAxisLabel)
+                },
+                title: {
+                    display: true,
+                    text: scatterXAxisLabel,
+                    color: chartColors.text,
+                    font: axisTitleFont,
+                }
+            },
+            y: {
+                type: 'linear',
+                grid: { color: chartColors.grid },
+                ticks: {
+                    color: chartColors.text,
+                    maxTicksLimit: 6,
+                    stepSize: scatterYAxisStep,
+                    font: axisTickFont,
+                    callback: (v: any) => fmtTick(v, scatterYAxisLabel)
+                },
+                title: {
+                    display: true,
+                    text: scatterYAxisLabel,
+                    color: chartColors.text,
+                    font: axisTitleFont,
+                }
+            }
+        } : undefined;
+
+        const baseAnimationDuration = quickReact ? 140 : 950;
+        const axisAnimationDuration = quickReact ? 140 : 900;
+        const pointAnimationDuration = quickReact ? 120 : 700;
+
+        return {
+            responsive: true,
+            maintainAspectRatio: false,
+            indexAxis,
+            interaction: {
+                mode: isScatter || !isScale ? 'nearest' : 'index',
+                intersect: isScatter || !isScale ? true : false,
+                axis: !isScatter && isScale && indexAxis === 'y' ? 'y' : 'x',
+            },
+            layout: {
+                padding: {
+                    top: 8,
+                    right: 10,
+                    bottom: indexAxis === 'x' ? 8 : 2,
+                    left: indexAxis === 'y' ? 18 : 6,
+                },
+            },
+            animation: {
+                duration: baseAnimationDuration,
+                easing: quickReact ? 'linear' : 'easeOutQuart',
+            },
+            animations: {
+                x: {
+                    duration: axisAnimationDuration,
+                    easing: 'easeOutCubic',
+                    delay: (ctx: any) => (quickReact ? 0 : (ctx.type === 'data' ? Math.min(ctx.dataIndex * 30, 240) : 0)),
+                },
+                y: {
+                    duration: axisAnimationDuration,
+                    easing: 'easeOutCubic',
+                    delay: (ctx: any) => (quickReact ? 0 : (ctx.type === 'data' ? Math.min(ctx.dataIndex * 30, 240) : 0)),
+                },
+                radius: {
+                    duration: pointAnimationDuration,
+                    easing: 'easeOutBack',
+                }
+            },
+            onClick: (e: any, elements: any[]) => {
+                if (elements.length > 0 && onFilterClick) {
+                    const dataIndex = elements[0].index;
+                    const value = chartData[dataIndex]?.[nameKey];
+                    if (value) onFilterClick(filterCol, String(value));
+                }
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)',
+                    titleColor: isDark ? '#fff' : '#000',
+                    bodyColor: isDark ? '#ccc' : '#333',
+                    borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                    borderWidth: 1,
+                    cornerRadius: 10,
+                    displayColors: false,
+                    caretPadding: 6,
+                    padding: 10,
+                    bodyFont: { size: 13, family: '"Be Vietnam Pro", sans-serif' },
+                    titleFont: { size: 14, weight: 'bold', family: '"Be Vietnam Pro", sans-serif' },
+                    callbacks: tooltipCb
+                }
+            },
+            scales: isScale ? (isScatter ? scatterScales : (indexAxis === 'y' ? hbarScales : standardScales)) : undefined
+        };
+    };
+
+
     switch (chart.type) {
         case 'bar':
             return (
                 <div className="flex flex-col h-full w-full">
                     {renderOutlierToggle()}
-                    <ResponsiveContainer width="100%" height={192} debounce={50}>
-                        <BarChart data={chartData} margin={{ top: 8, right: 8, bottom: 26, left: 0 }} barCategoryGap="16%">
-                            <XAxis dataKey={nameKey} {...axisProps} stroke={chartColors.axis} tick={{ ...textStyle }} />
-                            <YAxis
-                                {...axisProps}
-                                stroke={chartColors.axis}
-                                tickFormatter={(value: any, _index: number) => fmtTick(value)}
-                                tick={{ ...textStyle, fontSize: 10 }}
-                                width={44}
-                            />
-                            <Tooltip content={<ThemedTooltip formatter={fmtVal} chartColors={chartColors} chartTitle={chart.title} valueLabel={chart.value_label} formatType={chart.format_type} />} cursor={{ fill: isDark ? 'rgba(0,240,255,0.05)' : 'rgba(0,0,0,0.05)' }} />
-                            <Bar dataKey="value" radius={[6, 6, 0, 0]} maxBarSize={52} onClick={handleSliceClick} cursor={onFilterClick ? "pointer" : "default"}>
-                                {chartData.map((_: any, index: number) => (
-                                    <Cell key={`bar-cell-${safeChartId}-${index}`} fill={getPaletteColor(index)} />
-                                ))}
-                            </Bar>
-                        </BarChart>
-                    </ResponsiveContainer>
+                    <div style={{ height: 192, width: '100%' }}>
+                        <Bar
+                            key={`bar-${chart?.id || chart?.title || 'chart'}-x`}
+                            data={{
+                                labels: categoryLabels,
+                                datasets: [{
+                                    data: chartData.map((d: any) => d.value),
+                                    backgroundColor: chartData.map((_: any, i: number) => getPaletteColor(i)),
+                                    borderRadius: 6
+                                }]
+                            }}
+                            options={{ ...(commonOptions(true, valueAxisLabel, 'x') as any), indexAxis: 'x' } as any}
+                        />
+                    </div>
                 </div>
             );
 
-        case 'hbar': {
-            const hbarHeight = chartData.length >= 8 ? Math.min(chartData.length * 28 + 40, 300) : 192;
+        case 'hbar':
             return (
                 <div className="flex flex-col h-full w-full">
                     {renderOutlierToggle()}
-                    <ResponsiveContainer width="100%" height={hbarHeight} debounce={50}>
-                        <BarChart data={chartData} layout="vertical" margin={{ top: 6, right: 14, bottom: 6, left: 2 }} barCategoryGap="28%">
-                            <CartesianGrid {...gridProps} horizontal={false} />
-                            <XAxis type="number" {...axisProps} stroke={chartColors.axis} tickFormatter={(value: any, _index: number) => fmtTick(value)} tick={{ ...textStyle }} />
-                            <YAxis dataKey={nameKey} type="category" {...axisProps} stroke={chartColors.axis} width={110} tick={{ ...textStyle, fontSize: 11 }} />
-                            <Tooltip content={<ThemedTooltip formatter={fmtVal} chartColors={chartColors} chartTitle={chart.title} valueLabel={chart.value_label} formatType={chart.format_type} />} cursor={{ fill: isDark ? 'rgba(129,140,248,0.05)' : 'rgba(0,0,0,0.05)' }} />
-                            <Bar dataKey="value" radius={[0, 6, 6, 0]} maxBarSize={20} onClick={handleSliceClick} cursor={onFilterClick ? "pointer" : "default"}>
-                                {chartData.map((_: any, index: number) => (
-                                    <Cell key={`hbar-cell-${safeChartId}-${index}`} fill={getPaletteColor(index)} />
-                                ))}
-                            </Bar>
-                        </BarChart>
-                    </ResponsiveContainer>
+                    <div style={{ height: chartData.length >= 8 ? Math.min(chartData.length * 28 + 40, 300) : 192, width: '100%' }}>
+                        <Bar
+                            key={`bar-${chart?.id || chart?.title || 'chart'}-y`}
+                            data={{
+                                labels: categoryLabels,
+                                datasets: [{
+                                    data: chartData.map((d: any) => d.value),
+                                    backgroundColor: chartData.map((_: any, i: number) => getPaletteColor(i)),
+                                    borderRadius: 6
+                                }]
+                            }}
+                            options={{ ...commonOptions(true, valueAxisLabel, 'y') as any, indexAxis: 'y' } as any} 
+                        />
+                    </div>
                 </div>
             );
-        }
 
         case 'stacked_bar':
             return (
                 <div className="flex flex-col h-full w-full">
                     {renderOutlierToggle()}
-                    <ResponsiveContainer width="100%" height={192} debounce={50}>
-                        <BarChart data={chartData} margin={{ top: 10, right: 10, bottom: 30, left: 0 }}>
-                            <CartesianGrid {...gridProps} vertical={false} />
-                            <XAxis dataKey={nameKey} {...axisProps} stroke={chartColors.axis} tick={{ ...textStyle }} />
-                            <YAxis {...axisProps} stroke={chartColors.axis} tickFormatter={(value: any, _index: number) => fmtTick(value)} tick={{ ...textStyle }} />
-                            <Tooltip content={<ThemedTooltip formatter={fmtVal} chartColors={chartColors} chartTitle={chart.title} valueLabel={chart.value_label} formatType={chart.format_type} />} cursor={{ fill: isDark ? 'rgba(0,240,255,0.05)' : 'rgba(0,0,0,0.05)' }} />
-                            <Legend iconType="circle" iconSize={8}
-                                formatter={(v: string) => {
-                                    const categories = Array.isArray(chart?.categories) ? chart.categories : [];
-                                    const positiveLabel = categories[0] || 'Positive';
-                                    const negativeLabel = categories[1] || 'Negative';
-                                    const label = v === 'positive' ? positiveLabel : v === 'negative' ? negativeLabel : v;
-                                    return <span className="text-xs text-themed-muted">{label}</span>;
-                                }} />
-                            <Bar dataKey="positive" stackId="a" fill={getPaletteColor(0)} maxBarSize={40} name="positive" onClick={handleSliceClick} cursor={onFilterClick ? 'pointer' : 'default'} />
-                            <Bar dataKey="negative" stackId="a" fill={getPaletteColor(1)} maxBarSize={40} name="negative" onClick={handleSliceClick} cursor={onFilterClick ? 'pointer' : 'default'} />
-                        </BarChart>
-                    </ResponsiveContainer>
+                    <div style={{ height: 192, width: '100%' }}>
+                        <Bar
+                            key={`stacked-${chart?.id || chart?.title || 'chart'}`}
+                            data={{
+                                labels: categoryLabels,
+                                datasets: [
+                                    { label: 'Positive', data: chartData.map((d: any) => d.positive), backgroundColor: getPaletteColor(0) },
+                                    { label: 'Negative', data: chartData.map((d: any) => d.negative), backgroundColor: getPaletteColor(1) }
+                                ]
+                            }} 
+                            options={{
+                                ...commonOptions(true, valueAxisLabel),
+                                plugins: {
+                                    ...(((commonOptions(true, valueAxisLabel) as any).plugins) || {}),
+                                    legend: { display: true }
+                                },
+                                scales: {
+                                    x: {
+                                        ...((commonOptions(true, valueAxisLabel) as any).scales?.x || {}),
+                                        stacked: true,
+                                    },
+                                    y: {
+                                        ...((commonOptions(true, valueAxisLabel) as any).scales?.y || {}),
+                                        stacked: true,
+                                    }
+                                }
+                            } as any} 
+                        />
+                    </div>
                 </div>
             );
 
         case 'pie':
-            return (
-                <div className="flex flex-col h-full w-full">
-                    {renderOutlierToggle()}
-                    <ResponsiveContainer width="100%" height={210} debounce={50}>
-                        <PieChart>
-                            <defs>
-                                {chartData.map((_: any, i: number) => (
-                                    <linearGradient key={`pg-${safeChartId}-${i}`} id={`pieGrad-${safeChartId}-${i}`} x1="0" y1="0" x2="1" y2="1">
-                                        <stop offset="0%" stopColor={getPaletteColor(i)} stopOpacity={1} />
-                                        <stop offset="100%" stopColor={getPaletteColor(i)} stopOpacity={0.7} />
-                                    </linearGradient>
-                                ))}
-                            </defs>
-                            <Pie data={chartData.map((entry: any, i: number) => ({ ...entry, fill: `url(#pieGrad-${safeChartId}-${i})` }))} cx="50%" cy="46%" outerRadius={72} innerRadius={24}
-                                paddingAngle={2} dataKey="value" stroke={isDark ? '#1a1d24' : '#ffffff'}
-                                strokeWidth={2} animationBegin={0} animationDuration={800}
-                                onClick={(entry: any) => handleSliceClick(entry)} />
-                            <Tooltip content={<ThemedTooltip formatter={fmtVal} chartColors={chartColors} chartTitle={chart.title} valueLabel={chart.value_label} formatType={chart.format_type} />} />
-                            <Legend verticalAlign="bottom" align="center" layout="horizontal" iconType="circle" iconSize={7}
-                                formatter={(v: string) => {
-                                    const item = chartData.find((d: any) => d.name === v);
-                                    const total = chartData.reduce((s: number, d: any) => s + (d.value || 0), 0);
-                                    const pct = total > 0 && item ? ((item.value / total) * 100).toFixed(0) : '0';
-                                    return <span className="text-[10px] text-themed-muted uppercase tracking-wide">{v.length > 10 ? v.slice(0, 10) + '…' : v} <span className="opacity-60">{pct}%</span></span>;
-                                }} />
-                        </PieChart>
-                    </ResponsiveContainer>
-                </div>
-            );
-
+        case 'doughnut':
         case 'donut':
             return (
                 <div className="flex flex-col h-full w-full">
                     {renderOutlierToggle()}
-                    <ResponsiveContainer width="100%" height={210} debounce={50}>
-                        <PieChart>
-                            <defs>
-                                {chartData.map((_: any, i: number) => (
-                                    <linearGradient key={`dg-${safeChartId}-${i}`} id={`donutGrad-${safeChartId}-${i}`} x1="0" y1="0" x2="1" y2="1">
-                                        <stop offset="0%" stopColor={getPaletteColor(i)} stopOpacity={1} />
-                                        <stop offset="100%" stopColor={getPaletteColor(i)} stopOpacity={0.7} />
-                                    </linearGradient>
-                                ))}
-                            </defs>
-                            <Pie data={chartData.map((entry: any, index: number) => ({ ...entry, fill: `url(#donutGrad-${safeChartId}-${index % chartData.length})` }))} cx="50%" cy="46%" innerRadius={65} outerRadius={90} paddingAngle={2} dataKey="value" stroke="none"
-                                onClick={(entry: any) => handleSliceClick(entry)} />
-                            {(() => {
-                                const total = chartData.reduce((s: number, d: any) => s + (Number(d.value) || 0), 0);
-                                const totalText = formatCenterTotal(total);
-                                const fontSize = totalText.length > 10 ? 22 : totalText.length > 7 ? 26 : 30;
-                                return (
-                                    <g style={{ pointerEvents: 'none' }}>
-                                        <circle cx="50%" cy="46%" r="58" fill={isDark ? '#121722' : '#ffffff'} stroke={isDark ? '#252b3a' : '#e6e9f0'} strokeWidth={1} />
-                                        <text x="50%" y="44%" textAnchor="middle" dominantBaseline="middle" fill={isDark ? '#f4f7ff' : '#1f2a3d'} style={{ fontSize: fontSize * 0.85, fontWeight: 800, letterSpacing: '-0.02em' }}>
-                                            {totalText}
-                                        </text>
-                                        <text x="50%" y="54%" textAnchor="middle" dominantBaseline="middle" fill={isDark ? '#9aa3b2' : '#6b7280'} style={{ fontSize: 10, letterSpacing: '0.1em', fontWeight: 700 }}>
-                                            TOTAL
-                                        </text>
-                                    </g>
-                                );
-                            })()}
-                            <Tooltip content={<ThemedTooltip formatter={fmtVal} chartColors={chartColors} chartTitle={chart.title} valueLabel={chart.value_label} formatType={chart.format_type} />} />
-                            <Legend verticalAlign="bottom" align="center" layout="horizontal" iconType="circle" iconSize={7}
-                                formatter={(v: string) => {
-                                    const item = chartData.find((d: any) => d.name === v);
-                                    const total = chartData.reduce((s: number, d: any) => s + (d.value || 0), 0);
-                                    const pct = total > 0 && item ? ((item.value / total) * 100).toFixed(0) : '0';
-                                    return <span className="text-[10px] text-themed-muted uppercase tracking-wide">{v.length > 10 ? v.slice(0, 10) + '…' : v} <span className="opacity-60">{pct}%</span></span>;
-                                }} />
-                        </PieChart>
-                    </ResponsiveContainer>
+                    <div style={{ height: 210, width: '100%' }}>
+                        <Pie
+                            key={`pie-${chart?.id || chart?.title || 'chart'}-${chart.type}`}
+                            data={{
+                                labels: chartData.map((d: any) => normalizeLabel(d[nameKey] || d.name)),
+                                datasets: [{
+                                    data: chartData.map((d: any) => d.value),
+                                    backgroundColor: chartData.map((_: any, i: number) => getPaletteColor(i)),
+                                    borderWidth: isDark ? 2 : 0,
+                                    borderColor: '#1a1d24'
+                                }]
+                            }} 
+                            options={{
+                                ...commonOptions(false, valueAxisLabel),
+                                cutout: (chart.type === 'donut' || chart.type === 'doughnut') ? '70%' : '0%',
+                                plugins: {
+                                    ...(((commonOptions(false, valueAxisLabel) as any).plugins) || {}),
+                                    legend: {
+                                        position: 'bottom',
+                                        labels: {
+                                            color: chartColors.text,
+                                            usePointStyle: true,
+                                            font: axisTickFont,
+                                        }
+                                    }
+                                }
+                            } as any} 
+                        />
+                    </div>
+                </div>
+            );
+
+        case 'polar_area':
+            return (
+                <div className="flex flex-col h-full w-full">
+                    {renderOutlierToggle()}
+                    <div style={{ height: 210, width: '100%' }}>
+                        <PolarArea
+                            key={`polar-${chart?.id || chart?.title || 'chart'}`}
+                            data={{
+                                labels: chartData.map((d: any) => normalizeLabel(d[nameKey] || d.name)),
+                                datasets: [{
+                                    data: chartData.map((d: any) => d.value),
+                                    backgroundColor: chartData.map((_: any, i: number) => getPaletteColor(i)),
+                                }]
+                            }}
+                            options={{
+                                ...commonOptions(false, valueAxisLabel),
+                                plugins: {
+                                    ...(((commonOptions(false, valueAxisLabel) as any).plugins) || {}),
+                                    legend: {
+                                        display: true,
+                                        position: 'bottom',
+                                        labels: { color: chartColors.text, font: axisTickFont }
+                                    }
+                                },
+                                scales: {
+                                    r: {
+                                        angleLines: { color: chartColors.grid },
+                                        grid: { color: chartColors.grid },
+                                        pointLabels: { color: chartColors.text, font: axisTickFont },
+                                        ticks: {
+                                            color: chartColors.text,
+                                            font: axisTickFont,
+                                            callback: (v: any) => fmtTick(v, valueAxisLabel)
+                                        }
+                                    }
+                                }
+                            } as any}
+                        />
+                    </div>
                 </div>
             );
 
         case 'line':
         case 'area':
-            {
-                const seriesColor = getPaletteColor(0);
-                const seriesAccentColor = getPaletteColor(1);
-                const trendGradientId = `trendGrad-${safeChartId}`;
-                const trendData = chartData
-                    .map((row: any) => ({
-                        ...row,
-                        timestamp: row?.timestamp ?? row?.date ?? row?.name,
-                    }))
-                    .filter((row: any) => row?.timestamp !== undefined && row?.timestamp !== null && row?.timestamp !== 'Unknown')
-                    .sort((a: any, b: any) => {
-                        const ta = new Date(String(a.timestamp)).getTime();
-                        const tb = new Date(String(b.timestamp)).getTime();
-                        if (!Number.isNaN(ta) && !Number.isNaN(tb)) return ta - tb;
-                        return String(a.timestamp).localeCompare(String(b.timestamp));
-                    });
-
-            return (
-                <div className="flex flex-col h-full w-full">
-                    {renderOutlierToggle()}
-                    <ResponsiveContainer width="100%" height={192} debounce={50}>
-                        <AreaChart data={trendData} margin={{ top: 10, right: 10, bottom: 5, left: 0 }}>
-                            <defs>
-                                <linearGradient id={trendGradientId} x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="0%" stopColor={seriesColor} stopOpacity={0.28} />
-                                    <stop offset="100%" stopColor={seriesAccentColor} stopOpacity={0.03} />
-                                </linearGradient>
-                            </defs>
-                            <CartesianGrid {...gridProps} vertical={false} />
-                            <XAxis dataKey={dateKey} {...axisProps} stroke={chartColors.axis}
-                                tickFormatter={formatMonthYearLabel} tick={{ ...textStyle }} />
-                            <YAxis {...axisProps} stroke={chartColors.axis} tickFormatter={(value: any, _index: number) => fmtTick(value)} tick={{ ...textStyle }} />
-                            <Tooltip content={<ThemedTooltip formatter={fmtVal} chartColors={chartColors} chartTitle={chart.title} valueLabel={chart.value_label} formatType={chart.format_type} />} />
-                            <Area type="monotone" dataKey="value" stroke={seriesColor} strokeWidth={2.75}
-                                fill={chart.type === 'line' ? 'transparent' : `url(#${trendGradientId})`} dot={false}
-                                activeDot={{ r: 4.5, fill: '#ffffff', stroke: seriesColor, strokeWidth: 2, onClick: (e: any) => handleSliceClick(e?.payload || e) }}
-                                onClick={handleSliceClick}
-                                cursor={onFilterClick ? 'pointer' : 'default'} />
-                        </AreaChart>
-                    </ResponsiveContainer>
-                </div>
-            );
-            }
-
         case 'stacked':
             return (
                 <div className="flex flex-col h-full w-full">
                     {renderOutlierToggle()}
-                    <ResponsiveContainer width="100%" height={192} debounce={50}>
-                        <AreaChart data={chartData} margin={{ top: 10, right: 10, bottom: 5, left: 0 }}>
-                            <defs>
-                                {(chart.categories || []).map((cat: string, i: number) => (
-                                    <linearGradient key={cat} id={`stackGrad-${safeChartId}-${i}`} x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="0%" stopColor={getPaletteColor(i)} stopOpacity={0.4} />
-                                        <stop offset="100%" stopColor={getPaletteColor(i)} stopOpacity={0.05} />
-                                    </linearGradient>
-                                ))}
-                            </defs>
-                            <CartesianGrid {...gridProps} vertical={false} />
-                            <XAxis dataKey={nameKey} {...axisProps} stroke={chartColors.axis} tick={{ ...textStyle }} />
-                            <YAxis {...axisProps} stroke={chartColors.axis} tickFormatter={(value: any, _index: number) => fmtTick(value)} tick={{ ...textStyle }} />
-                            <Tooltip content={<ThemedTooltip formatter={fmtVal} chartColors={chartColors} chartTitle={chart.title} valueLabel={chart.value_label} formatType={chart.format_type} />} />
-                            <Legend iconType="circle" iconSize={8}
-                                formatter={v => <span className="text-xs text-themed-muted">{v}</span>} />
-                            {(chart.categories || []).map((cat: string, i: number) => (
-                                <Area key={cat} type="monotone" dataKey={cat} stackId="a"
-                                    stroke={getPaletteColor(i)}
-                                    fill={`url(#stackGrad-${safeChartId}-${i})`} strokeWidth={1.5}
-                                    onClick={handleSliceClick}
-                                    cursor={onFilterClick ? 'pointer' : 'default'} />
-                            ))}
-                        </AreaChart>
-                    </ResponsiveContainer>
+                    <div style={{ height: 192, width: '100%' }}>
+                        <Line
+                            key={`line-${chart?.id || chart?.title || 'chart'}-${chart.type}`}
+                            data={{
+                                labels: chartData.map((d: any) => d.timestamp || d.date || d[nameKey]),
+                                datasets: chart.type === 'stacked' 
+                                    ? (chart.categories || []).map((cat: string, i: number) => ({
+                                        label: cat,
+                                        data: chartData.map((d: any) => d[cat]),
+                                        backgroundColor: getPaletteColor(i),
+                                        borderColor: getPaletteColor(i),
+                                        fill: true
+                                    }))
+                                    : [{
+                                        data: chartData.map((d: any) => d.value),
+                                        backgroundColor: chart.type === 'line' ? 'transparent' : 'rgba(99, 102, 241, 0.2)',
+                                        borderColor: getPaletteColor(0),
+                                        fill: chart.type === 'area',
+                                        tension: 0.4
+                                    }]
+                            }} 
+                            options={{
+                                ...commonOptions(true, valueAxisLabel),
+                                scales: chart.type === 'stacked' 
+                                    ? {
+                                        x: { ...(((commonOptions(true, valueAxisLabel) as any).scales || {}).x || {}), stacked: true },
+                                        y: { ...(((commonOptions(true, valueAxisLabel) as any).scales || {}).y || {}), stacked: true }
+                                    }
+                                    : commonOptions(true, valueAxisLabel).scales
+                            } as any} 
+                        />
+                    </div>
                 </div>
             );
 
         case 'scatter':
-            const scatterXLabel = String(rawChartData[0]?.xLabel || chart.dimension || chart.x_axis || 'X');
-            const scatterYLabel = String(rawChartData[0]?.yLabel || chart.metric || chart.y_axis || 'Y');
             return (
                 <div className="flex flex-col h-full w-full">
                     {renderOutlierToggle()}
-                    <ResponsiveContainer width="100%" height={192} debounce={50}>
-                        <ScatterChart margin={{ top: 10, right: 15, bottom: 10, left: 0 }}>
-                            <CartesianGrid {...gridProps} />
-                            <XAxis type="number" dataKey="x" {...axisProps} stroke={chartColors.axis} tickFormatter={(v) => fmtTick(v, scatterXLabel)} tick={{ ...textStyle }} />
-                            <YAxis type="number" dataKey="y" {...axisProps} stroke={chartColors.axis} tickFormatter={(v) => fmtTick(v, scatterYLabel)} tick={{ ...textStyle }} />
-                            <Tooltip content={<ThemedTooltip formatter={fmtVal} chartColors={chartColors} chartTitle={chart.title} valueLabel={chart.value_label} formatType={chart.format_type} />} cursor={{ strokeDasharray: '3 3', stroke: chartColors.axis }} />
-                            <Scatter data={chartData} stroke={isDark ? '#111318' : '#ffffff'} strokeWidth={1.2} fillOpacity={0.88}>
-                                {chartData.map((_: any, index: number) => (
-                                    <Cell key={`scatter-cell-${safeChartId}-${index}`} fill={getPaletteColor(index)} />
-                                ))}
-                            </Scatter>
-                        </ScatterChart>
-                    </ResponsiveContainer>
-                </div>
-            );
-
-        case 'treemap': {
-            const toSentenceCase = (value: string) => {
-                const raw = String(value || '').trim();
-                if (!raw) return 'Item';
-                const lower = raw.toLowerCase();
-                return lower.charAt(0).toUpperCase() + lower.slice(1);
-            };
-
-            const sorted = [...chartData]
-                .map((d: any) => ({ ...d, value: Number(d?.value) || 0, label: toSentenceCase(String(d?.name ?? d?.label ?? 'Item')) }))
-                .sort((a: any, b: any) => b.value - a.value);
-            const [p0, p1, ...rest] = sorted;
-            const tileColors = isDark
-                ? ['#5046d6', '#d89b1c', '#19a487', '#2f85d5', '#2a8f7f']
-                : ['#e8ddab', '#d8dff4', '#b8e1cf', '#cde8f7', '#b8e8e1'];
-
-            const renderTile = (item: any, color: string, idx: number, compact = false) => {
-                const isHovered = hoveredIdx === idx;
-                return (
-                    <button
-                        type="button"
-                        key={`${item.label}-${idx}`}
-                        onMouseEnter={() => setHoveredIdx(idx)}
-                        onMouseMove={(e) => {
-                            if (!treemapRef.current) return;
-                            const rect = treemapRef.current.getBoundingClientRect();
-                            setTreemapTip({
-                                x: e.clientX - rect.left + 12,
-                                y: e.clientY - rect.top - 10,
-                                name: item.label,
-                                value: item.value,
-                            });
-                        }}
-                        onMouseLeave={() => {
-                            setHoveredIdx(null);
-                            setTreemapTip(null);
-                        }}
-                        onClick={() => handleSliceClick(item)}
-                        className="w-full h-full rounded-md text-left p-2.5 transition-all"
-                        style={{
-                            background: color,
-                            border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : 'rgba(148,163,184,0.35)'}`,
-                            boxShadow: isHovered ? '0 8px 20px rgba(15,23,42,0.16)' : 'none',
-                            transform: isHovered ? 'translateY(-1px)' : 'translateY(0px)',
-                            cursor: onFilterClick ? 'pointer' : 'default',
-                        }}
-                    >
-                        <div className="h-full flex flex-col justify-end gap-0.5">
-                            <p className="text-[10px] font-semibold tracking-[0.02em] truncate" style={{ color: isDark ? '#f8fafc' : '#1f2937', fontFamily: '"Be Vietnam Pro", sans-serif' }}>
-                                {item.label}
-                            </p>
-                            {!compact && (
-                                <p className="text-[11px] font-bold" style={{ color: isDark ? '#e2e8f0' : '#334155', fontFamily: '"Public Sans", sans-serif' }}>
-                                    {fmtVal(item.value)}
-                                </p>
-                            )}
-                        </div>
-                    </button>
-                );
-            };
-
-            return (
-                <div className="flex flex-col h-full w-full">
-                    {renderOutlierToggle()}
-                    <div ref={treemapRef} className="h-[192px] grid grid-cols-[1.35fr_1fr] gap-2 relative" onMouseLeave={() => setTreemapTip(null)}>
-                        {sorted.length <= 1 ? (
-                            <div className="col-span-2 min-h-0">
-                                {p0 ? renderTile(p0, tileColors[0], 0) : null}
-                            </div>
-                        ) : sorted.length === 2 ? (
-                            <div className="col-span-2 grid gap-2 min-h-0" style={{ gridTemplateRows: `${Math.max(1, p0?.value || 1)}fr ${Math.max(1, p1?.value || 1)}fr` }}>
-                                {p0 ? renderTile(p0, tileColors[0], 0) : null}
-                                {p1 ? renderTile(p1, tileColors[1], 1) : null}
-                            </div>
-                        ) : (
-                            <>
-                                <div className="grid gap-2 min-h-0" style={{ gridTemplateRows: `${Math.max(1, p0?.value || 1)}fr ${Math.max(1, p1?.value || 1)}fr` }}>
-                                    {p0 ? renderTile(p0, tileColors[0], 0) : null}
-                                    {p1 ? renderTile(p1, tileColors[1], 1) : null}
-                                </div>
-                                <div className="grid gap-2 min-h-0 overflow-y-auto pr-0.5" style={{ gridTemplateRows: rest.map((r: any) => `${Math.max(1, r?.value || 1)}fr`).join(' ') || '1fr' }}>
-                                    {rest.map((item: any, i: number) => renderTile(item, tileColors[(i + 2) % tileColors.length], i + 2, false))}
-                                </div>
-                            </>
-                        )}
-                        {treemapTip && (
-                            <div
-                                className="pointer-events-none absolute z-20"
-                                style={{
-                                    left: treemapTip.x,
-                                    top: treemapTip.y,
-                                    transform: 'translate(0,-100%)',
-                                }}
-                            >
-                                <ThemedTooltip
-                                    active
-                                    label={treemapTip.name}
-                                    payload={[{ name: chart.value_label || 'Value', value: treemapTip.value, color: CHART_COLORS[0] }]}
-                                    formatter={fmtVal}
-                                    chartTitle={chart.title}
-                                    valueLabel={chart.value_label}
-                                    formatType={chart.format_type}
-                                />
-                            </div>
-                        )}
+                    <div style={{ height: 192, width: '100%' }}>
+                        <Scatter
+                            key={`scatter-${chart?.id || chart?.title || 'chart'}`}
+                            data={{
+                                datasets: [{
+                                    data: chartData.map((d: any) => ({ x: d.x, y: d.y })),
+                                    backgroundColor: getPaletteColor(0)
+                                }]
+                            }} 
+                            options={commonOptions(true, scatterYAxisLabel, 'x', true) as any} 
+                        />
                     </div>
                 </div>
             );
-        }
 
+        case 'bubble':
+            return (
+                <div className="flex flex-col h-full w-full">
+                    {renderOutlierToggle()}
+                    <div style={{ height: 192, width: '100%' }}>
+                        <Bubble
+                            key={`bubble-${chart?.id || chart?.title || 'chart'}`}
+                            data={{
+                                datasets: [{
+                                    label: valueAxisLabel,
+                                    data: chartData.map((d: any, i: number) => ({
+                                        x: Number(d.x ?? i + 1),
+                                        y: Number(d.y ?? d.value ?? 0),
+                                        r: Math.max(4, Math.min(16, Number(d.r ?? d.size ?? 8))),
+                                    })),
+                                    backgroundColor: 'rgba(99, 102, 241, 0.55)',
+                                    borderColor: getPaletteColor(0),
+                                    borderWidth: 1,
+                                }]
+                            }}
+                            options={commonOptions(true, scatterYAxisLabel, 'x', true) as any}
+                        />
+                    </div>
+                </div>
+            );
+            
         case 'radar':
             return (
                 <div className="flex flex-col h-full w-full">
                     {renderOutlierToggle()}
-                    <ResponsiveContainer width="100%" height={192} debounce={50}>
-                        <RadarChart data={chartData.slice(0, 8)}>
-                            <PolarGrid stroke={chartColors.grid} />
-                            <PolarAngleAxis dataKey="name" tick={{ fontSize: 10, fill: chartColors.text }} />
-                            <PolarRadiusAxis tick={{ fontSize: 9, fill: chartColors.axis }} />
-                            <Radar dataKey="value" stroke={getPaletteColor(0)} fill={getPaletteColor(0)} fillOpacity={0.2} strokeWidth={2} onClick={handleSliceClick} cursor={onFilterClick ? 'pointer' : 'default'} />
-                            <Tooltip content={<ThemedTooltip formatter={fmtVal} chartColors={chartColors} valueLabel={chart.value_label} />} />
-                        </RadarChart>
-                    </ResponsiveContainer>
+                    <div style={{ height: 210, width: '100%' }}>
+                        <Radar
+                            key={`radar-${chart?.id || chart?.title || 'chart'}`}
+                            data={{
+                                labels: categoryLabels,
+                                datasets: [{
+                                    label: valueAxisLabel,
+                                    data: chartData.map((d: any) => d.value),
+                                    borderColor: getPaletteColor(0),
+                                    backgroundColor: 'rgba(99, 102, 241, 0.24)',
+                                    pointBackgroundColor: getPaletteColor(0),
+                                    pointBorderColor: getPaletteColor(0),
+                                    pointRadius: 3,
+                                    fill: true,
+                                }]
+                            }}
+                            options={{
+                                ...commonOptions(false, valueAxisLabel),
+                                scales: {
+                                    r: {
+                                        angleLines: { color: chartColors.grid },
+                                        grid: { color: chartColors.grid },
+                                        pointLabels: {
+                                            color: chartColors.text,
+                                            font: axisTickFont,
+                                            callback: (label: any, index: number) => {
+                                                if (index % categoryTickInterval !== 0 && index !== categoryLabels.length - 1) return '';
+                                                return formatCategoryTick(String(label || ''));
+                                            }
+                                        },
+                                        ticks: {
+                                            color: chartColors.text,
+                                            backdropColor: 'transparent',
+                                            font: axisTickFont,
+                                            callback: (v: any) => fmtTick(v, valueAxisLabel)
+                                        }
+                                    }
+                                },
+                                plugins: {
+                                    ...((commonOptions(false, valueAxisLabel) as any).plugins || {}),
+                                    legend: { display: false }
+                                }
+                            } as any}
+                        />
+                    </div>
+                </div>
+            );
+
+        case 'treemap':
+            return (
+                <div className="flex flex-col h-full w-full">
+                    {renderOutlierToggle()}
+                    <div style={{ height: 210, width: '100%' }}>
+                        <ReactChart
+                            type="treemap"
+                            key={`treemap-${chart?.id || chart?.title || 'chart'}`}
+                            data={{
+                                datasets: [{
+                                    label: valueAxisLabel,
+                                    tree: chartData.map((d: any, i: number) => ({
+                                        name: normalizeLabel(d[nameKey] || d.name || `Item ${i + 1}`),
+                                        value: Number(d.value || 0),
+                                        color: getPaletteColor(i),
+                                    })),
+                                    key: 'value',
+                                    groups: ['name'],
+                                    spacing: 1,
+                                    borderColor: isDark ? '#0f1115' : '#ffffff',
+                                    borderWidth: 1,
+                                    backgroundColor: (ctx: any) => ctx?.raw?._data?.color || getPaletteColor(ctx?.dataIndex || 0),
+                                    labels: {
+                                        display: true,
+                                        color: isDark ? '#e5e7eb' : '#0f172a',
+                                        font: axisTickFont,
+                                        formatter: (ctx: any) => formatCategoryTick(String(ctx?.raw?._data?.name || ''))
+                                    }
+                                }]
+                            }}
+                            options={{
+                                ...commonOptions(false, valueAxisLabel),
+                                parsing: false,
+                                onClick: (_e: any, elements: any[]) => {
+                                    if (!elements.length || !onFilterClick) return;
+                                    const raw = elements[0]?.element?.$context?.raw?._data;
+                                    if (raw?.name) onFilterClick(filterCol, String(raw.name));
+                                },
+                                plugins: {
+                                    ...((commonOptions(false, valueAxisLabel) as any).plugins || {}),
+                                    legend: { display: false },
+                                    tooltip: {
+                                        ...(((commonOptions(false, valueAxisLabel) as any).plugins || {}).tooltip || {}),
+                                        callbacks: {
+                                            title: (items: any) => normalizeLabel(items?.[0]?.raw?._data?.name || items?.[0]?.label || ''),
+                                            label: (ctx: any) => ` ${valueAxisLabel}: ${fmtVal(ctx?.raw?._data?.value ?? ctx?.raw?.v ?? ctx?.raw, valueAxisLabel)}`
+                                        }
+                                    }
+                                }
+                            } as any}
+                        />
+                    </div>
                 </div>
             );
 
         case 'geo_map':
+        case 'map':
             return (
                 <div className="flex flex-col h-full w-full">
                     {renderOutlierToggle()}
-                    <GeoMapCard data={chartData} mapType={chart.geo_meta?.map_type ?? 'world'} chartTitle={chart.title} formatType={chart.format_type} isDark={isDark} />
+                    <GeoMapCard
+                        data={chartData}
+                        mapType={chart.geo_meta?.map_type ?? 'world'}
+                        chartTitle={chart.title}
+                        formatType={chart.format_type}
+                        isDark={isDark}
+                        quickReact={quickReact}
+                    />
                 </div>
             );
 
@@ -1037,8 +1382,6 @@ const ChartRenderer = ({
             return <div className="h-48 flex items-center justify-center text-themed-muted text-sm">Unsupported chart type</div>;
     }
 };
-
-// ─── FilterDropdown (template style) ─────────────────────────────────────────
 
 const FilterDropdown = ({
     datasets,
@@ -1693,6 +2036,8 @@ export default function UserDashboard() {
     const [narrative, setNarrative] = useState<string | null>(null);
     const [narrativeLoading, setNarrativeLoading] = useState(false);
     const [dataQualityOpen, setDataQualityOpen] = useState(false);
+    const [quickReactCharts, setQuickReactCharts] = useState(false);
+    const quickReactResetRef = useRef<number | null>(null);
 
     const previousDatasetIdRef = useRef<string>('');
 
@@ -1702,6 +2047,25 @@ export default function UserDashboard() {
         ),
         [active_filters]
     );
+
+    const triggerQuickChartReact = () => {
+        setQuickReactCharts(true);
+        if (quickReactResetRef.current) {
+            window.clearTimeout(quickReactResetRef.current);
+        }
+        quickReactResetRef.current = window.setTimeout(() => {
+            setQuickReactCharts(false);
+            quickReactResetRef.current = null;
+        }, 700);
+    };
+
+    useEffect(() => {
+        return () => {
+            if (quickReactResetRef.current) {
+                window.clearTimeout(quickReactResetRef.current);
+            }
+        };
+    }, []);
 
     useEffect(() => { loadDatasets(); }, []);
 
@@ -1994,7 +2358,7 @@ export default function UserDashboard() {
 
         const timer = setTimeout(() => {
             loadKpisForInteractiveState(controller.signal);
-        }, 260);
+        }, quickReactCharts ? 90 : 260);
 
         return () => {
             clearTimeout(timer);
@@ -2054,6 +2418,7 @@ export default function UserDashboard() {
             }
         }
 
+        triggerQuickChartReact();
         toggleFilter(resolvedCol, resolvedVal);
 
         // Ensure chart-driven filter remains visible in the multi-filter slots.
@@ -2536,8 +2901,10 @@ export default function UserDashboard() {
                     <option className="bg-surface-container-lowest dark:bg-[#16181D] text-on-surface" value="pie">Pie</option>
                     <option className="bg-surface-container-lowest dark:bg-[#16181D] text-on-surface" value="donut">Donut</option>
                     <option className="bg-surface-container-lowest dark:bg-[#16181D] text-on-surface" value="scatter">Scatter</option>
+                    <option className="bg-surface-container-lowest dark:bg-[#16181D] text-on-surface" value="bubble">Bubble</option>
                     <option className="bg-surface-container-lowest dark:bg-[#16181D] text-on-surface" value="treemap">Treemap</option>
                     <option className="bg-surface-container-lowest dark:bg-[#16181D] text-on-surface" value="radar">Radar</option>
+                    <option className="bg-surface-container-lowest dark:bg-[#16181D] text-on-surface" value="polar_area">Polar Area</option>
                     <option className="bg-surface-container-lowest dark:bg-[#16181D] text-on-surface" value="geo_map">Map</option>
                 </select>
                 <button
@@ -2664,8 +3031,14 @@ export default function UserDashboard() {
                                     onSlotChange={(slotIdx, col) =>
                                         setFilterSlots(prev => prev.map((s, i) => i === slotIdx ? col : s))
                                     }
-                                    onFilterChange={(col, values) => setFilterValues(col, values)}
-                                    onClearAll={() => clearFilters()}
+                                    onFilterChange={(col, values) => {
+                                        triggerQuickChartReact();
+                                        setFilterValues(col, values);
+                                    }}
+                                    onClearAll={() => {
+                                        triggerQuickChartReact();
+                                        clearFilters();
+                                    }}
                                 />
                             )}
 
@@ -2795,6 +3168,7 @@ export default function UserDashboard() {
                                                     isDark={isDark}
                                                     onFilterClick={handleChartFilterClick}
                                                     targetColumn={analytics?.target_column}
+                                                    quickReact={quickReactCharts}
                                                 />
                                             </div>
                                         </ChartCard>

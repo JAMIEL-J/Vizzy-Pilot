@@ -1,6 +1,6 @@
 "use client";
 
-import { CornerRightUp, Mic, Square } from "lucide-react";
+import { CornerRightUp, FileText, Mic, Square } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Textarea } from "@/components/ui/textarea";
@@ -16,6 +16,10 @@ interface AIInputProps {
   className?: string;
   disabled?: boolean;
   isLoading?: boolean;
+  contextBadge?: {
+    label?: string;
+    value: string;
+  };
 }
 
 export function AIInput({
@@ -28,10 +32,15 @@ export function AIInput({
   className,
   disabled = false,
   isLoading = false,
+  contextBadge,
 }: AIInputProps) {
+  const hasContextBadge = Boolean(contextBadge?.value);
+  const textareaMinHeight = hasContextBadge ? minHeight + 18 : minHeight;
+  const textareaMaxHeight = hasContextBadge ? maxHeight + 18 : maxHeight;
+
   const { textareaRef, adjustHeight } = useAutoResizeTextarea({
-    minHeight,
-    maxHeight,
+    minHeight: textareaMinHeight,
+    maxHeight: textareaMaxHeight,
   });
   const [inputValue, setInputValue] = useState("");
 
@@ -45,6 +54,22 @@ export function AIInput({
   return (
     <div className={cn("w-full py-4", className)}>
       <div className="relative max-w-xl w-full mx-auto">
+        {hasContextBadge && (
+          <div className="absolute top-2.5 left-4 z-10 pointer-events-none">
+            <div className="inline-flex items-center gap-1.5 rounded-lg border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 px-2 py-0.5">
+              <FileText className="w-3 h-3 text-black/60 dark:text-white/60" />
+              {contextBadge?.label && (
+                <span className="text-[9px] uppercase tracking-wide font-semibold text-black/55 dark:text-white/55">
+                  {contextBadge.label}
+                </span>
+              )}
+              <span className="text-[11px] font-medium text-black/85 dark:text-white/85 max-w-[200px] truncate">
+                {contextBadge?.value}
+              </span>
+            </div>
+          </div>
+        )}
+
         <Textarea
           id={id}
           placeholder={placeholder}
@@ -56,10 +81,11 @@ export function AIInput({
             "overflow-y-auto resize-none",
             "focus-visible:ring-0 focus-visible:ring-offset-0",
             "transition-[height] duration-100 ease-out",
-            "leading-[1.2] py-[16px]",
+            "leading-[1.25] pb-[14px]",
+            hasContextBadge ? "pt-[34px]" : "pt-[16px]",
             "[&::-webkit-resizer]:hidden"
           )}
-          style={{ minHeight: `${minHeight}px`, maxHeight: `${maxHeight}px` }}
+          style={{ minHeight: `${textareaMinHeight}px`, maxHeight: `${textareaMaxHeight}px` }}
           ref={textareaRef}
           value={inputValue}
           disabled={disabled || isLoading}
