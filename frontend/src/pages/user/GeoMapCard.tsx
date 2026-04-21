@@ -260,7 +260,7 @@ const GeoMapCard: React.FC<GeoMapCardProps> = ({ data, mapType = 'world', chartT
     }, [choroplethRows, selectedMetric]);
 
     const maxValue = useMemo(() => {
-        const vals = selectedMetricValues.filter((v) => Number.isFinite(v) && v > 0);
+        const vals = selectedMetricValues.filter((v) => Number.isFinite(v));
         return vals.length ? Math.max(...vals) : 1;
     }, [selectedMetricValues]);
 
@@ -363,8 +363,8 @@ const GeoMapCard: React.FC<GeoMapCardProps> = ({ data, mapType = 'world', chartT
                 color: {
                     display: false,
                     axis: 'x',
-                    min: 0,
-                    max: Math.max(1, maxValue),
+                    min: minValue === maxValue ? minValue - 1 : minValue,
+                    max: minValue === maxValue ? maxValue + 1 : Math.max(maxValue, minValue + 1),
                     quantize: 6,
                     interpolate: selectedMetricInterpolate,
                     missing: isDark ? '#1a1a1a' : '#f1f5f9',

@@ -55,15 +55,21 @@ export function AIInput({
     <div className={cn("w-full py-4", className)}>
       <div className="relative max-w-xl w-full mx-auto">
         {hasContextBadge && (
-          <div className="absolute top-2.5 left-4 z-10 pointer-events-none">
+          <div
+            className="absolute top-2.5 left-4 z-10 pointer-events-none"
+            aria-label={contextBadge?.label ? `${contextBadge.label}: ${contextBadge.value}` : contextBadge?.value}
+          >
             <div className="inline-flex items-center gap-1.5 rounded-lg border border-black/10 dark:border-white/10 bg-black/5 dark:bg-white/5 px-2 py-0.5">
-              <FileText className="w-3 h-3 text-black/60 dark:text-white/60" />
+              <FileText className="w-3 h-3 text-black/60 dark:text-white/60" aria-hidden="true" />
               {contextBadge?.label && (
                 <span className="text-[9px] uppercase tracking-wide font-semibold text-black/55 dark:text-white/55">
                   {contextBadge.label}
                 </span>
               )}
-              <span className="text-[11px] font-medium text-black/85 dark:text-white/85 max-w-[200px] truncate">
+              <span
+                className="text-[11px] font-medium text-black/85 dark:text-white/85 max-w-[200px] truncate"
+                title={contextBadge?.value}
+              >
                 {contextBadge?.value}
               </span>
             </div>

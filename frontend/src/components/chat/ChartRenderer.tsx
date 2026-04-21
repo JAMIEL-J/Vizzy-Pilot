@@ -47,10 +47,10 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
 
     const currencySymbolFromCode = (code?: string) => {
         const curr = String(code || '').toUpperCase();
-        if (curr === 'GBP') return '�';
-        if (curr === 'EUR') return '�';
-        if (curr === 'INR') return '?';
-        if (curr === 'JPY' || curr === 'CNY') return '�';
+        if (curr === 'GBP') return '£';
+        if (curr === 'EUR') return '€';
+        if (curr === 'INR') return '₹';
+        if (curr === 'JPY' || curr === 'CNY') return '¥';
         return '$';
     };
 
@@ -192,7 +192,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
 
     const truncateTick = (value: any, max = 14) => {
         const str = String(value ?? '');
-        return str.length > max ? `${str.slice(0, max)}�` : str;
+        return str.length > max ? `${str.slice(0, max)}…` : str;
     };
 
     const compactCategoryLabel = (value: any) => {
@@ -503,8 +503,8 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
         };
 
         const stackedOptions = getCommonOptions(metricKeys[0]);
-        (stackedOptions.scales.x as any).stacked = true;
-        (stackedOptions.scales.y as any).stacked = true;
+        stackedOptions.scales!.x = { ...stackedOptions.scales!.x, stacked: true } as any;
+        stackedOptions.scales!.y = { ...stackedOptions.scales!.y, stacked: true } as any;
         (stackedOptions.plugins.legend as any).display = true;
         (stackedOptions.plugins.legend as any).position = 'top';
         (stackedOptions.plugins.legend as any).labels = { color: '#9ca3af', usePointStyle: true, boxWidth: 8 };

@@ -259,7 +259,7 @@ export default function ChatInterface() {
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
 
-    const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+    const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 768 : false);
     const [isFullScreenArtifact, setIsFullScreenArtifact] = useState(false);
 
     // Splitter state: artifactWidthPct = % of the total chat+artifact area given to the artifact
@@ -552,15 +552,12 @@ export default function ChatInterface() {
         const isTableMode = chartModes[msg.id] === 'table';
         const isMultiKpi = isMultiMetricKPIMessage(msg);
         const chartRows = Array.isArray(targetData?.data?.rows) ? targetData.data.rows : (Array.isArray(targetData?.data?.series) ? targetData.data.series : []);
-        const totalObservations = chartRows.length > 0
-            ? chartRows.length.toLocaleString()
-            : String(targetData?.row_count || targetData?.data?.total_rows || '--');
 
-        const confidenceValue = typeof targetData?.confidence === 'number'
+        const confidenceValue: string | null = typeof targetData?.confidence === 'number'
             ? `${(targetData.confidence * 100).toFixed(1)}%`
             : (typeof msg.output_data?.confidence === 'number'
                 ? `${(msg.output_data.confidence * 100).toFixed(1)}%`
-                : '98.4%');
+                : null);
 
         let metricLabel = 'Analyzed Metric';
         let metricValueStr = '--';
@@ -594,16 +591,6 @@ export default function ChatInterface() {
              }
         }
 
-        let dimensionLabel = 'Dataset';
-        let dimensionValue = activeDatasetName || 'Active Dataset';
-
-        if (targetData?.dimension || targetData?.axes?.x) {
-            dimensionLabel = 'Dimension';
-            dimensionValue = String(targetData?.dimension || targetData?.axes?.x).replace(/_/g, ' ');
-        } else if (targetData?.market_segment || targetData?.segment) {
-            dimensionLabel = 'Segment';
-            dimensionValue = String(targetData?.market_segment || targetData?.segment);
-        }
 
         const legendLabels = (() => {
             let labels: string[] = [];
@@ -732,10 +719,12 @@ export default function ChatInterface() {
                                         </div>
                                     ))}
                                 </div>
-                                <div className="flex items-center gap-4 flex-shrink-0 ml-4">
-                                    <span className="text-[10px] font-label uppercase tracking-widest text-outline">Confidence: {confidenceValue}</span>
-                                    <span className="material-symbols-outlined text-outline text-sm">info</span>
-                                </div>
+                                {confidenceValue && (
+                                    <div className="flex items-center gap-4 flex-shrink-0 ml-4">
+                                        <span className="text-[10px] font-label uppercase tracking-widest text-outline">Confidence: {confidenceValue}</span>
+                                        <span className="material-symbols-outlined text-outline text-sm">info</span>
+                                    </div>
+                                )}
                             </div>
 
                             <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-primary/10 blur-[100px] rounded-full pointer-events-none"></div>
