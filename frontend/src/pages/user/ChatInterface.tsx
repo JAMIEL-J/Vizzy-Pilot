@@ -591,32 +591,6 @@ export default function ChatInterface() {
              }
         }
 
-
-        const legendLabels = (() => {
-            let labels: string[] = [];
-            if (targetData?.categories && Array.isArray(targetData.categories)) {
-                labels = targetData.categories;
-            } else if (targetData?.dimension && chartRows.length > 0) {
-                labels = Array.from(new Set(chartRows.map((r: any) => r[targetData.dimension]))).filter(Boolean).map(String);
-            } else if (targetData?.axes?.x && chartRows.length > 0) {
-                labels = Array.from(new Set(chartRows.map((r: any) => r[targetData.axes.x]))).filter(Boolean).map(String);
-            } else if (chartRows.length > 0) {
-                const keys = Object.keys(chartRows[0] || {});
-                const stringCol = keys.find(k => k !== 'value' && typeof chartRows[0][k] === 'string' && k !== 'count' && k !== 'id') || keys[0];
-                if (stringCol) {
-                    labels = Array.from(new Set(chartRows.map((r: any) => r[stringCol]))).filter(Boolean).map(String);
-                }
-            }
-            return labels.length > 0 ? labels.slice(0, 4) : ['Target Segment', 'Baseline'];
-        })();
-
-        const legendColors = [
-            'bg-gradient-to-tr from-primary to-primary-container shadow-sm',
-            'bg-gradient-to-tr from-secondary-container to-secondary shadow-sm',
-            'bg-gradient-to-tr from-tertiary to-tertiary-container shadow-sm',
-            'bg-gradient-to-tr from-emerald-500 to-emerald-700 shadow-sm'
-        ];
-        
         return (
             <div
                 className={`flex flex-col bg-surface-container-lowest dark:bg-[#0c0c0f] flex-shrink-0 animate-in slide-in-from-right-8 duration-150 relative z-30 border-l border-border-main/50 
@@ -710,22 +684,14 @@ export default function ChatInterface() {
                                 />
                             </div>
 
-                            <div className="flex justify-between items-center pt-4 border-t border-outline-variant/10">
-                                <div className="flex gap-6 flex-wrap">
-                                    {legendLabels.map((lbl, idx) => (
-                                        <div key={idx} className="flex items-center gap-2">
-                                            <div className={`w-3 h-3 rounded-full ${legendColors[idx % legendColors.length]}`}></div>
-                                            <span className="text-[10px] font-label uppercase tracking-widest text-outline truncate max-w-[120px]" title={lbl}>{lbl}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                                {confidenceValue && (
+                            {confidenceValue && (
+                                <div className="flex justify-end items-center pt-4 border-t border-outline-variant/10">
                                     <div className="flex items-center gap-4 flex-shrink-0 ml-4">
                                         <span className="text-[10px] font-label uppercase tracking-widest text-outline">Confidence: {confidenceValue}</span>
                                         <span className="material-symbols-outlined text-outline text-sm">info</span>
                                     </div>
-                                )}
-                            </div>
+                                </div>
+                            )}
 
                             <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-primary/10 blur-[100px] rounded-full pointer-events-none"></div>
                         </div>

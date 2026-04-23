@@ -42,6 +42,29 @@ const CHART_COLORS = [...VIZZY_CHART_COLORS];
 export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title, currency, variant = 'default' }) => {
     const gridColor = '#ffffff10';
     const axisColor = '#6b7280';
+    const getLegendColor = (index: number) => {
+        const palette = ['#917eff', '#7f73d8', '#e39a4f', '#15a97f'];
+        return palette[index % palette.length];
+    };
+
+    const createBarGradient = (ctx: CanvasRenderingContext2D, colorIndex: number) => {
+        const gradient = ctx.createLinearGradient(0, 400, 0, 0);
+        const idx = colorIndex % 4;
+        if (idx === 0) {
+            gradient.addColorStop(0, '#c9bfff');
+            gradient.addColorStop(1, '#917eff');
+        } else if (idx === 1) {
+            gradient.addColorStop(0, '#493f83');
+            gradient.addColorStop(1, '#c9bfff');
+        } else if (idx === 2) {
+            gradient.addColorStop(0, '#ffb77d');
+            gradient.addColorStop(1, '#d57a1e');
+        } else {
+            gradient.addColorStop(0, '#10b981');
+            gradient.addColorStop(1, '#047857');
+        }
+        return gradient;
+    };
 
     const columnMetadata = data.column_metadata || data.data?.column_metadata || {};
 
@@ -244,7 +267,16 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
             axis: isScale && indexAxis === 'y' ? 'y' : 'x',
         },
         plugins: {
-            legend: { display: false },
+            legend: {
+                display: true,
+                position: 'bottom',
+                labels: {
+                    color: '#9ca3af',
+                    usePointStyle: true,
+                    boxWidth: 8,
+                    font: { family: '"Be Vietnam Pro", sans-serif', size: 11 },
+                }
+            },
             tooltip: {
                 backgroundColor: 'rgba(0, 0, 0, 0.82)',
                 titleColor: '#ffffff',
@@ -259,6 +291,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
                 bodyFont: { size: 13, family: '"Be Vietnam Pro", sans-serif' },
                 callbacks: {
                     label: (context: any) => {
+                        if (context.raw === null || context.raw === undefined) return '';
                         const mKey = context.dataset.metricKey || metricKeyForY;
                         return ` ${context.dataset.label}: ${formatValue(context.raw, mKey)}`;
                     }
@@ -312,32 +345,15 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
         if (chartData.length === 0) return <div className="p-4 text-gray-400 text-sm">No chart data available</div>;
 
         const metricLabel = toHumanLabel(data.value_label || data.metric || data.y_axis || valueKey);
+        const labels = chartData.map((d: any) => d.name);
 
         const chartJsData = {
-            labels: chartData.map((d: any) => d.name),
+            labels,
             datasets: [{
                 label: metricLabel,
                 data: chartData.map((d: any) => d.value),
                 metricKey: valueKey,
-                backgroundColor: (context: any) => {
-                    const ctx = context.chart.ctx;
-                    const gradient = ctx.createLinearGradient(0, 400, 0, 0);
-                    const colorIndex = context.dataIndex % 4;
-                    if (colorIndex === 0) {
-                        gradient.addColorStop(0, '#c9bfff'); // primary
-                        gradient.addColorStop(1, '#917eff'); // primary-container
-                    } else if (colorIndex === 1) {
-                        gradient.addColorStop(0, '#493f83'); // secondary-container
-                        gradient.addColorStop(1, '#c9bfff'); // secondary
-                    } else if (colorIndex === 2) {
-                        gradient.addColorStop(0, '#ffb77d'); // tertiary
-                        gradient.addColorStop(1, '#d57a1e'); // tertiary-container
-                    } else {
-                        gradient.addColorStop(0, '#10b981'); // emerald-500
-                        gradient.addColorStop(1, '#047857'); // emerald-700
-                    }
-                    return gradient;
-                },
+                backgroundColor: (context: any) => createBarGradient(context.chart.ctx, context.dataIndex || 0),
                 borderRadius: { topLeft: 8, topRight: 8, bottomLeft: 0, bottomRight: 0 },
                 borderSkipped: false
             }]
@@ -345,7 +361,44 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
 
         return (
             <div className="h-96 w-full mt-4">
-                <Bar data={chartJsData} options={getCommonOptions(valueKey) as any} />
+                {(() => {
+                    const barOptions = getCommonOptions(valueKey) as any;
+                    barOptions.interaction = { mode: 'nearest', intersect: true, axis: 'x' };
+                    barOptions.plugins = barOptions.plugins || {};
+                    barOptions.plugins.legend = {
+                        ...(barOptions.plugins.legend || {}),
+                        display: true,
+                        position: 'bottom',
+                        labels: {
+                            ...((barOptions.plugins.legend || {}).labels || {}),
+                            color: '#9ca3af',
+                            usePointStyle: true,
+                            boxWidth: 8,
+                            padding: 12,
+                            generateLabels: (chart: any) => {
+                                const chartLabels = chart?.data?.labels || [];
+                                return chartLabels.map((label: string, index: number) => ({
+                                    text: String(label || ''),
+                                    fillStyle: getLegendColor(index),
+                                    strokeStyle: getLegendColor(index),
+                                    fontColor: '#9ca3af',
+                                    pointStyle: 'circle',
+                                    lineWidth: 0,
+                                    hidden: !chart.getDataVisibility(index),
+                                    index,
+                                    datasetIndex: 0,
+                                }));
+                            }
+                        },
+                        onClick: (_e: any, legendItem: any, legend: any) => {
+                            const chart = legend?.chart;
+                            if (!chart || legendItem?.index === undefined) return;
+                            chart.toggleDataVisibility(legendItem.index);
+                            chart.update();
+                        }
+                    };
+                    return <Bar data={chartJsData} options={barOptions} />;
+                })()}
             </div>
         );
     };
