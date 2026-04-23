@@ -612,7 +612,7 @@ const ChartRenderer = ({
         )
     );
 
-    const chartData = isTargetSemanticChart
+    const semanticChartData = isTargetSemanticChart
         ? rawChartData.map((row: any) => {
             const rawName = row?.[nameKey];
             if (!isBinaryTargetValue(String(rawName ?? ''))) return row;
@@ -622,6 +622,110 @@ const ChartRenderer = ({
             };
         })
         : rawChartData;
+
+    const seriesIgnoreKeys = new Set(
+        [
+            String(nameKey || ''),
+            String(dateKey || ''),
+            'name',
+            'label',
+            'timestamp',
+            'date',
+            'x',
+            'y',
+            'r',
+            'id',
+            'value',
+        ].map((k) => k.toLowerCase())
+    );
+
+    const inferStackedSeriesKeys = (rows: any[]): string[] => {
+        if (Array.isArray(chart?.categories) && chart.categories.length > 0) {
+            return chart.categories.filter((k: any) => typeof k === 'string' && k.trim().length > 0);
+        }
+        const first = rows.find((r: any) => r && typeof r === 'object') || {};
+        return Object.keys(first).filter((k) => {
+            if (seriesIgnoreKeys.has(String(k).toLowerCase())) return false;
+            return Number.isFinite(Number(first[k]));
+        });
+    };
+
+    const stackedSeriesKeys = inferStackedSeriesKeys(semanticChartData);
+
+    const normalizeSeriesKey = (value: any): string => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const positiveSeriesTokens = ['positive', 'exited', 'churned', 'attrited', 'left', 'cancelled', 'canceled', 'defaulted'];
+    const negativeSeriesTokens = ['negative', 'retained', 'stayed', 'active', 'performing'];
+
+    const getRowNumericSeriesKeys = (row: any): string[] => Object.keys(row || {}).filter((k) => {
+        if (seriesIgnoreKeys.has(String(k).toLowerCase())) return false;
+        return Number.isFinite(Number(row?.[k]));
+    });
+
+    const findSeriesKeyInRow = (row: any, requestedKey: string, seriesIndex: number): string | null => {
+        if (!row || typeof row !== 'object') return null;
+
+        if (requestedKey in row) return requestedKey;
+
+        const reqNorm = normalizeSeriesKey(requestedKey);
+        const rowKeys = Object.keys(row);
+
+        const caseInsensitive = rowKeys.find((k) => String(k).toLowerCase() === String(requestedKey).toLowerCase());
+        if (caseInsensitive) return caseInsensitive;
+
+        const normalizedMatch = rowKeys.find((k) => normalizeSeriesKey(k) === reqNorm);
+        if (normalizedMatch) return normalizedMatch;
+
+        const numericKeys = getRowNumericSeriesKeys(row);
+        const hasPositiveSemantic = positiveSeriesTokens.some((t) => reqNorm.includes(t));
+        const hasNegativeSemantic = negativeSeriesTokens.some((t) => reqNorm.includes(t));
+
+        if (hasPositiveSemantic) {
+            const positiveKey = numericKeys.find((k) => positiveSeriesTokens.some((t) => normalizeSeriesKey(k).includes(t)));
+            if (positiveKey) return positiveKey;
+        }
+
+        if (hasNegativeSemantic) {
+            const negativeKey = numericKeys.find((k) => negativeSeriesTokens.some((t) => normalizeSeriesKey(k).includes(t)));
+            if (negativeKey) return negativeKey;
+        }
+
+        if (seriesIndex >= 0 && seriesIndex < numericKeys.length) {
+            return numericKeys[seriesIndex];
+        }
+
+        return null;
+    };
+
+    const getSeriesValue = (row: any, requestedKey: string, seriesIndex: number): number => {
+        const resolvedKey = findSeriesKeyInRow(row, requestedKey, seriesIndex);
+        const n = Number(resolvedKey ? row?.[resolvedKey] : undefined);
+        return Number.isFinite(n) ? n : 0;
+    };
+
+    const chartData = semanticChartData.map((row: any) => {
+        const explicitValue = Number(row?.value);
+        if (Number.isFinite(explicitValue)) {
+            return { ...row, value: explicitValue };
+        }
+
+        if (stackedSeriesKeys.length > 0) {
+            const stackedTotal = stackedSeriesKeys.reduce((sum, key, idx) => {
+                return sum + getSeriesValue(row, key, idx);
+            }, 0);
+            return { ...row, value: stackedTotal };
+        }
+
+        const firstNumericKey = Object.keys(row || {}).find((k) => {
+            if (seriesIgnoreKeys.has(String(k).toLowerCase())) return false;
+            return Number.isFinite(Number(row?.[k]));
+        });
+
+        if (firstNumericKey) {
+            return { ...row, value: Number(row[firstNumericKey]) };
+        }
+
+        return { ...row, value: 0 };
+    });
 
     const normalizeLabel = (value: any): string => {
         if (value === null || value === undefined || value === '') return 'Unknown';
@@ -642,6 +746,9 @@ const ChartRenderer = ({
                 if (asNumber === 1) return 'Male';
             }
         }
+
+        const booleanDisplay = formatBooleanLikeLabel(asText);
+        if (booleanDisplay !== asText) return booleanDisplay;
 
         return asText;
     };
@@ -1054,6 +1161,8 @@ const ChartRenderer = ({
             );
 
         case 'stacked_bar':
+            {
+            const activeStackKeys = stackedSeriesKeys.length > 0 ? stackedSeriesKeys : ['positive', 'negative'];
             return (
                 <div className="flex flex-col h-full w-full">
                     {renderOutlierToggle()}
@@ -1062,10 +1171,11 @@ const ChartRenderer = ({
                             key={`stacked-${chart?.id || chart?.title || 'chart'}`}
                             data={{
                                 labels: categoryLabels,
-                                datasets: [
-                                    { label: 'Positive', data: chartData.map((d: any) => d.positive), backgroundColor: getPaletteColor(0) },
-                                    { label: 'Negative', data: chartData.map((d: any) => d.negative), backgroundColor: getPaletteColor(1) }
-                                ]
+                                datasets: activeStackKeys.map((key, idx) => ({
+                                    label: String(key).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+                                    data: chartData.map((d: any) => getSeriesValue(d, key, idx)),
+                                    backgroundColor: getPaletteColor(idx),
+                                }))
                             }} 
                             options={{
                                 ...commonOptions(true, valueAxisLabel),
@@ -1088,6 +1198,7 @@ const ChartRenderer = ({
                     </div>
                 </div>
             );
+            }
 
         case 'pie':
         case 'doughnut':
@@ -1172,6 +1283,8 @@ const ChartRenderer = ({
         case 'line':
         case 'area':
         case 'stacked':
+            {
+            const activeLineStackKeys = stackedSeriesKeys.length > 0 ? stackedSeriesKeys : (chart.categories || []);
             return (
                 <div className="flex flex-col h-full w-full">
                     {renderOutlierToggle()}
@@ -1181,9 +1294,9 @@ const ChartRenderer = ({
                             data={{
                                 labels: chartData.map((d: any) => d.timestamp || d.date || d[nameKey]),
                                 datasets: chart.type === 'stacked' 
-                                    ? (chart.categories || []).map((cat: string, i: number) => ({
+                                    ? activeLineStackKeys.map((cat: string, i: number) => ({
                                         label: cat,
-                                        data: chartData.map((d: any) => d[cat]),
+                                        data: chartData.map((d: any) => getSeriesValue(d, cat, i)),
                                         backgroundColor: getPaletteColor(i),
                                         borderColor: getPaletteColor(i),
                                         fill: true
@@ -1209,6 +1322,7 @@ const ChartRenderer = ({
                     </div>
                 </div>
             );
+            }
 
         case 'scatter':
             return (
@@ -1693,7 +1807,7 @@ const MultiFilterPanel = ({
                                                     : slotValues.length === 1
                                                         ? (isTargetEquivalentColumn(selectedCol)
                                                             ? formatTargetTabLabel(String(slotValues[0]), targetColumn || undefined)
-                                                            : slotValues[0])
+                                                            : formatBooleanLikeLabel(slotValues[0]))
                                                         : `${slotValues.length} selected`}
                                             </span>
                                             <div className="flex items-center gap-1 flex-shrink-0">
@@ -1737,7 +1851,7 @@ const MultiFilterPanel = ({
                                                             <span className="text-[14px] text-[#2d2f2f] dark:text-[#eceff4] truncate">
                                                                 {isTargetEquivalentColumn(selectedCol)
                                                                     ? (targetRawToSemantic[String(val)] || formatTargetTabLabel(String(val), targetColumn || undefined))
-                                                                    : val}
+                                                                    : formatBooleanLikeLabel(val)}
                                                             </span>
                                                         </label>
                                                     ))}
@@ -1945,6 +2059,17 @@ function prettifyLabel(value: string): string {
     return value.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 }
 
+function formatBooleanLikeLabel(value: any): string {
+    const raw = String(value ?? '').trim();
+    if (!raw) return 'Unknown';
+
+    const normalized = toNormalized(raw);
+    if (['true', '1', '1.0', 'yes', 'y'].includes(normalized)) return 'Yes';
+    if (['false', '0', '0.0', 'no', 'n'].includes(normalized)) return 'No';
+
+    return raw;
+}
+
 function getTargetSemanticLabels(targetColumn?: string): { positive: string; negative: string; all: string } {
     const rawKey = (targetColumn || '').toLowerCase();
     const key = rawKey.replace(/[_\s-]/g, '');
@@ -1976,6 +2101,49 @@ function isPositiveBinaryValue(value: string): boolean {
 
 function toNormalized(value: string): string {
     return String(value || '').trim().toLowerCase();
+}
+
+function getBinarySemanticBucket(value: string): 'positive' | 'negative' | null {
+    const normalized = toNormalized(value);
+    if (!normalized) return null;
+
+    if (isPositiveBinaryValue(normalized)) return 'positive';
+    if (isBinaryTargetValue(normalized)) return 'negative';
+    return null;
+}
+
+function resolveValueAgainstColumnOptions(
+    rawValue: string,
+    candidateValues: string[],
+    targetColumn?: string | null,
+    selectedColumn?: string | null,
+): string {
+    const normalizedInput = toNormalized(rawValue);
+    if (!normalizedInput || !Array.isArray(candidateValues) || candidateValues.length === 0) {
+        return rawValue;
+    }
+
+    const direct = candidateValues.find((v) => toNormalized(String(v)) === normalizedInput);
+    if (direct) return String(direct);
+
+    const isTargetColumn = !!(
+        targetColumn
+        && selectedColumn
+        && normalizeColumnKey(String(targetColumn)) === normalizeColumnKey(String(selectedColumn))
+    );
+
+    if (isTargetColumn) {
+        const semanticTargetMatch = candidateValues.find(
+            (v) => toNormalized(formatTargetTabLabel(String(v), targetColumn || undefined)) === normalizedInput
+        );
+        if (semanticTargetMatch) return String(semanticTargetMatch);
+    }
+
+    const desiredBucket = getBinarySemanticBucket(normalizedInput);
+    if (!desiredBucket) return rawValue;
+
+    const binaryEquivalent = candidateValues.find((v) => getBinarySemanticBucket(String(v)) === desiredBucket);
+    return binaryEquivalent ? String(binaryEquivalent) : rawValue;
 }
 
 function formatTargetTabLabel(value: string, targetColumn?: string): string {
@@ -2041,12 +2209,34 @@ export default function UserDashboard() {
 
     const previousDatasetIdRef = useRef<string>('');
 
-    const normalizedActiveFilters = useMemo(
-        () => Object.fromEntries(
-            Object.entries(active_filters || {}).filter(([, vals]) => Array.isArray(vals) && vals.length > 0)
-        ),
-        [active_filters]
-    );
+    const normalizedActiveFilters = useMemo(() => {
+        const rawFilters = Object.entries(active_filters || {}).filter(([, vals]) => Array.isArray(vals) && vals.length > 0);
+        const normalized: Record<string, string[]> = {};
+
+        for (const [column, values] of rawFilters) {
+            const candidateValues = [
+                ...((analytics?.geo_filters?.[column] || []).map((v) => String(v))),
+                ...(normalizeColumnKey(String(column)) === normalizeColumnKey(String(analytics?.target_column || ''))
+                    ? (analytics?.target_values || []).map((v) => String(v))
+                    : []),
+            ].filter(Boolean);
+
+            const resolvedValues = Array.from(new Set((values || []).map((value) =>
+                resolveValueAgainstColumnOptions(
+                    String(value),
+                    candidateValues,
+                    analytics?.target_column,
+                    column,
+                )
+            )));
+
+            if (resolvedValues.length > 0) {
+                normalized[column] = resolvedValues;
+            }
+        }
+
+        return normalized;
+    }, [active_filters, analytics]);
 
     const triggerQuickChartReact = () => {
         setQuickReactCharts(true);
@@ -2389,34 +2579,17 @@ export default function UserDashboard() {
         if (!resolvedCol || ['name', 'date', 'label'].includes(resolvedCol.toLowerCase())) return;
 
         let resolvedVal = rawVal;
-        const normalizedInput = toNormalized(rawVal);
         const candidateValues = [
             ...((analytics?.geo_filters?.[resolvedCol] || []).map(v => String(v))),
             ...(resolvedCol === analytics?.target_column ? (analytics?.target_values || []).map(v => String(v)) : []),
         ].filter(Boolean);
 
-        // 1) Direct raw-value match first
-        const direct = candidateValues.find(v => toNormalized(v) === normalizedInput);
-        if (direct) {
-            resolvedVal = direct;
-        } else if (resolvedCol === analytics?.target_column) {
-            // 2) Match semantic display label back to raw binary value
-            const bySemanticLabel = candidateValues.find(v => toNormalized(formatTargetTabLabel(String(v), analytics?.target_column)) === normalizedInput);
-            if (bySemanticLabel) {
-                resolvedVal = bySemanticLabel;
-            } else {
-                // 3) Fallback for generic binary words
-                const wantsPositive = ['churned', 'exited', 'attrited', 'left', 'yes', 'true', 'positive', '1', 'inactive'].includes(normalizedInput);
-                const wantsNegative = ['retained', 'stayed', 'active', 'no', 'false', 'negative', '0'].includes(normalizedInput);
-                if (wantsPositive || wantsNegative) {
-                    const binaryCandidate = candidateValues.find(v => {
-                        const isPos = isPositiveBinaryValue(String(v));
-                        return wantsPositive ? isPos : !isPos;
-                    });
-                    if (binaryCandidate) resolvedVal = binaryCandidate;
-                }
-            }
-        }
+        resolvedVal = resolveValueAgainstColumnOptions(
+            rawVal,
+            candidateValues,
+            analytics?.target_column,
+            resolvedCol,
+        );
 
         triggerQuickChartReact();
         toggleFilter(resolvedCol, resolvedVal);
@@ -2875,54 +3048,91 @@ export default function UserDashboard() {
         const isNumericMetric = chart.value_label?.toLowerCase()?.includes('count') === false &&
             currentAgg !== 'count';
 
+        const chartRows = Array.isArray(chart?.data) ? chart.data : [];
+        const firstRow = chartRows[0] || {};
+        const stackedIgnoreKeys = new Set(['name', 'label', 'timestamp', 'date', 'x', 'y', 'r', 'id', 'value']);
+        const inferredStackedKeys = Object.keys(firstRow).filter((k) => {
+            if (stackedIgnoreKeys.has(String(k).toLowerCase())) return false;
+            return Number.isFinite(Number(firstRow[k]));
+        });
+        const hasStackedData =
+            ['stacked_bar', 'stacked'].includes(String(chart?.type || '').toLowerCase())
+            || (Array.isArray(chart?.categories) && chart.categories.length > 1)
+            || inferredStackedKeys.length >= 2;
+
+        const allTypeOptions = [
+            { value: 'bar', label: 'Bar' },
+            { value: 'hbar', label: 'H-Bar' },
+            { value: 'line', label: 'Line' },
+            { value: 'area', label: 'Area' },
+            { value: 'pie', label: 'Pie' },
+            { value: 'donut', label: 'Donut' },
+            { value: 'scatter', label: 'Scatter' },
+            { value: 'bubble', label: 'Bubble' },
+            { value: 'treemap', label: 'Treemap' },
+            { value: 'radar', label: 'Radar' },
+            { value: 'polar_area', label: 'Polar Area' },
+            { value: 'geo_map', label: 'Map' },
+            { value: 'stacked_bar', label: 'Stacked Bar' },
+        ];
+
+        const compatibleTypeSet = hasStackedData
+            ? new Set(['stacked_bar', 'bar', 'hbar', 'line', 'area'])
+            : new Set(allTypeOptions.map((o) => o.value).filter((t) => t !== 'stacked_bar'));
+
+        const chartTypeOptions = allTypeOptions.filter((o) => compatibleTypeSet.has(o.value));
+        const safeCurrentType = chartTypeOptions.some((o) => o.value === currentType)
+            ? currentType
+            : (chartTypeOptions[0]?.value || 'bar');
+
         return (
-            <div className="flex items-center gap-1.5">
-                {isNumericMetric && (
+            <div className="flex flex-col items-center gap-1 w-full">
+                <div className="flex items-center gap-1.5">
+                    {isNumericMetric && (
+                        <select
+                            value={currentAgg === 'avg' ? 'mean' : currentAgg}
+                            onChange={(e) => setChartOverride(chart.id, { aggregation: e.target.value })}
+                            className="text-[12px] font-sans px-2 py-1 rounded-lg border border-transparent outline-none transition-colors bg-surface-container-low dark:bg-white/5 text-on-surface-variant hover:bg-surface-container cursor-pointer"
+                            title="Aggregation Method"
+                        >
+                            <option className="bg-surface-container-lowest dark:bg-[#16181D] text-on-surface" value="sum">Sum</option>
+                            <option className="bg-surface-container-lowest dark:bg-[#16181D] text-on-surface" value="mean">Average</option>
+                        </select>
+                    )}
                     <select
-                        value={currentAgg === 'avg' ? 'mean' : currentAgg}
-                        onChange={(e) => setChartOverride(chart.id, { aggregation: e.target.value })}
+                        value={safeCurrentType}
+                        onChange={(e) => setChartOverride(chart.id, { type: e.target.value })}
                         className="text-[12px] font-sans px-2 py-1 rounded-lg border border-transparent outline-none transition-colors bg-surface-container-low dark:bg-white/5 text-on-surface-variant hover:bg-surface-container cursor-pointer"
-                        title="Aggregation Method"
+                        title={hasStackedData ? 'Stacked series supports: Stacked Bar, Bar, H-Bar, Line, Area' : 'Chart Type'}
                     >
-                        <option className="bg-surface-container-lowest dark:bg-[#16181D] text-on-surface" value="sum">Sum</option>
-                        <option className="bg-surface-container-lowest dark:bg-[#16181D] text-on-surface" value="mean">Average</option>
+                        {chartTypeOptions.map((opt) => (
+                            <option key={opt.value} className="bg-surface-container-lowest dark:bg-[#16181D] text-on-surface" value={opt.value}>
+                                {opt.label}
+                            </option>
+                        ))}
                     </select>
+                    <button
+                        type="button"
+                        onClick={() => exportChartCSV(chart)}
+                        className="flex p-1.5 hover:bg-surface-container-low dark:hover:bg-white/5 rounded-lg transition-colors"
+                        title="Export CSV"
+                    >
+                        <span className="material-symbols-outlined text-sm text-on-surface-variant">download</span>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => exportChartHTML(chart)}
+                        className="flex p-1.5 hover:bg-surface-container-low dark:hover:bg-white/5 rounded-lg transition-colors"
+                        title="Export Interactive HTML"
+                    >
+                        <span className="material-symbols-outlined text-sm text-on-surface-variant">ios_share</span>
+                    </button>
+                </div>
+                {hasStackedData && (
+                    <p className="text-[10px] leading-none text-[#6b7280] dark:text-[#9aa2b1]">
+                        Stacked data supports: Stacked Bar, Bar, H-Bar, Line, Area
+                    </p>
                 )}
-                <select
-                    value={currentType}
-                    onChange={(e) => setChartOverride(chart.id, { type: e.target.value })}
-                    className="text-[12px] font-sans px-2 py-1 rounded-lg border border-transparent outline-none transition-colors bg-surface-container-low dark:bg-white/5 text-on-surface-variant hover:bg-surface-container cursor-pointer"
-                    title="Chart Type"
-                >
-                    <option className="bg-surface-container-lowest dark:bg-[#16181D] text-on-surface" value="bar">Bar</option>
-                    <option className="bg-surface-container-lowest dark:bg-[#16181D] text-on-surface" value="hbar">H-Bar</option>
-                    <option className="bg-surface-container-lowest dark:bg-[#16181D] text-on-surface" value="line">Line</option>
-                    <option className="bg-surface-container-lowest dark:bg-[#16181D] text-on-surface" value="area">Area</option>
-                    <option className="bg-surface-container-lowest dark:bg-[#16181D] text-on-surface" value="pie">Pie</option>
-                    <option className="bg-surface-container-lowest dark:bg-[#16181D] text-on-surface" value="donut">Donut</option>
-                    <option className="bg-surface-container-lowest dark:bg-[#16181D] text-on-surface" value="scatter">Scatter</option>
-                    <option className="bg-surface-container-lowest dark:bg-[#16181D] text-on-surface" value="bubble">Bubble</option>
-                    <option className="bg-surface-container-lowest dark:bg-[#16181D] text-on-surface" value="treemap">Treemap</option>
-                    <option className="bg-surface-container-lowest dark:bg-[#16181D] text-on-surface" value="radar">Radar</option>
-                    <option className="bg-surface-container-lowest dark:bg-[#16181D] text-on-surface" value="polar_area">Polar Area</option>
-                    <option className="bg-surface-container-lowest dark:bg-[#16181D] text-on-surface" value="geo_map">Map</option>
-                </select>
-                <button
-                    type="button"
-                    onClick={() => exportChartCSV(chart)}
-                    className="flex p-1.5 hover:bg-surface-container-low dark:hover:bg-white/5 rounded-lg transition-colors"
-                    title="Export CSV"
-                >
-                    <span className="material-symbols-outlined text-sm text-on-surface-variant">download</span>
-                </button>
-                <button
-                    type="button"
-                    onClick={() => exportChartHTML(chart)}
-                    className="flex p-1.5 hover:bg-surface-container-low dark:hover:bg-white/5 rounded-lg transition-colors"
-                    title="Export Interactive HTML"
-                >
-                    <span className="material-symbols-outlined text-sm text-on-surface-variant">ios_share</span>
-                </button>
             </div>
         );
     };
