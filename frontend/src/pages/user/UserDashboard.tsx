@@ -2238,6 +2238,30 @@ export default function UserDashboard() {
         return normalized;
     }, [active_filters, analytics]);
 
+    const normalizedActiveFiltersSignature = useMemo(
+        () => stableSerialize(normalizedActiveFilters),
+        [normalizedActiveFilters]
+    );
+
+    // Chart type is a visual-only client concern. Keep backend refreshes limited
+    // to override fields that impact server-computed data (e.g. aggregation).
+    const serverChartOverrides = useMemo(() => {
+        const next: Record<string, any> = {};
+        Object.entries(chart_overrides || {}).forEach(([chartId, override]) => {
+            if (!override || typeof override !== 'object') return;
+            const { type: _ignoredType, ...rest } = override as Record<string, any>;
+            if (Object.keys(rest).length > 0) {
+                next[chartId] = rest;
+            }
+        });
+        return next;
+    }, [chart_overrides]);
+
+    const serverChartOverridesSignature = useMemo(
+        () => stableSerialize(serverChartOverrides),
+        [serverChartOverrides]
+    );
+
     const triggerQuickChartReact = () => {
         setQuickReactCharts(true);
         if (quickReactResetRef.current) {
@@ -2485,7 +2509,7 @@ export default function UserDashboard() {
                 selectedDatasetId,
                 target_value,
                 normalizedActiveFilters,
-                chart_overrides,
+                serverChartOverrides,
                 classification_overrides,
                 selected_domain,
                 signal
@@ -2521,7 +2545,7 @@ export default function UserDashboard() {
 
         const hasTargetFilter = !!(target_value && target_value.toLowerCase() !== 'all');
         const hasActiveFilters = Object.keys(normalizedActiveFilters).length > 0;
-        const hasChartOverrides = Object.keys(chart_overrides || {}).length > 0;
+        const hasChartOverrides = Object.keys(serverChartOverrides || {}).length > 0;
 
         if (!hasTargetFilter && !hasActiveFilters && !hasChartOverrides) {
             const baseKey = stableSerialize({
@@ -2553,7 +2577,7 @@ export default function UserDashboard() {
         return () => {
             clearTimeout(timer);
         };
-    }, [selectedDatasetId, selected_domain, classification_overrides, normalizedActiveFilters, chart_overrides, target_value]);
+    }, [selectedDatasetId, selected_domain, classification_overrides, normalizedActiveFiltersSignature, serverChartOverridesSignature, target_value]);
 
     const handleChartFilterClick = (col: string, val: string) => {
         const rawCol = String(col || '').trim();
@@ -2672,7 +2696,7 @@ export default function UserDashboard() {
     const hasInteractiveScope =
         Object.keys(normalizedActiveFilters).length > 0
         || (target_value && target_value.toLowerCase() !== 'all')
-        || Object.keys(chart_overrides || {}).length > 0;
+        || Object.keys(serverChartOverrides || {}).length > 0;
     const isChurnDashboard = String(analytics?.domain || '').toLowerCase() === 'churn';
 
     const chartArrayRaw = analytics?.charts ? Object.entries(analytics.charts).map(([id, val]) => {
