@@ -3091,7 +3091,8 @@ def recommend_charts(df: pd.DataFrame, domain: DomainType, classification: Colum
     filtered_dimensions = [d for d in classification.dimensions if not _is_low_value_column(d)]
     
     # Create filtered classification (preserve original for reference)
-    from .column_filter import ColumnClassification as CC
+    from . import section_registry
+    from .section_registry import assign_section
     filtered_classification = CC(
         metrics=filtered_metrics or classification.metrics[:3],  # Fallback to first 3 if all filtered
         dimensions=filtered_dimensions or classification.dimensions[:3],
@@ -3132,7 +3133,17 @@ def recommend_charts(df: pd.DataFrame, domain: DomainType, classification: Colum
     # Prevents repetitive charts with same dimension
     # ========================================
     charts = _deduplicate_charts(charts)
-    
+
+    # Assign sections based on registry
+    for chart in charts:
+        assignment = assign_section(
+            chart_type=chart.chart_type,
+            metric=chart.metric,
+            dimension=chart.dimension,
+            domain=domain.value,
+        )
+        chart.section = assignment.section
+
     # ========================================
     # PHASE 4: Competitive Scoring (The "Expert" Choice)
     # Ranks charts by identifying which dimension creates the highest

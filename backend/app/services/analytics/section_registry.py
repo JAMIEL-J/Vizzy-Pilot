@@ -7,7 +7,6 @@ Maps (domain × chart signals) → section heading for dashboard organization.
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
 
-
 @dataclass
 class SectionRule:
     id: str
@@ -18,14 +17,22 @@ class SectionRule:
     match_dimension: List[str]
     match_type: List[str]
 
+@dataclass
+class SectionAssignment:
+    section: str
+    section_icon: str
 
-def _matches(value: Optional[str], keywords: List[str]) -> bool:
-    """Check if value contains any keyword (case-insensitive, separator-agnostic)."""
-    if not value or not keywords:
+def _normalize(value: Optional[str]) -> str:
+    """Normalize string for separator-agnostic, case-insensitive matching."""
+    if not value:
+        return ""
+    return value.lower().replace("_", "").replace("-", "").replace(" ", "")
+
+def _matches(normalized_value: str, keywords: List[str]) -> bool:
+    """Check if normalized value contains any keyword."""
+    if not normalized_value or not keywords:
         return False
-    normalized = value.lower().replace("_", "").replace("-", "").replace(" ", "")
-    return any(kw.replace("_", "") in normalized for kw in keywords)
-
+    return any(_normalize(kw) in normalized_value for kw in keywords)
 
 # ────────────────────────────────────────────────────────────────────
 # SALES DOMAIN
@@ -292,25 +299,32 @@ def assign_section(
     metric: Optional[str],
     dimension: Optional[str],
     domain: str,
-) -> Dict[str, str]:
+) -> SectionAssignment:
     """
     Assign a section to a chart based on domain rules.
-
-    Returns: {"section": "Revenue & Profitability", "section_icon": "trending_up"}
     """
     rules = DOMAIN_SECTION_REGISTRY.get(domain, GENERIC_SECTIONS)
 
-    for rule in rules:
-        # Match by chart type
-        if rule.match_type and chart_type in rule.match_type:
-            return {"section": rule.title, "section_icon": rule.icon}
+    # 1. Priority sorting: Ensure higher priority (lower number) is checked first
+    sorted_rules = sorted(rules, key=lambda r: r.priority)
+
+    # 2. Pre-normalize inputs for efficiency
+    norm_chart_type = _normalize(chart_type)
+    norm_metric = _normalize(metric)
+    norm_dimension = _normalize(dimension)
+
+    for rule in sorted_rules:
+        # Match by chart type (normalized)
+        if rule.match_type:
+            if any(_normalize(t) == norm_chart_type for t in rule.match_type):
+                return SectionAssignment(section=rule.title, section_icon=rule.icon)
 
         # Match by metric keywords
-        if rule.match_metric and _matches(metric, rule.match_metric):
-            return {"section": rule.title, "section_icon": rule.icon}
+        if rule.match_metric and _matches(norm_metric, rule.match_metric):
+            return SectionAssignment(section=rule.title, section_icon=rule.icon)
 
         # Match by dimension keywords
-        if rule.match_dimension and _matches(dimension, rule.match_dimension):
-            return {"section": rule.title, "section_icon": rule.icon}
+        if rule.match_dimension and _matches(norm_dimension, rule.match_dimension):
+            return SectionAssignment(section=rule.title, section_icon=rule.icon)
 
-    return {"section": DEFAULT_SECTION, "section_icon": DEFAULT_SECTION_ICON}
+    return SectionAssignment(section=DEFAULT_SECTION, section_icon=DEFAULT_SECTION_ICON)
