@@ -2753,6 +2753,26 @@ export default function UserDashboard() {
         return aIsHbar - bIsHbar;
     });
 
+    const chartSections = useMemo(() => {
+        const groups: Record<string, ChartItem[]> = {};
+        const order: string[] = [];
+
+        for (const chart of chartArray) {
+            const section = chart.section || 'Other Insights';
+            if (!groups[section]) {
+                groups[section] = [];
+                order.push(section);
+            }
+            groups[section].push(chart);
+        }
+
+        return order.map(title => ({
+            title,
+            charts: groups[title],
+        }));
+    }, [chartArray]);
+
+
     const exportChartCSV = (chart: ChartItem) => {
         const rows = chart.data;
         if (!Array.isArray(rows) || rows.length === 0) return;
