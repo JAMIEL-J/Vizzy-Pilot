@@ -112,6 +112,7 @@ def _charts_to_widgets(chart_dict: Dict[str, Any]) -> List[Dict[str, Any]]:
             "confidence": chart.get("confidence", "MEDIUM"),
             "reason": chart.get("reason", ""),
             "is_percentage": chart.get("is_percentage", False),
+            "section": chart.get("section", "Other Insights"),
         }
         if chart.get("categories"):
             widget["categories"] = chart["categories"]
