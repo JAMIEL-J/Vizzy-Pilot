@@ -72,6 +72,7 @@ export interface DashboardAnalytics {
         metric?: string;
         aggregation?: string;
         granularity?: string;
+        section?: string;
     }>;
     columns: {
         dimensions: string[];

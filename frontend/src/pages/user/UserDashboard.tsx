@@ -2700,26 +2700,27 @@ export default function UserDashboard() {
     const isChurnDashboard = String(analytics?.domain || '').toLowerCase() === 'churn';
 
     const chartArrayRaw = analytics?.charts ? Object.entries(analytics.charts).map(([id, val]) => {
-        const resolvedType = chart_overrides[id]?.type || (val as any).type;
+        const resolvedType = chart_overrides[id]?.type || val.type;
         const chartConfig = (analytics?.chart_configs as Record<string, any> | undefined)?.[id];
         const isDateTrend = ['line', 'area', 'area_bounds', 'area-bounds'].includes(String(resolvedType || '').toLowerCase())
-            && !!((val as any).is_date ?? chartConfig?.is_date);
+            && !!(val.is_date ?? chartConfig?.is_date);
         const shouldUseServerData = isDateTrend || isChurnDashboard;
 
         const resolvedData = shouldUseServerData
-            ? (val as any).data
-            : ((hasInteractiveScope ? chartData?.[id] : undefined) || (val as any).data);
+            ? val.data
+            : ((hasInteractiveScope ? chartData?.[id] : undefined) || val.data);
 
         return {
             id,
-            ...(val as any),
-            dimension: (val as any).dimension ?? analytics?.chart_configs?.[id]?.dimension,
-            metric: (val as any).metric ?? analytics?.chart_configs?.[id]?.metric,
-            aggregation: (val as any).aggregation ?? analytics?.chart_configs?.[id]?.aggregation,
+            ...val,
+            dimension: val.dimension ?? analytics?.chart_configs?.[id]?.dimension,
+            metric: val.metric ?? analytics?.chart_configs?.[id]?.metric,
+            aggregation: val.aggregation ?? analytics?.chart_configs?.[id]?.aggregation,
             data: resolvedData,
             data_without_outliers: (Object.keys(normalizedActiveFilters).length === 0 && String(target_value || 'all').toLowerCase() === 'all')
-                ? ((val as any).data_without_outliers || (val as any).data)
+                ? (val.data_without_outliers || val.data)
                 : resolvedData,
+            section: val.section || 'Other Insights',
         };
     }) : [];
 
