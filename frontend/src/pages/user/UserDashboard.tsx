@@ -3428,25 +3428,43 @@ export default function UserDashboard() {
                                 </div>
                             )}
 
-                            {chartArray.length > 0 && (
-                                <div className="grid grid-cols-[repeat(auto-fit,minmax(340px,1fr))] gap-6">
-                                    {SHOW_CORRELATION_CHART && (
-                                        <CorrelationHeatmapCard corr={corrMatrix} loading={corrLoading} isDark={isDark} />
-                                    )}
-
-                                    {chartArray.map((chart) => (
-                                        <ChartCard key={chart.id} title={chart.title || `Insight ${chart.id}`} actions={renderChartActions(chart)}>
-                                            <div data-chart-id={chart.id} className="relative">
-                                                <ChartRenderer
-                                                    chart={{ ...chart, type: chart_overrides[chart.id]?.type || chart.type }}
-                                                    chartColors={chartColors}
-                                                    isDark={isDark}
-                                                    onFilterClick={handleChartFilterClick}
-                                                    targetColumn={analytics?.target_column}
-                                                    quickReact={quickReactCharts}
-                                                />
+                            {chartSections.length > 0 && (
+                                <div className="space-y-10">
+                                    {chartSections.map(({ title, charts }) => (
+                                        <div key={title} className="space-y-4">
+                                            {/* Section Header */}
+                                            <div className="flex items-center gap-3 px-1">
+                                                <h3 className="text-lg font-bold tracking-tight text-[#2d2f2f] dark:text-[#eceff4]">
+                                                    {title}
+                                                </h3>
+                                                <div className="h-px flex-1 bg-[#e4e4e7] dark:bg-[#2a2d33]" />
+                                                <span className="text-[10px] uppercase tracking-widest text-[#7a7c7c] dark:text-[#a3a8b3] font-semibold">
+                                                    {charts.length} {charts.length === 1 ? 'chart' : 'charts'}
+                                                </span>
                                             </div>
-                                        </ChartCard>
+
+                                            {/* Section Charts Grid */}
+                                            <div className="grid grid-cols-[repeat(auto-fit,minmax(340px,1fr))] gap-6">
+                                                {charts.map((chart) => (
+                                                    <ChartCard
+                                                        key={chart.id}
+                                                        title={chart.title || `Insight ${chart.id}`}
+                                                        actions={renderChartActions(chart)}
+                                                    >
+                                                        <div data-chart-id={chart.id} className="relative">
+                                                            <ChartRenderer
+                                                                chart={{ ...chart, type: chart_overrides[chart.id]?.type || chart.type }}
+                                                                chartColors={chartColors}
+                                                                isDark={isDark}
+                                                                onFilterClick={handleChartFilterClick}
+                                                                targetColumn={analytics?.target_column}
+                                                                quickReact={quickReactCharts}
+                                                            />
+                                                        </div>
+                                                    </ChartCard>
+                                                ))}
+                                            </div>
+                                        </div>
                                     ))}
                                 </div>
                             )}
