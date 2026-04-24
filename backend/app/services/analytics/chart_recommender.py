@@ -633,6 +633,7 @@ class ChartRecommendation:
     metric: Optional[str] = None
     aggregation: Optional[str] = None  # 'sum', 'mean', 'count'
     granularity: Optional[str] = None  # 'year', 'ytd', 'month', 'week', 'day'
+    section: Optional[str] = None
     variance_score: float = 0.0
 
     def __post_init__(self):
