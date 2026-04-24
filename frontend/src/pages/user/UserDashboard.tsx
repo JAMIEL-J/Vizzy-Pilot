@@ -2744,6 +2744,8 @@ export default function UserDashboard() {
         };
     }) : [];
 
+    console.log('DEBUG: chartArrayRaw sample:', chartArrayRaw.slice(0, 3));
+
     // Sort: regular charts first, tall hbar charts last so they don't break grid row alignment
     const chartArray: ChartItem[] = [...chartArrayRaw].sort((a, b) => {
         const typeA = chart_overrides[a.id]?.type || a.type;
@@ -3093,7 +3095,6 @@ export default function UserDashboard() {
 </body>
 </html>`;
             }
-
             const blob = new Blob([htmlContent], { type: 'text/html' });
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');

@@ -5,7 +5,7 @@ Maps (domain × chart signals) → section heading for dashboard organization.
 """
 
 from typing import Optional, List, Dict, Any
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 @dataclass
 class SectionRule:
@@ -16,6 +16,12 @@ class SectionRule:
     match_metric: List[str]
     match_dimension: List[str]
     match_type: List[str]
+    match_title: List[str] = field(default_factory=list)
+    # Weights to prioritize different signals
+    weight_metric: float = 1.0
+    weight_dimension: float = 2.0
+    weight_type: float = 1.5
+    weight_title: float = 2.5
 
 @dataclass
 class SectionAssignment:
@@ -46,6 +52,7 @@ SALES_SECTIONS = [
         match_metric=["revenue", "sales", "profit", "income", "earnings", "gross", "net"],
         match_dimension=[],
         match_type=["line", "area"],
+        match_title=["revenue", "profit", "sales"],
     ),
     SectionRule(
         id="product_performance",
@@ -55,6 +62,7 @@ SALES_SECTIONS = [
         match_metric=["quantity", "units", "discount"],
         match_dimension=["product", "category", "subcategory", "sub_category", "sku", "item"],
         match_type=[],
+        match_title=["product", "category", "sku"],
     ),
     SectionRule(
         id="customer_analysis",
@@ -64,6 +72,7 @@ SALES_SECTIONS = [
         match_metric=[],
         match_dimension=["segment", "customer", "gender", "age"],
         match_type=[],
+        match_title=["customer", "segment", "gender", "demographic"],
     ),
     SectionRule(
         id="geographic",
@@ -73,6 +82,7 @@ SALES_SECTIONS = [
         match_metric=[],
         match_dimension=["region", "state", "city", "country", "market"],
         match_type=["geo_map"],
+        match_title=["map", "geographic", "region", "state", "country"],
     ),
     SectionRule(
         id="orders_logistics",
@@ -82,8 +92,10 @@ SALES_SECTIONS = [
         match_metric=["order", "shipping"],
         match_dimension=["ship", "delivery", "priority", "order_priority"],
         match_type=[],
+        match_title=["order", "shipping", "delivery", "logistics"],
     ),
 ]
+
 
 # ────────────────────────────────────────────────────────────────────
 # CHURN DOMAIN
@@ -97,6 +109,7 @@ CHURN_SECTIONS = [
         match_metric=["churn", "attrition", "retention"],
         match_dimension=["churn", "exited", "attrition"],
         match_type=[],
+        match_title=["churn", "attrition", "retention", "exit"],
     ),
     SectionRule(
         id="service_adoption",
@@ -106,6 +119,7 @@ CHURN_SECTIONS = [
         match_metric=[],
         match_dimension=["internet", "phone", "streaming", "security", "backup", "tech", "online"],
         match_type=[],
+        match_title=["service", "product", "adoption", "internet", "phone", "streaming"],
     ),
     SectionRule(
         id="billing_payment",
@@ -115,6 +129,7 @@ CHURN_SECTIONS = [
         match_metric=["charges", "monthly", "total"],
         match_dimension=["payment", "billing", "contract", "paperless"],
         match_type=[],
+        match_title=["billing", "payment", "contract", "charges"],
     ),
     SectionRule(
         id="customer_profile",
@@ -124,6 +139,7 @@ CHURN_SECTIONS = [
         match_metric=["tenure", "age"],
         match_dimension=["gender", "senior", "partner", "dependents", "tenure"],
         match_type=[],
+        match_title=["demographic", "profile", "gender", "age", "tenure"],
     ),
 ]
 
@@ -139,6 +155,7 @@ HEALTHCARE_SECTIONS = [
         match_metric=["mortality", "readmission", "los", "length_of_stay", "outcome"],
         match_dimension=["mortality", "readmission"],
         match_type=[],
+        match_title=["outcome", "mortality", "readmission", "los"],
     ),
     SectionRule(
         id="clinical",
@@ -148,6 +165,7 @@ HEALTHCARE_SECTIONS = [
         match_metric=["score", "vital", "bmi"],
         match_dimension=["diagnosis", "treatment", "drg", "icd", "medication", "condition"],
         match_type=[],
+        match_title=["clinical", "diagnosis", "treatment", "vital"],
     ),
     SectionRule(
         id="facility_staff",
@@ -157,6 +175,7 @@ HEALTHCARE_SECTIONS = [
         match_metric=[],
         match_dimension=["hospital", "physician", "ward", "department", "admission", "discharge"],
         match_type=[],
+        match_title=["facility", "hospital", "staff", "physician", "ward"],
     ),
     SectionRule(
         id="patient_demographics",
@@ -166,6 +185,7 @@ HEALTHCARE_SECTIONS = [
         match_metric=["age"],
         match_dimension=["gender", "age", "race", "ethnicity", "insurance"],
         match_type=[],
+        match_title=["demographic", "patient", "gender", "age"],
     ),
 ]
 
@@ -181,6 +201,7 @@ MARKETING_SECTIONS = [
         match_metric=["ctr", "conversion", "roas", "roi", "click", "impression"],
         match_dimension=["campaign", "adgroup", "creative"],
         match_type=[],
+        match_title=["campaign", "performance", "conversion", "roi", "roas"],
     ),
     SectionRule(
         id="channel_analysis",
@@ -190,6 +211,7 @@ MARKETING_SECTIONS = [
         match_metric=["spend", "cost"],
         match_dimension=["channel", "source", "medium"],
         match_type=[],
+        match_title=["channel", "source", "medium", "spend", "cost"],
     ),
     SectionRule(
         id="audience",
@@ -199,6 +221,7 @@ MARKETING_SECTIONS = [
         match_metric=[],
         match_dimension=["segment", "demographics", "age", "gender", "location"],
         match_type=[],
+        match_title=["audience", "segment", "demographic", "insight"],
     ),
 ]
 
@@ -214,6 +237,7 @@ FINANCE_SECTIONS = [
         match_metric=["income", "expense", "revenue", "cost", "salary"],
         match_dimension=[],
         match_type=["line", "area"],
+        match_title=["income", "expense", "revenue", "cost", "salary"],
     ),
     SectionRule(
         id="assets_liabilities",
@@ -223,6 +247,7 @@ FINANCE_SECTIONS = [
         match_metric=["asset", "liability", "equity", "balance", "loan", "credit"],
         match_dimension=[],
         match_type=[],
+        match_title=["asset", "liability", "equity", "balance", "loan"],
     ),
     SectionRule(
         id="transactions",
@@ -232,6 +257,7 @@ FINANCE_SECTIONS = [
         match_metric=["transaction", "payment", "amount"],
         match_dimension=["transaction", "payment", "card", "method"],
         match_type=[],
+        match_title=["transaction", "payment", "amount"],
     ),
 ]
 
@@ -299,32 +325,55 @@ def assign_section(
     metric: Optional[str],
     dimension: Optional[str],
     domain: str,
+    title: str = "",
 ) -> SectionAssignment:
     """
-    Assign a section to a chart based on domain rules.
+    Assign a section to a chart using a weighted scoring system to ensure robust grouping.
     """
+    # print(f"DEBUG: assign_section called - domain: {domain}, chart_type: {chart_type}, metric: {metric}, dimension: {dimension}, title: {title}")
     rules = DOMAIN_SECTION_REGISTRY.get(domain, GENERIC_SECTIONS)
 
-    # 1. Priority sorting: Ensure higher priority (lower number) is checked first
-    sorted_rules = sorted(rules, key=lambda r: r.priority)
-
-    # 2. Pre-normalize inputs for efficiency
+    # Pre-normalize inputs
     norm_chart_type = _normalize(chart_type)
     norm_metric = _normalize(metric)
     norm_dimension = _normalize(dimension)
+    norm_title = _normalize(title)
 
-    for rule in sorted_rules:
-        # Match by chart type (normalized)
+    best_section = None
+    max_score = -1.0
+
+    for rule in rules:
+        score = 0.0
+
+        # 1. Title Match (Highest Signal)
+        if rule.match_title and _matches(norm_title, rule.match_title):
+            score += rule.weight_title
+
+        # 2. Dimension Match (Strong Signal)
+        if rule.match_dimension and _matches(norm_dimension, rule.match_dimension):
+            score += rule.weight_dimension
+
+        # 3. Metric Match (Moderate Signal)
+        if rule.match_metric and _matches(norm_metric, rule.match_metric):
+            score += rule.weight_metric
+
+        # 4. Type Match (Supporting Signal)
         if rule.match_type:
             if any(_normalize(t) == norm_chart_type for t in rule.match_type):
-                return SectionAssignment(section=rule.title, section_icon=rule.icon)
+                score += rule.weight_type
 
-        # Match by metric keywords
-        if rule.match_metric and _matches(norm_metric, rule.match_metric):
-            return SectionAssignment(section=rule.title, section_icon=rule.icon)
+        # Tie-breaking: adjust score slightly based on priority (lower priority number = better)
+        # We subtract a tiny fraction based on priority so that if scores are equal,
+        # the one with the lower priority number wins.
+        score -= (rule.priority * 0.001)
 
-        # Match by dimension keywords
-        if rule.match_dimension and _matches(norm_dimension, rule.match_dimension):
-            return SectionAssignment(section=rule.title, section_icon=rule.icon)
+        if score > max_score and score > 0:
+            max_score = score
+            best_section = rule
 
+    if best_section:
+        # print(f"DEBUG: Selected section {best_section.title} with score {max_score:.3f}")
+        return SectionAssignment(section=best_section.title, section_icon=best_section.icon)
+
+    # print(f"DEBUG: No match found. Falling back to {DEFAULT_SECTION}")
     return SectionAssignment(section=DEFAULT_SECTION, section_icon=DEFAULT_SECTION_ICON)

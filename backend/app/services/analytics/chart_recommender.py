@@ -3093,7 +3093,7 @@ def recommend_charts(df: pd.DataFrame, domain: DomainType, classification: Colum
     # Create filtered classification (preserve original for reference)
     from . import section_registry
     from .section_registry import assign_section
-    filtered_classification = CC(
+    filtered_classification = ColumnClassification(
         metrics=filtered_metrics or classification.metrics[:3],  # Fallback to first 3 if all filtered
         dimensions=filtered_dimensions or classification.dimensions[:3],
         targets=classification.targets,
@@ -3141,6 +3141,7 @@ def recommend_charts(df: pd.DataFrame, domain: DomainType, classification: Colum
             metric=chart.metric,
             dimension=chart.dimension,
             domain=domain.value,
+            title=chart.title,
         )
         chart.section = assignment.section
 
@@ -3221,7 +3222,8 @@ def recommend_charts(df: pd.DataFrame, domain: DomainType, classification: Colum
             "data": chart.data,
             "confidence": chart.confidence,
             "reason": chart.reason,
-            "is_percentage": format_type == "percentage"
+            "is_percentage": format_type == "percentage",
+            "section": getattr(chart, "section", "Other Insights"),
         }
         if chart.dimension:
             result[slot]["dimension"] = chart.dimension
