@@ -2154,6 +2154,26 @@ function formatTargetTabLabel(value: string, targetColumn?: string): string {
     return isPositiveBinaryValue(raw) ? labels.positive : labels.negative;
 }
 
+interface ChartItem {
+    id: string;
+    type: string;
+    title?: string;
+    dimension?: string;
+    metric?: string;
+    aggregation?: string;
+    data: any[];
+    data_without_outliers?: any[];
+    section: string;
+    confidence?: number;
+    value_label?: string;
+    geo_meta?: {
+        map_type?: string;
+        [key: string]: any;
+    };
+    categories?: string[];
+    [key: string]: any;
+}
+
 export default function UserDashboard() {
     const cacheRef = useRef<DashboardCacheBundle>(getDashboardCacheBundle());
     const [analytics, setAnalytics] = useState<DashboardAnalytics | null>(null);
@@ -2699,9 +2719,9 @@ export default function UserDashboard() {
         || Object.keys(serverChartOverrides || {}).length > 0;
     const isChurnDashboard = String(analytics?.domain || '').toLowerCase() === 'churn';
 
-    const chartArrayRaw = analytics?.charts ? Object.entries(analytics.charts).map(([id, val]) => {
+    const chartArrayRaw: ChartItem[] = analytics?.charts ? Object.entries(analytics.charts).map(([id, val]) => {
         const resolvedType = chart_overrides[id]?.type || val.type;
-        const chartConfig = (analytics?.chart_configs as Record<string, any> | undefined)?.[id];
+        const chartConfig = analytics?.chart_configs?.[id];
         const isDateTrend = ['line', 'area', 'area_bounds', 'area-bounds'].includes(String(resolvedType || '').toLowerCase())
             && !!(val.is_date ?? chartConfig?.is_date);
         const shouldUseServerData = isDateTrend || isChurnDashboard;
@@ -2713,9 +2733,9 @@ export default function UserDashboard() {
         return {
             id,
             ...val,
-            dimension: val.dimension ?? analytics?.chart_configs?.[id]?.dimension,
-            metric: val.metric ?? analytics?.chart_configs?.[id]?.metric,
-            aggregation: val.aggregation ?? analytics?.chart_configs?.[id]?.aggregation,
+            dimension: val.dimension ?? chartConfig?.dimension,
+            metric: val.metric ?? chartConfig?.metric,
+            aggregation: val.aggregation ?? chartConfig?.aggregation,
             data: resolvedData,
             data_without_outliers: (Object.keys(normalizedActiveFilters).length === 0 && String(target_value || 'all').toLowerCase() === 'all')
                 ? (val.data_without_outliers || val.data)
@@ -2725,7 +2745,7 @@ export default function UserDashboard() {
     }) : [];
 
     // Sort: regular charts first, tall hbar charts last so they don't break grid row alignment
-    const chartArray = [...chartArrayRaw].sort((a: any, b: any) => {
+    const chartArray: ChartItem[] = [...chartArrayRaw].sort((a, b) => {
         const typeA = chart_overrides[a.id]?.type || a.type;
         const typeB = chart_overrides[b.id]?.type || b.type;
         const aIsHbar = typeA === 'hbar' && a.data?.length >= 8 ? 1 : 0;
@@ -2733,7 +2753,7 @@ export default function UserDashboard() {
         return aIsHbar - bIsHbar;
     });
 
-    const exportChartCSV = (chart: any) => {
+    const exportChartCSV = (chart: ChartItem) => {
         const rows = chart.data;
         if (!Array.isArray(rows) || rows.length === 0) return;
 
@@ -2757,7 +2777,7 @@ export default function UserDashboard() {
         URL.revokeObjectURL(url);
     };
 
-    const exportChartHTML = (chart: any) => {
+    const exportChartHTML = (chart: ChartItem) => {
         try {
             const data = chart.data;
             if (!Array.isArray(data) || data.length === 0) return;
@@ -3066,7 +3086,7 @@ export default function UserDashboard() {
         }
     };
 
-    const renderChartActions = (chart: any) => {
+    const renderChartActions = (chart: ChartItem) => {
         const currentType = chart_overrides[chart.id]?.type || chart.type;
         const currentAgg = (chart_overrides[chart.id]?.aggregation || chart.aggregation || 'sum').toLowerCase();
 
