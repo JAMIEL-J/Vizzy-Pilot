@@ -47,8 +47,12 @@ def _is_poison_value(v: Any) -> bool:
     return False
 
 
-def _safe_float(v: Any, default: float = 0.0) -> float:
-    """Convert to float, returning default for NaN/None/inf."""
+def _safe_float(v: Any, default=0.0):
+    """Convert to float, returning default for NaN/None/inf.
+
+    When *default* is ``None`` the caller can use ``pd.notna()`` to
+    detect values that could not be coerced.
+    """
     try:
         f = float(v)
         if pd.isna(f) or f != f:  # NaN check
@@ -1228,8 +1232,8 @@ def _get_scatter_data(df: pd.DataFrame, x_col: str, y_col: str, limit: int = 100
         
         result = []
         for _, row in sample.iterrows():
-            x_val = _safe_float(row[x_col])
-            y_val = _safe_float(row[y_col])
+            x_val = _safe_float(row[x_col], default=None)
+            y_val = _safe_float(row[y_col], default=None)
             # Skip rows where either coordinate is NaN/inf after coercion
             if not pd.notna(x_val) or not pd.notna(y_val):
                 continue
@@ -3891,7 +3895,7 @@ def _generate_education_charts(df: pd.DataFrame, classification: ColumnClassific
         add_chart(ChartRecommendation(
             '', f'{_beautify_column_name(attendance_col)} by {_beautify_column_name(primary_dim)}',
             'bar', data, 'MEDIUM', 'Attendance patterns',
-            format_type='percent' if _metric_format_type(attendance_col) == 'percent' else None,
+            format_type='percentage' if _metric_format_type(attendance_col) == 'percentage' else None,
             dimension=primary_dim, metric=attendance_col, aggregation='mean'
         ))
 
@@ -3977,7 +3981,7 @@ def _generate_ecommerce_charts(df: pd.DataFrame, classification: ColumnClassific
         add_chart(ChartRecommendation(
             '', f'{_beautify_column_name(conversion_col)} by {_beautify_column_name(channel_col)}',
             'bar', data, 'HIGH', 'Conversion efficiency by channel',
-            format_type='percent',
+            format_type='percentage',
             dimension=channel_col, metric=conversion_col, aggregation='mean'
         ))
 
@@ -3987,7 +3991,7 @@ def _generate_ecommerce_charts(df: pd.DataFrame, classification: ColumnClassific
         add_chart(ChartRecommendation(
             '', f'{_beautify_column_name(abandonment_col)} by {_beautify_column_name(dim)}',
             'bar', data, 'MEDIUM', 'Cart abandonment by segment',
-            format_type='percent',
+            format_type='percentage',
             dimension=dim, metric=abandonment_col, aggregation='mean'
         ))
 
@@ -4146,7 +4150,7 @@ def _generate_customer_support_charts(df: pd.DataFrame, classification: ColumnCl
         add_chart(ChartRecommendation(
             '', f'{_beautify_column_name(csat_col)} by {_beautify_column_name(channel_col)}',
             'bar', data, 'MEDIUM', 'Customer satisfaction by channel',
-            format_type='percent' if _metric_format_type(csat_col) == 'percent' else None,
+            format_type='percentage' if _metric_format_type(csat_col) == 'percentage' else None,
             dimension=channel_col, metric=csat_col, aggregation='mean'
         ))
 
@@ -4155,7 +4159,7 @@ def _generate_customer_support_charts(df: pd.DataFrame, classification: ColumnCl
         add_chart(ChartRecommendation(
             '', f'{_beautify_column_name(sla_col)} by {_beautify_column_name(priority_col)}',
             'bar', data, 'MEDIUM', 'SLA compliance by priority',
-            format_type='percent' if _metric_format_type(sla_col) == 'percent' else None,
+            format_type='percentage' if _metric_format_type(sla_col) == 'percentage' else None,
             dimension=priority_col, metric=sla_col, aggregation='mean'
         ))
     elif target_col and priority_col:
@@ -4234,7 +4238,7 @@ def _generate_it_operations_charts(df: pd.DataFrame, classification: ColumnClass
         add_chart(ChartRecommendation(
             '', f'{_beautify_column_name(uptime_col)} by {_beautify_column_name(environment_col)}',
             'bar', data, 'HIGH', 'Availability by environment',
-            format_type='percent' if _metric_format_type(uptime_col) == 'percent' else None,
+            format_type='percentage' if _metric_format_type(uptime_col) == 'percentage' else None,
             dimension=environment_col, metric=uptime_col, aggregation='mean'
         ))
 

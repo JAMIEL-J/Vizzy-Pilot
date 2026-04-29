@@ -127,14 +127,18 @@ DOMAIN_KEYWORDS: Dict[DomainType, Dict[str, Dict[str, int]]] = {
             "degree": 3, "faculty": 3
         }
     },
+    # ECOMMERCE is a specialization of SALES. Ecommerce-specific terms
+    # (cart, checkout, abandonment, session) get high primary weight;
+    # generic sales terms (order, product, customer, revenue) are
+    # secondary with lower weight to avoid ties with the SALES domain.
     DomainType.ECOMMERCE: {
         "primary": {
-            "cart": 5, "checkout": 5, "order": 5, "product": 5,
-            "customer": 5, "revenue": 5, "conversion": 5, "traffic": 5
+            "cart": 5, "checkout": 5, "abandonment": 5, "session": 5,
+            "conversion": 5, "traffic": 5, "coupon": 5, "promo": 5
         },
         "secondary": {
-            "session": 3, "visit": 3, "abandonment": 3, "coupon": 3,
-            "promo": 3, "category": 3, "brand": 3, "review": 3,
+            "order": 2, "product": 2, "customer": 2, "revenue": 2,
+            "visit": 3, "category": 3, "brand": 3, "review": 3,
             "rating": 3, "refund": 3
         }
     },

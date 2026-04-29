@@ -583,7 +583,11 @@ export default function ChatInterface() {
              if (count > 0) {
                  metricValueStr = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(sum);
                  const mlLower = metricLabel.toLowerCase();
-                 if (mlLower.startsWith('usd') || mlLower.includes('revenue') || mlLower.includes('price') || mlLower.includes('amount') || mlLower.includes('cost') || mlLower.includes('sales') || mlLower.includes('salary') || mlLower.includes('income') || mlLower.includes('wage') || mlLower.includes('rate') && ['daily', 'hourly', 'monthly'].some(p => mlLower.includes(p))) {
+                 const hasPayRate = /\brate\b/.test(mlLower) && ['daily', 'hourly', 'monthly'].some(p => mlLower.includes(p));
+                 const isCurrencyMetric = mlLower.startsWith('usd')
+                     || ['revenue', 'price', 'amount', 'cost', 'sales', 'salary', 'income', 'wage'].some(kw => mlLower.includes(kw))
+                     || hasPayRate;
+                 if (isCurrencyMetric) {
                      metricValueStr = (targetData?.currency || '$') + metricValueStr;
                  }
              } else if (targetData?.type === 'kpi' && targetData?.data?.value !== undefined) {

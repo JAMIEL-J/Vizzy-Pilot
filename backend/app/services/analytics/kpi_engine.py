@@ -2147,7 +2147,17 @@ def _generate_real_estate_kpis(df: pd.DataFrame, classification: ColumnClassific
     )
     if target_col:
         positive_count = _count_target_positive(df, target_col)
-        rate = (positive_count / len(df)) * 100 if len(df) > 0 else 0
+        # Detect semantic inversion: vacancy/available columns indicate
+        # the opposite of occupancy, so invert the count.
+        col_lower = target_col.lower()
+        is_inverted = any(kw in col_lower for kw in ['vacant', 'available', 'vacancy'])
+        if is_inverted:
+            occupied_count = len(df) - positive_count
+            reason_note = f"Positive {target_col} flags inverted (vacancy→occupancy)"
+        else:
+            occupied_count = positive_count
+            reason_note = f"Positive {target_col} / total"
+        rate = (occupied_count / len(df)) * 100 if len(df) > 0 else 0
         kpis.append(KPI(
             key="occupancy_rate",
             title="Occupancy Rate",
@@ -2155,7 +2165,7 @@ def _generate_real_estate_kpis(df: pd.DataFrame, classification: ColumnClassific
             format="percent",
             icon="check-circle",
             confidence="MEDIUM",
-            reason=f"Positive {target_col} / total"
+            reason=reason_note
         ))
 
     return kpis
@@ -2355,15 +2365,21 @@ def _generate_cybersecurity_kpis(df: pd.DataFrame, classification: ColumnClassif
         classification,
         search_excluded=True
     )
-    total_alerts = _safe_sum(df, alert_col) if alert_col and alert_col in df.columns else len(df)
+    # alert_col is typically an identifier — use unique count, not sum
+    if alert_col and alert_col in df.columns:
+        total_alerts = int(df[alert_col].nunique())
+        alert_reason = f"Unique count of {alert_col}"
+    else:
+        total_alerts = len(df)
+        alert_reason = "Row count"
     kpis.append(KPI(
         key="total_alerts",
         title="Total Alerts",
-        value=int(round(total_alerts)),
+        value=total_alerts,
         format="number",
         icon="alert-triangle",
         confidence="HIGH",
-        reason=f"Sum of {alert_col}" if alert_col else "Row count"
+        reason=alert_reason
     ))
 
     vuln_col = _find_column(df, ['vulnerability', 'cve', 'exposure'], classification)

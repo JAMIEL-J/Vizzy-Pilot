@@ -156,7 +156,8 @@ cd frontend
 npm install
 
 # Environment configuration
-# Ensure frontend/.env contains VITE_API_URL=http://localhost:8000/api/v1
+# Create frontend/.env (or copy frontend/.env.example if available) and set:
+#   VITE_API_URL=http://localhost:8000/api/v1
 
 # Launch development server
 npm run dev

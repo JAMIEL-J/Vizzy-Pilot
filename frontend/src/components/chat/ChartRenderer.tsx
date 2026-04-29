@@ -87,16 +87,20 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
         if (!key) return false;
         // Explicit backend value_labels like "USD/day", "USD/hr"
         if (key.startsWith('usd')) return true;
+        // Allowlist FIRST — compound financial phrases must be checked
+        // before the denylist, which would swallow 'day'/'hours'/'month'.
+        if (['revenue', 'profit', 'income', 'earnings', 'cost', 'expense', 'price', 'charge',
+                'payment', 'budget', 'fee', 'sales', 'discount', 'amount', 'billing',
+                'salary', 'wage', 'compensation', 'payroll',
+                'daily rate', 'hourly rate', 'monthly rate', 'monthly income',
+        ].some((kw) => key.includes(kw))) return true;
+        // Denylist — generic non-financial terms
         if (['quantity', 'qty', 'count', 'unit', 'units', 'volume', 'age', 'tenure', 'day', 'days',
              'month', 'months', 'year', 'years', 'rating', 'miles', 'sessions', 'hours',
         ].some((kw) => key.includes(kw))) {
             return false;
         }
-        return ['revenue', 'profit', 'income', 'earnings', 'cost', 'expense', 'price', 'charge',
-                'payment', 'budget', 'fee', 'sales', 'discount', 'amount', 'billing',
-                'salary', 'wage', 'compensation', 'payroll',
-                'daily rate', 'hourly rate', 'monthly rate', 'monthly income',
-        ].some((kw) => key.includes(kw));
+        return false;
     };
 
     const isCurrencyMetric = (metricKey?: string) => {
