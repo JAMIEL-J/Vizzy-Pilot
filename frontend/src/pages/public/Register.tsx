@@ -205,7 +205,7 @@ export default function Register() {
     
     /* STEP 2 PASSWORD COMPONENT */
     return (
-        <div className="bg-background font-body text-on-surface min-h-screen flex items-center justify-center p-4 md:p-6 lg:p-8 antialiased relative">
+        <div className="bg-background font-body text-on-surface min-h-screen flex flex-col items-center justify-center p-4 md:p-6 lg:p-8 antialiased relative">
             <div className="fixed top-6 right-6 z-50">
                 <ThemeToggle />
             </div>
