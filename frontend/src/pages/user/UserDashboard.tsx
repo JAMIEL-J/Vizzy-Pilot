@@ -186,23 +186,33 @@ const ThemedTooltip = ({ active, payload, label, formatter, chartTitle, valueLab
     if (fp?.xLabel && fp?.yLabel) {
         const isCurrencyLabel = (text: string) => {
             const lower = String(text || '').toLowerCase();
-            return ['revenue', 'cost', 'costs', 'spend', 'budget', 'income', 'sales', 'profit', 'payment', 'charge', 'charges', 'price', 'amount', 'roi', 'roas'].some((kw) => lower.includes(kw));
+            if (lower.startsWith('usd')) return true;
+            if (formatType === 'currency') return true;
+            return ['revenue', 'cost', 'costs', 'spend', 'budget', 'income', 'sales', 'profit', 'payment',
+                    'charge', 'charges', 'price', 'amount', 'roi', 'roas',
+                    'salary', 'wage', 'compensation', 'payroll',
+                    'daily rate', 'hourly rate', 'monthly rate', 'monthly income',
+            ].some((kw) => lower.includes(kw));
         };
 
         const isPercentLabel = (text: string) => {
             const lower = String(text || '').toLowerCase();
-            return ['rate', 'percent', 'percentage', 'pct', 'ctr', 'cvr', 'ratio', 'margin'].some((kw) => lower.includes(kw));
+            if (formatType === 'currency' || lower.startsWith('usd')) return false;
+            return ['percent', 'percentage', 'pct', 'ctr', 'cvr', 'ratio', 'margin'].some((kw) => lower.includes(kw))
+                || (lower.includes('rate') && !['daily', 'hourly', 'monthly', 'annual'].some(p => lower.includes(p)));
         };
 
         const isCountLabel = (text: string) => {
             const lower = String(text || '').toLowerCase();
-            return ['click', 'count', 'record', 'records', 'orders', 'order', 'customers', 'units', 'qty', 'quantity', 'volume', 'visits', 'sessions', 'impressions', 'views'].some((kw) => lower.includes(kw));
+            return ['click', 'count', 'record', 'records', 'orders', 'order', 'customers', 'employees',
+                    'units', 'qty', 'quantity', 'volume', 'visits', 'sessions', 'impressions', 'views',
+            ].some((kw) => lower.includes(kw));
         };
 
         const fmtS = (v: number, lbl: string) => {
             if (formatter) return formatter(v, lbl);
             const lblLower = lbl.toLowerCase();
-            const isTimeVariant = ['tenure', 'age', 'duration', 'months', 'years', 'days'].some(k => lblLower.includes(k));
+            const isTimeVariant = ['tenure', 'age', 'duration', 'months', 'years', 'days', 'miles', 'sessions', 'rating', 'hours'].some(k => lblLower.includes(k));
             const isPct = isPercentLabel(lbl) || lbl.includes('%') || (formatType === 'percentage' && !isCountLabel(lbl));
             const isCur = !isPct && (isCurrencyLabel(lbl) || (formatType === 'currency' && !isCountLabel(lbl) && !isTimeVariant));
 
@@ -482,15 +492,18 @@ const ChartRenderer = ({
         );
     }
 
-    // Currency and rate detection
+    // Currency and rate detection — trust backend format_type when explicitly set
     const chartTitleLower = (chart.title || '').toLowerCase();
     const formatType = chart?.format_type;
+    const isChartExplicitCurrency = formatType === 'currency';
     const isChartExplicitPercent = formatType === 'percentage' || formatType === 'percent';
-    const isPercent = isChartExplicitPercent || (!formatType && (chartTitleLower.includes('rate') || chartTitleLower.includes('%')));
+    // Only infer percent from title if format_type is NOT set to currency
+    const isPercent = isChartExplicitPercent || (!formatType && !isChartExplicitCurrency && (chartTitleLower.includes('rate') || chartTitleLower.includes('%')));
 
     const countLikeMetricTokens = [
         'record', 'records', 'count', 'orders', 'order', 'customers', 'units', 'qty', 'quantity', 'volume',
-        'click', 'clicks', 'impression', 'impressions', 'view', 'views', 'session', 'sessions', 'visit', 'visits'
+        'click', 'clicks', 'impression', 'impressions', 'view', 'views', 'session', 'sessions', 'visit', 'visits',
+        'employees',
     ];
     const isCountLikeMetric = (label?: string) => {
         const token = String(label || '').toLowerCase();
@@ -499,18 +512,33 @@ const ChartRenderer = ({
 
     const isCurrencyMetricLabel = (label?: string) => {
         const token = String(label || '').toLowerCase();
-        return ['revenue', 'cost', 'costs', 'spend', 'budget', 'income', 'sales', 'profit', 'payment', 'charge', 'charges', 'price', 'amount', 'roi', 'roas'].some((kw) => token.includes(kw));
+        // Explicit backend currency value_labels: "USD/day", "USD/hr", "USD/mo", "USD"
+        if (token.startsWith('usd')) return true;
+        // Explicit backend format_type takes priority
+        if (isChartExplicitCurrency) return true;
+        return ['revenue', 'cost', 'costs', 'spend', 'budget', 'income', 'sales', 'profit', 'payment',
+                'charge', 'charges', 'price', 'amount', 'roi', 'roas',
+                'salary', 'wage', 'compensation', 'payroll',
+                'daily rate', 'hourly rate', 'monthly rate', 'monthly income',
+        ].some((kw) => token.includes(kw));
     };
 
     const isPercentMetricLabel = (label?: string) => {
         const token = String(label || '').toLowerCase();
-        return ['rate', 'percent', 'percentage', 'pct', 'ctr', 'cvr', 'ratio', 'margin'].some((kw) => token.includes(kw));
+        // If backend says it's currency, never treat as percent even if label has 'rate'
+        if (isChartExplicitCurrency || token.startsWith('usd')) return false;
+        return ['percent', 'percentage', 'pct', 'ctr', 'cvr', 'ratio', 'margin'].some((kw) => token.includes(kw))
+            // 'rate' only counts as percent if not a pay rate
+            || (token.includes('rate') && !['daily', 'hourly', 'monthly', 'annual'].some(p => token.includes(p)));
     };
 
     const isWholeNumberMetricLabel = (label?: string) => {
         const token = String(label || '').toLowerCase();
-        return ['tenure', 'age', 'duration', 'month', 'months', 'year', 'years', 'day', 'days', 'los', 'length of stay', 'lengthofstay']
-            .some((kw) => token.includes(kw));
+        return ['tenure', 'age', 'duration', 'month', 'months', 'year', 'years', 'day', 'days',
+                'los', 'length of stay', 'lengthofstay',
+                'miles', 'km', 'hours', 'sessions', 'count',
+                'rating',  // Likert scale: "Rating (1-4)"
+        ].some((kw) => token.includes(kw));
     };
 
     const compactNumber = (value: number, currency = false) => {
@@ -539,7 +567,18 @@ const ChartRenderer = ({
         const label = rawLabel.toLowerCase();
         const chartLevelLabel = String(chart.value_label || chart.metric || chart.title || '').toLowerCase();
 
-        if (isPercentMetricLabel(label) || label.includes('%') || (fallbackChartLevel && (isChartExplicitPercent || (!label && isPercent)))) {
+        // ── Backend format_type is AUTHORITATIVE when set ──
+        // This ensures DailyRate shows $, JobSatisfaction shows plain number, etc.
+        if (isChartExplicitPercent && !isCurrencyMetricLabel(label)) {
+            const pctValue = Math.abs(value) <= 1 ? value * 100 : value;
+            return `${new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(pctValue)}%`;
+        }
+        if (isChartExplicitCurrency && !isPercentMetricLabel(label)) {
+            return compactNumber(value, true);
+        }
+
+        // ── Label-based detection (fallback when format_type not set) ──
+        if (isPercentMetricLabel(label) || label.includes('%') || (fallbackChartLevel && (!label && isPercent))) {
             const pctValue = Math.abs(value) <= 1 ? value * 100 : value;
             return `${new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(pctValue)}%`;
         }
@@ -548,7 +587,9 @@ const ChartRenderer = ({
             return compactNumber(value, true);
         }
 
-        if (isWholeNumberMetricLabel(label) || (fallbackChartLevel && isWholeNumberMetricLabel(chartLevelLabel))) {
+        // Always check chart.value_label for unit context (Miles, Rating, Sessions, etc.)
+        // regardless of fallbackChartLevel — value_label is explicitly set by backend
+        if (isWholeNumberMetricLabel(label) || isWholeNumberMetricLabel(chartLevelLabel)) {
             return new Intl.NumberFormat('en-US', {
                 notation: 'compact',
                 compactDisplay: 'short',
@@ -564,21 +605,24 @@ const ChartRenderer = ({
             return compactNumber(Number(v), false);
         }
         const hasMetricLabel = !!String(metricLabel || '').trim();
+        // Enable chart-level fallback when backend explicitly set format_type
+        const hasExplicitFormat = !!formatType;
         const chartLevelPercentFallback = isPercent
             && !isCurrencyMetricLabel(metricLabel)
             && !isWholeNumberMetricLabel(metricLabel)
             && !isCountLikeMetric(metricLabel);
-        return formatByLabel(v, metricLabel, !hasMetricLabel || chartLevelPercentFallback);
+        return formatByLabel(v, metricLabel, !hasMetricLabel || chartLevelPercentFallback || hasExplicitFormat);
     };
 
     const fmtTick = (v: any, metricLabel?: string): string => {
         if (typeof v !== 'number') return String(v ?? '');
         const hasMetricLabel = !!String(metricLabel || '').trim();
+        const hasExplicitFormat = !!formatType;
         const chartLevelPercentFallback = isPercent
             && !isCurrencyMetricLabel(metricLabel)
             && !isWholeNumberMetricLabel(metricLabel)
             && !isCountLikeMetric(metricLabel);
-        return formatByLabel(v, metricLabel, !hasMetricLabel || chartLevelPercentFallback);
+        return formatByLabel(v, metricLabel, !hasMetricLabel || chartLevelPercentFallback || hasExplicitFormat);
     };
 
     const formatCenterTotal = (total: number): string => {
@@ -783,7 +827,16 @@ const ChartRenderer = ({
     const axisTickFont = { size: 9, weight: '600', family: '"Be Vietnam Pro", sans-serif' };
     const axisTitleFont = { size: 10, weight: '700', family: '"Be Vietnam Pro", sans-serif' };
     const dimensionAxisLabel = String(chart.x_axis || chart.dimension || nameKey || 'Category').replace(/_/g, ' ');
-    const valueAxisLabel = String(chart.y_axis || chart.metric || chart.value_label || 'Value').replace(/_/g, ' ');
+
+    // Build Y-axis label: use metric name + unit suffix from value_label
+    const rawMetricLabel = String(chart.y_axis || chart.metric || 'Value').replace(/_/g, ' ');
+    const rawValueLabel = String(chart.value_label || '').trim();
+    const unitSuffixes = ['usd', 'rating', 'miles', 'km', 'years', 'sessions', 'hours', 'count', '%'];
+    const hasUnitSuffix = rawValueLabel && unitSuffixes.some(u => rawValueLabel.toLowerCase().startsWith(u) || rawValueLabel.toLowerCase().includes('('));
+    const valueAxisLabel = hasUnitSuffix && rawValueLabel.toLowerCase() !== rawMetricLabel.toLowerCase()
+        ? `${rawMetricLabel} (${rawValueLabel})`
+        : rawMetricLabel;
+
     const scatterXAxisLabel = String(chart.x_axis || chart.dimension || nameKey || 'X').replace(/_/g, ' ');
     const scatterYAxisLabel = String(chart.y_axis || chart.metric || chart.value_label || 'Y').replace(/_/g, ' ');
 

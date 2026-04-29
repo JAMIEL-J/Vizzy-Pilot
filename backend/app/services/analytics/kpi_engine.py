@@ -1619,6 +1619,810 @@ def _generate_healthcare_kpis(df: pd.DataFrame, classification: ColumnClassifica
     return kpis
 
 
+def _generate_hr_kpis(df: pd.DataFrame, classification: ColumnClassification) -> List[KPI]:
+    """Generate KPIs for HR domain — senior HR analyst grade.
+
+    Covers the 10 most important workforce metrics:
+    1. Total Employees (headcount)
+    2. Attrition Rate (%)
+    3. Avg Monthly Income / Salary
+    4. Avg Tenure (Years at Company)
+    5. Avg Performance Rating
+    6. Avg Job Satisfaction
+    7. Overtime Rate (%)
+    8. Avg Work-Life Balance
+    9. Employee Satisfaction Index (composite)
+    10. Avg Training Investment
+    """
+    kpis = []
+
+    # ── Column Resolution ──────────────────────────────────────────────
+    employee_col = _find_column(
+        df,
+        ['employee', 'employee_id', 'employeeid', 'employee_number', 'employeenumber',
+         'emp no', 'empno', 'emp_no', 'worker', 'staff_id'],
+        classification,
+        search_excluded=True
+    )
+    total_employees = df[employee_col].nunique() if employee_col and employee_col in df.columns else len(df)
+
+    target_col = classification.targets[0] if classification.targets else _find_column(
+        df, ['attrition', 'turnover', 'left', 'terminated', 'exit'], classification, search_excluded=True
+    )
+
+    salary_col = _find_column(df, [
+        'monthly income', 'monthlyincome', 'salary', 'pay', 'wage',
+        'compensation', 'payroll', 'income', 'annual income'
+    ], classification)
+
+    tenure_col = _find_column(df, [
+        'years at company', 'yearsatcompany', 'tenure', 'experience',
+        'seniority', 'total working years', 'totalworkingyears'
+    ], classification)
+
+    performance_col = _find_column(df, [
+        'performance rating', 'performancerating', 'performance', 'rating',
+        'score', 'review', 'appraisal'
+    ], classification)
+
+    satisfaction_col = _find_column(df, [
+        'job satisfaction', 'jobsatisfaction', 'satisfaction'
+    ], classification)
+
+    env_satisfaction_col = _find_column(df, [
+        'environment satisfaction', 'environmentsatisfaction'
+    ], classification)
+
+    rel_satisfaction_col = _find_column(df, [
+        'relationship satisfaction', 'relationshipsatisfaction'
+    ], classification)
+
+    worklife_col = _find_column(df, [
+        'work life balance', 'worklifebalance', 'work life', 'worklife'
+    ], classification)
+
+    overtime_col = _find_column(df, [
+        'overtime', 'over time', 'over_time'
+    ], classification)
+
+    training_col = _find_column(df, [
+        'training times last year', 'trainingtimeslastyear', 'training',
+        'training times', 'courses', 'learning'
+    ], classification)
+
+    involvement_col = _find_column(df, [
+        'job involvement', 'jobinvolvement', 'involvement', 'engagement'
+    ], classification)
+
+    # ── 1. Total Employees ─────────────────────────────────────────────
+    kpis.append(KPI(
+        key="total_employees",
+        title="Total Employees",
+        value=int(total_employees),
+        format="number",
+        icon="users",
+        confidence="HIGH",
+        reason="Unique employees" if employee_col else "Total records in dataset"
+    ))
+
+    # ── 2. Attrition Rate ──────────────────────────────────────────────
+    if target_col and target_col in df.columns:
+        positive_count = _count_target_positive(df, target_col)
+        rate = (positive_count / len(df)) * 100 if len(df) > 0 else 0
+        kpis.append(KPI(
+            key="attrition_rate",
+            title="Attrition Rate",
+            value=round(rate, 1),
+            format="percent",
+            icon="trending-down",
+            confidence="HIGH",
+            reason=f"{positive_count} out of {len(df)} employees left",
+            subtitle=f"{positive_count} employees attrited"
+        ))
+
+    # ── 3. Avg Monthly Income / Salary ─────────────────────────────────
+    if salary_col and salary_col in df.columns:
+        avg_salary = _safe_mean(df, salary_col)
+        if avg_salary > 0:
+            kpis.append(KPI(
+                key="avg_income",
+                title=f"Avg {_beautify_column_name(salary_col)}",
+                value=round(avg_salary, 2),
+                format="currency",
+                icon="dollar",
+                confidence="HIGH",
+                reason=f"Mean of {salary_col} across all employees"
+            ))
+
+    # ── 4. Avg Tenure ──────────────────────────────────────────────────
+    if tenure_col and tenure_col in df.columns:
+        avg_tenure = _safe_mean(df, tenure_col)
+        kpis.append(KPI(
+            key="avg_tenure",
+            title=f"Avg {_beautify_column_name(tenure_col)}",
+            value=round(avg_tenure, 1),
+            format="number",
+            icon="clock",
+            confidence="HIGH",
+            reason=f"Mean of {tenure_col}",
+            subtitle="years" if avg_tenure < 50 else None
+        ))
+
+    # ── 5. Avg Performance Rating ──────────────────────────────────────
+    if performance_col and performance_col in df.columns:
+        avg_perf = _safe_mean(df, performance_col)
+        # Determine scale (1-4, 1-5, 1-10, etc.)
+        perf_max = float(pd.to_numeric(df[performance_col], errors='coerce').max())
+        scale_label = f"out of {int(perf_max)}" if perf_max <= 10 else ""
+        kpis.append(KPI(
+            key="avg_performance",
+            title="Avg Performance Rating",
+            value=round(avg_perf, 2),
+            format="number",
+            icon="activity",
+            confidence="HIGH",
+            reason=f"Mean of {performance_col}",
+            subtitle=scale_label
+        ))
+
+    # ── 6. Avg Job Satisfaction ────────────────────────────────────────
+    if satisfaction_col and satisfaction_col in df.columns:
+        avg_sat = _safe_mean(df, satisfaction_col)
+        sat_max = float(pd.to_numeric(df[satisfaction_col], errors='coerce').max())
+        kpis.append(KPI(
+            key="avg_satisfaction",
+            title="Avg Job Satisfaction",
+            value=round(avg_sat, 2),
+            format="number",
+            icon="smile",
+            confidence="HIGH",
+            reason=f"Mean of {satisfaction_col}",
+            subtitle=f"out of {int(sat_max)}" if sat_max <= 10 else None
+        ))
+
+    # ── 7. Overtime Rate ───────────────────────────────────────────────
+    if overtime_col and overtime_col in df.columns:
+        ot_series = df[overtime_col].astype(str).str.strip().str.lower()
+        ot_positive = ot_series.isin({'yes', 'true', '1', '1.0'}).sum()
+        ot_total = ot_series.notna().sum()
+        ot_rate = (ot_positive / ot_total * 100) if ot_total > 0 else 0
+        kpis.append(KPI(
+            key="overtime_rate",
+            title="Overtime Rate",
+            value=round(ot_rate, 1),
+            format="percent",
+            icon="alert-triangle",
+            confidence="HIGH",
+            reason=f"{ot_positive} employees with overtime out of {ot_total}",
+            subtitle=f"{ot_positive} employees"
+        ))
+
+    # ── 8. Avg Work-Life Balance ───────────────────────────────────────
+    if worklife_col and worklife_col in df.columns:
+        avg_wl = _safe_mean(df, worklife_col)
+        wl_max = float(pd.to_numeric(df[worklife_col], errors='coerce').max())
+        kpis.append(KPI(
+            key="avg_worklife",
+            title="Avg Work-Life Balance",
+            value=round(avg_wl, 2),
+            format="number",
+            icon="heart",
+            confidence="MEDIUM",
+            reason=f"Mean of {worklife_col}",
+            subtitle=f"out of {int(wl_max)}" if wl_max <= 10 else None
+        ))
+
+    # ── 9. Employee Satisfaction Index (Composite) ─────────────────────
+    # Average of all satisfaction-related metrics for a composite engagement score
+    sat_cols = [c for c in [satisfaction_col, env_satisfaction_col, rel_satisfaction_col, worklife_col, involvement_col]
+                if c and c in df.columns]
+    if len(sat_cols) >= 2:
+        composite_vals = []
+        for c in sat_cols:
+            vals = pd.to_numeric(df[c], errors='coerce').dropna()
+            if not vals.empty:
+                # Normalize to 0-100 scale if on a 1-4 or 1-5 scale
+                col_max = vals.max()
+                if col_max <= 5:
+                    normalized = (vals.mean() / col_max) * 100
+                elif col_max <= 10:
+                    normalized = (vals.mean() / col_max) * 100
+                else:
+                    normalized = vals.mean()
+                composite_vals.append(normalized)
+        if composite_vals:
+            esi = sum(composite_vals) / len(composite_vals)
+            kpis.append(KPI(
+                key="satisfaction_index",
+                title="Satisfaction Index",
+                value=round(esi, 1),
+                format="percent",
+                icon="target",
+                confidence="MEDIUM",
+                reason=f"Composite of {len(sat_cols)} satisfaction metrics normalized to 100",
+                subtitle=f"Based on {len(sat_cols)} metrics"
+            ))
+
+    # ── 10. Avg Training Times ─────────────────────────────────────────
+    if training_col and training_col in df.columns:
+        avg_training = _safe_mean(df, training_col)
+        kpis.append(KPI(
+            key="avg_training",
+            title=f"Avg {_beautify_column_name(training_col)}",
+            value=round(avg_training, 1),
+            format="number",
+            icon="book",
+            confidence="MEDIUM",
+            reason=f"Mean of {training_col}",
+            subtitle="sessions"
+        ))
+
+    return kpis
+
+
+def _generate_logistics_kpis(df: pd.DataFrame, classification: ColumnClassification) -> List[KPI]:
+    """Generate KPIs for Logistics domain."""
+    kpis = []
+
+    shipment_col = _find_column(
+        df,
+        ['shipment', 'tracking', 'order', 'load', 'dispatch'],
+        classification,
+        search_excluded=True
+    )
+    total_shipments = df[shipment_col].nunique() if shipment_col and shipment_col in df.columns else len(df)
+    kpis.append(KPI(
+        key="total_shipments",
+        title="Total Shipments",
+        value=int(total_shipments),
+        format="number",
+        icon="truck",
+        confidence="HIGH",
+        reason="Unique shipments" if shipment_col else "Row count"
+    ))
+
+    delivery_time_col = _find_column(df, ['delivery time', 'transit time', 'lead time', 'days for shipment'], classification)
+    if delivery_time_col:
+        avg_delivery = _safe_mean(df, delivery_time_col)
+        kpis.append(KPI(
+            key="avg_delivery_time",
+            title="Avg Delivery Time",
+            value=round(avg_delivery, 2),
+            format="number",
+            icon="clock",
+            confidence="HIGH",
+            reason=f"Mean of {delivery_time_col}"
+        ))
+
+    shipping_cost_col = _find_column(df, ['shipping cost', 'freight', 'transport cost', 'logistics cost'], classification)
+    if shipping_cost_col:
+        total_cost = _safe_sum(df, shipping_cost_col)
+        kpis.append(KPI(
+            key="total_shipping_cost",
+            title="Total Shipping Cost",
+            value=total_cost,
+            format="currency",
+            icon="dollar",
+            confidence="HIGH",
+            reason=f"Sum of {shipping_cost_col}"
+        ))
+
+    late_col = _find_column(
+        df,
+        ['late', 'delay', 'late_delivery', 'late_delivery_risk', 'on_time'],
+        classification,
+        search_excluded=True
+    )
+    if late_col:
+        positive_count = _count_target_positive(df, late_col)
+        rate = (positive_count / len(df)) * 100 if len(df) > 0 else 0
+        low = _normalized_col(late_col)
+        if any(tok in low for tok in ['late', 'delay', 'risk']):
+            on_time_rate = max(0.0, 100.0 - rate)
+        else:
+            on_time_rate = rate
+        kpis.append(KPI(
+            key="on_time_rate",
+            title="On-Time Delivery Rate",
+            value=round(on_time_rate, 1),
+            format="percent",
+            icon="check-circle",
+            confidence="MEDIUM",
+            reason=f"Derived from {late_col}"
+        ))
+
+    inventory_col = _find_column(df, ['inventory', 'stock', 'on hand', 'inventory level'], classification)
+    if inventory_col:
+        inventory_total = _safe_sum(df, inventory_col)
+        kpis.append(KPI(
+            key="inventory_on_hand",
+            title="Inventory On Hand",
+            value=round(inventory_total, 2),
+            format="number",
+            icon="archive",
+            confidence="MEDIUM",
+            reason=f"Sum of {inventory_col}"
+        ))
+
+    return kpis
+
+
+def _generate_education_kpis(df: pd.DataFrame, classification: ColumnClassification) -> List[KPI]:
+    """Generate KPIs for Education domain."""
+    kpis = []
+
+    student_col = _find_column(
+        df,
+        ['student', 'student_id', 'studentid'],
+        classification,
+        search_excluded=True
+    )
+    total_students = df[student_col].nunique() if student_col and student_col in df.columns else len(df)
+    kpis.append(KPI(
+        key="total_students",
+        title="Total Students",
+        value=int(total_students),
+        format="number",
+        icon="users",
+        confidence="HIGH",
+        reason="Unique students" if student_col else "Row count"
+    ))
+
+    gpa_col = _find_column(df, ['gpa', 'grade', 'score', 'marks'], classification)
+    if gpa_col:
+        avg_gpa = _safe_mean(df, gpa_col)
+        kpis.append(KPI(
+            key="avg_gpa",
+            title="Avg GPA",
+            value=round(avg_gpa, 2),
+            format="number",
+            icon="activity",
+            confidence="HIGH",
+            reason=f"Mean of {gpa_col}"
+        ))
+
+    attendance_col = _find_column(df, ['attendance', 'presence', 'absent'], classification)
+    if attendance_col:
+        attendance_rate = _rate_series_to_percent(df[attendance_col])
+        if attendance_rate is None:
+            attendance_rate = _safe_mean(df, attendance_col)
+        kpis.append(KPI(
+            key="attendance_rate",
+            title="Attendance Rate",
+            value=round(float(attendance_rate), 1),
+            format="percent" if attendance_rate is not None else "number",
+            icon="check-circle",
+            confidence="MEDIUM",
+            reason=f"Average of {attendance_col}"
+        ))
+
+    target_col = classification.targets[0] if classification.targets else _find_column(
+        df, ['graduated', 'passed', 'completed', 'outcome'], classification, search_excluded=True
+    )
+    if target_col:
+        positive_count = _count_target_positive(df, target_col)
+        rate = (positive_count / len(df)) * 100 if len(df) > 0 else 0
+        kpis.append(KPI(
+            key="completion_rate",
+            title="Completion Rate",
+            value=round(rate, 1),
+            format="percent",
+            icon="trophy",
+            confidence="MEDIUM",
+            reason=f"Positive {target_col} / total"
+        ))
+
+    return kpis
+
+
+def _generate_ecommerce_kpis(df: pd.DataFrame, classification: ColumnClassification) -> List[KPI]:
+    """Generate KPIs for Ecommerce domain."""
+    kpis = []
+
+    revenue_col = _find_column(df, ['revenue', 'sales', 'gmv', 'amount', 'total'], classification)
+    order_col = _find_column(
+        df,
+        ['order_id', 'orderid', 'invoice', 'transaction', 'order'],
+        classification,
+        search_excluded=True
+    )
+
+    total_orders = df[order_col].nunique() if order_col and order_col in df.columns else len(df)
+    kpis.append(KPI(
+        key="total_orders",
+        title="Total Orders",
+        value=int(total_orders),
+        format="number",
+        icon="shopping-bag",
+        confidence="HIGH",
+        reason="Unique orders" if order_col else "Row count"
+    ))
+
+    if revenue_col:
+        total_revenue = _safe_sum(df, revenue_col)
+        kpis.append(KPI(
+            key="total_revenue",
+            title="Total Revenue",
+            value=total_revenue,
+            format="currency",
+            icon="dollar",
+            confidence="HIGH",
+            reason=f"Sum of {revenue_col}"
+        ))
+
+        if total_orders > 0:
+            aov = total_revenue / total_orders
+            kpis.append(KPI(
+                key="avg_order_value",
+                title="Avg Order Value",
+                value=round(aov, 2),
+                format="currency",
+                icon="credit-card",
+                confidence="MEDIUM",
+                reason="Revenue / Orders"
+            ))
+
+    conversion_col = _find_column(df, ['conversion', 'cvr', 'conversion rate'], classification)
+    if conversion_col:
+        conversion_rate = _rate_series_to_percent(df[conversion_col])
+        if conversion_rate is None:
+            conversion_rate = _safe_mean(df, conversion_col)
+        kpis.append(KPI(
+            key="conversion_rate",
+            title="Conversion Rate",
+            value=round(float(conversion_rate), 2),
+            format="percent",
+            icon="trending-up",
+            confidence="MEDIUM",
+            reason=f"Average of {conversion_col}"
+        ))
+
+    abandonment_col = _find_column(df, ['abandon', 'cart abandonment', 'abandoned'], classification)
+    if abandonment_col:
+        abandonment_rate = _rate_series_to_percent(df[abandonment_col])
+        if abandonment_rate is None:
+            abandonment_rate = _safe_mean(df, abandonment_col)
+        kpis.append(KPI(
+            key="abandonment_rate",
+            title="Cart Abandonment Rate",
+            value=round(float(abandonment_rate), 2),
+            format="percent",
+            icon="shopping-cart",
+            confidence="MEDIUM",
+            reason=f"Average of {abandonment_col}"
+        ))
+
+    return kpis
+
+
+def _generate_real_estate_kpis(df: pd.DataFrame, classification: ColumnClassification) -> List[KPI]:
+    """Generate KPIs for Real Estate domain."""
+    kpis = []
+
+    listing_col = _find_column(
+        df,
+        ['listing', 'property', 'listing_id', 'property_id'],
+        classification,
+        search_excluded=True
+    )
+    total_listings = df[listing_col].nunique() if listing_col and listing_col in df.columns else len(df)
+    kpis.append(KPI(
+        key="total_listings",
+        title="Total Listings",
+        value=int(total_listings),
+        format="number",
+        icon="home",
+        confidence="HIGH",
+        reason="Unique listings" if listing_col else "Row count"
+    ))
+
+    price_col = _find_column(df, ['price', 'rent', 'listing price', 'sale price'], classification)
+    if price_col:
+        avg_price = _safe_mean(df, price_col)
+        kpis.append(KPI(
+            key="avg_price",
+            title="Avg Price",
+            value=round(avg_price, 2),
+            format="currency",
+            icon="dollar",
+            confidence="HIGH",
+            reason=f"Mean of {price_col}"
+        ))
+
+    dom_col = _find_column(df, ['days on market', 'dom', 'time on market'], classification)
+    if dom_col:
+        avg_dom = _safe_mean(df, dom_col)
+        kpis.append(KPI(
+            key="avg_days_on_market",
+            title="Avg Days on Market",
+            value=round(avg_dom, 1),
+            format="number",
+            icon="clock",
+            confidence="MEDIUM",
+            reason=f"Mean of {dom_col}"
+        ))
+
+    target_col = classification.targets[0] if classification.targets else _find_column(
+        df, ['occupied', 'vacant', 'available', 'leased'], classification, search_excluded=True
+    )
+    if target_col:
+        positive_count = _count_target_positive(df, target_col)
+        rate = (positive_count / len(df)) * 100 if len(df) > 0 else 0
+        kpis.append(KPI(
+            key="occupancy_rate",
+            title="Occupancy Rate",
+            value=round(rate, 1),
+            format="percent",
+            icon="check-circle",
+            confidence="MEDIUM",
+            reason=f"Positive {target_col} / total"
+        ))
+
+    return kpis
+
+
+def _generate_customer_support_kpis(df: pd.DataFrame, classification: ColumnClassification) -> List[KPI]:
+    """Generate KPIs for Customer Support domain."""
+    kpis = []
+
+    ticket_col = _find_column(
+        df,
+        ['ticket', 'case', 'incident'],
+        classification,
+        search_excluded=True
+    )
+    total_tickets = df[ticket_col].nunique() if ticket_col and ticket_col in df.columns else len(df)
+    kpis.append(KPI(
+        key="total_tickets",
+        title="Total Tickets",
+        value=int(total_tickets),
+        format="number",
+        icon="inbox",
+        confidence="HIGH",
+        reason="Unique tickets" if ticket_col else "Row count"
+    ))
+
+    resolution_col = _find_column(df, ['resolution time', 'time to resolve', 'mttr'], classification)
+    if resolution_col:
+        avg_resolution = _safe_mean(df, resolution_col)
+        kpis.append(KPI(
+            key="avg_resolution_time",
+            title="Avg Resolution Time",
+            value=round(avg_resolution, 2),
+            format="number",
+            icon="clock",
+            confidence="HIGH",
+            reason=f"Mean of {resolution_col}"
+        ))
+
+    response_col = _find_column(df, ['response time', 'first response'], classification)
+    if response_col:
+        avg_response = _safe_mean(df, response_col)
+        kpis.append(KPI(
+            key="avg_response_time",
+            title="Avg First Response",
+            value=round(avg_response, 2),
+            format="number",
+            icon="timer",
+            confidence="MEDIUM",
+            reason=f"Mean of {response_col}"
+        ))
+
+    csat_col = _find_column(df, ['csat', 'satisfaction', 'survey score'], classification)
+    if csat_col:
+        avg_csat = _safe_mean(df, csat_col)
+        kpis.append(KPI(
+            key="avg_csat",
+            title="Avg CSAT",
+            value=round(avg_csat, 2),
+            format="number",
+            icon="smile",
+            confidence="MEDIUM",
+            reason=f"Mean of {csat_col}"
+        ))
+
+    sla_col = _find_column(df, ['sla', 'service level'], classification)
+    if sla_col:
+        sla_rate = _rate_series_to_percent(df[sla_col])
+        if sla_rate is None:
+            sla_rate = _safe_mean(df, sla_col)
+        kpis.append(KPI(
+            key="sla_compliance",
+            title="SLA Compliance",
+            value=round(float(sla_rate), 1),
+            format="percent",
+            icon="check-circle",
+            confidence="MEDIUM",
+            reason=f"Average of {sla_col}"
+        ))
+    elif classification.targets:
+        target_col = classification.targets[0]
+        positive_count = _count_target_positive(df, target_col)
+        rate = (positive_count / len(df)) * 100 if len(df) > 0 else 0
+        kpis.append(KPI(
+            key="sla_compliance",
+            title="SLA Compliance",
+            value=round(rate, 1),
+            format="percent",
+            icon="check-circle",
+            confidence="LOW",
+            reason=f"Positive {target_col} / total"
+        ))
+
+    status_col = _find_column(df, ['status', 'state'], classification)
+    if status_col and status_col in df.columns:
+        open_keywords = ['open', 'pending', 'new', 'in progress']
+        open_count = df[status_col].astype(str).str.lower().isin(open_keywords).sum()
+        if open_count > 0:
+            kpis.append(KPI(
+                key="open_backlog",
+                title="Open Backlog",
+                value=int(open_count),
+                format="number",
+                icon="alert-circle",
+                confidence="LOW",
+                reason=f"Open status in {status_col}"
+            ))
+
+    return kpis
+
+
+def _generate_it_operations_kpis(df: pd.DataFrame, classification: ColumnClassification) -> List[KPI]:
+    """Generate KPIs for IT Operations domain."""
+    kpis = []
+
+    incident_col = _find_column(
+        df,
+        ['incident', 'alert', 'ticket'],
+        classification,
+        search_excluded=True
+    )
+    total_incidents = df[incident_col].nunique() if incident_col and incident_col in df.columns else len(df)
+    kpis.append(KPI(
+        key="total_incidents",
+        title="Total Incidents",
+        value=int(total_incidents),
+        format="number",
+        icon="alert-circle",
+        confidence="HIGH",
+        reason="Unique incidents" if incident_col else "Row count"
+    ))
+
+    uptime_col = _find_column(df, ['uptime', 'availability'], classification)
+    if uptime_col:
+        uptime_rate = _rate_series_to_percent(df[uptime_col])
+        if uptime_rate is None:
+            uptime_rate = _safe_mean(df, uptime_col)
+        kpis.append(KPI(
+            key="uptime_rate",
+            title="Uptime",
+            value=round(float(uptime_rate), 2),
+            format="percent",
+            icon="check-circle",
+            confidence="HIGH",
+            reason=f"Average of {uptime_col}"
+        ))
+
+    downtime_col = _find_column(df, ['downtime', 'outage'], classification)
+    if downtime_col:
+        avg_downtime = _safe_mean(df, downtime_col)
+        kpis.append(KPI(
+            key="avg_downtime",
+            title="Avg Downtime",
+            value=round(avg_downtime, 2),
+            format="number",
+            icon="clock",
+            confidence="MEDIUM",
+            reason=f"Mean of {downtime_col}"
+        ))
+
+    latency_col = _find_column(df, ['latency', 'response time'], classification)
+    if latency_col:
+        avg_latency = _safe_mean(df, latency_col)
+        kpis.append(KPI(
+            key="avg_latency",
+            title="Avg Latency",
+            value=round(avg_latency, 2),
+            format="number",
+            icon="activity",
+            confidence="MEDIUM",
+            reason=f"Mean of {latency_col}"
+        ))
+
+    cpu_col = _find_column(df, ['cpu', 'utilization'], classification)
+    if cpu_col:
+        avg_cpu = _safe_mean(df, cpu_col)
+        kpis.append(KPI(
+            key="avg_cpu",
+            title="Avg CPU Utilization",
+            value=round(avg_cpu, 2),
+            format="number",
+            icon="cpu",
+            confidence="LOW",
+            reason=f"Mean of {cpu_col}"
+        ))
+
+    return kpis
+
+
+def _generate_cybersecurity_kpis(df: pd.DataFrame, classification: ColumnClassification) -> List[KPI]:
+    """Generate KPIs for Cybersecurity domain."""
+    kpis = []
+
+    alert_col = _find_column(
+        df,
+        ['alert', 'threat', 'incident'],
+        classification,
+        search_excluded=True
+    )
+    total_alerts = _safe_sum(df, alert_col) if alert_col and alert_col in df.columns else len(df)
+    kpis.append(KPI(
+        key="total_alerts",
+        title="Total Alerts",
+        value=int(round(total_alerts)),
+        format="number",
+        icon="alert-triangle",
+        confidence="HIGH",
+        reason=f"Sum of {alert_col}" if alert_col else "Row count"
+    ))
+
+    vuln_col = _find_column(df, ['vulnerability', 'cve', 'exposure'], classification)
+    if vuln_col:
+        total_vuln = _safe_sum(df, vuln_col)
+        kpis.append(KPI(
+            key="total_vulnerabilities",
+            title="Total Vulnerabilities",
+            value=int(round(total_vuln)),
+            format="number",
+            icon="shield",
+            confidence="HIGH",
+            reason=f"Sum of {vuln_col}"
+        ))
+
+    risk_col = _find_column(df, ['risk', 'risk score'], classification)
+    if risk_col:
+        avg_risk = _safe_mean(df, risk_col)
+        kpis.append(KPI(
+            key="avg_risk_score",
+            title="Avg Risk Score",
+            value=round(avg_risk, 2),
+            format="number",
+            icon="alert-circle",
+            confidence="MEDIUM",
+            reason=f"Mean of {risk_col}"
+        ))
+
+    mttr_col = _find_column(df, ['remediate', 'mttr', 'resolution time'], classification)
+    if mttr_col:
+        avg_mttr = _safe_mean(df, mttr_col)
+        kpis.append(KPI(
+            key="avg_remediation_time",
+            title="Avg Remediation Time",
+            value=round(avg_mttr, 2),
+            format="number",
+            icon="clock",
+            confidence="MEDIUM",
+            reason=f"Mean of {mttr_col}"
+        ))
+
+    severity_col = _find_column(df, ['severity', 'critical', 'high'], classification)
+    if severity_col and severity_col in df.columns:
+        sev_values = df[severity_col].astype(str).str.lower()
+        high_mask = sev_values.str.contains('critical') | sev_values.str.contains('high')
+        rate = (high_mask.sum() / len(df)) * 100 if len(df) > 0 else 0
+        kpis.append(KPI(
+            key="high_severity_rate",
+            title="High Severity Rate",
+            value=round(rate, 1),
+            format="percent",
+            icon="alert-triangle",
+            confidence="LOW",
+            reason=f"High/critical in {severity_col}"
+        ))
+
+    return kpis
+
+
 def _generate_generic_kpis(df: pd.DataFrame, classification: ColumnClassification) -> List[KPI]:
     """Generate generic KPIs when domain is unknown."""
     kpis = []
@@ -1744,6 +2548,14 @@ def _dynamic_kpi_limit(
         DomainType.MARKETING: 4,
         DomainType.FINANCE: 4,
         DomainType.HEALTHCARE: 5,
+        DomainType.HR: 8,
+        DomainType.LOGISTICS: 4,
+        DomainType.EDUCATION: 4,
+        DomainType.ECOMMERCE: 5,
+        DomainType.REAL_ESTATE: 4,
+        DomainType.CUSTOMER_SUPPORT: 5,
+        DomainType.IT_OPERATIONS: 4,
+        DomainType.CYBERSECURITY: 4,
         DomainType.GENERIC: 3,
     }.get(domain, 3)
 
@@ -1829,6 +2641,14 @@ def generate_kpis(df: pd.DataFrame, domain: DomainType, classification: ColumnCl
         DomainType.MARKETING: _generate_marketing_kpis,
         DomainType.FINANCE: _generate_finance_kpis,
         DomainType.HEALTHCARE: _generate_healthcare_kpis,
+        DomainType.HR: _generate_hr_kpis,
+        DomainType.LOGISTICS: _generate_logistics_kpis,
+        DomainType.EDUCATION: _generate_education_kpis,
+        DomainType.ECOMMERCE: _generate_ecommerce_kpis,
+        DomainType.REAL_ESTATE: _generate_real_estate_kpis,
+        DomainType.CUSTOMER_SUPPORT: _generate_customer_support_kpis,
+        DomainType.IT_OPERATIONS: _generate_it_operations_kpis,
+        DomainType.CYBERSECURITY: _generate_cybersecurity_kpis,
         DomainType.GENERIC: _generate_generic_kpis,
     }
     

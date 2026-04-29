@@ -83,7 +83,7 @@ flowchart TD
 - **Styling**: `Tailwind CSS` (Custom design system)
 - **State Management**: `Zustand`
 - **Data Fetching**: `TanStack Query`
-- **Visuals**: `Recharts`
+- **Visuals**: `Chart.js` + `react-chartjs-2`
 
 ### ⚙️ Backend Powerhouse
 - **Language**: `Python 3.10+`
@@ -105,7 +105,7 @@ flowchart TD
   <img src="https://img.shields.io/badge/DuckDB-FEE200?style=flat-square&logo=duckdb&logoColor=black" />
   <img src="https://img.shields.io/badge/Zustand-4433FF?style=flat-square&logo=react&logoColor=white" />
   <img src="https://img.shields.io/badge/TanStack_Query-FF4154?style=flat-square&logo=react&logoColor=white" />
-  <img src="https://img.shields.io/badge/Recharts-FF7300?style=flat-square&logo=react&logoColor=white" />
+  <img src="https://img.shields.io/badge/Chart.js-FFCD56?style=flat-square&logo=chartdotjs&logoColor=black" />
 </div>
 
 </div>
@@ -118,6 +118,12 @@ flowchart TD
 - Python 3.10+
 - Node.js 18+
 - An LLM API Key (Groq/Gemini)
+
+### 🧭 Fresh Laptop Setup
+1. Clone the repository and open the workspace root.
+2. Set up the backend first, because the frontend points at the API.
+3. Set up the frontend `.env` with `VITE_API_URL=http://localhost:8000/api/v1`.
+4. Start the backend on port `8000`, then start the frontend on port `5173`.
 
 ### 🛠️ Backend Installation
 ```bash
@@ -150,12 +156,17 @@ cd frontend
 npm install
 
 # Environment configuration
-cp .env.example .env
+# Ensure frontend/.env contains VITE_API_URL=http://localhost:8000/api/v1
 
 # Launch development server
 npm run dev
 ```
-**App URL**: `http://localhost:5173`
+**App URL**: `http://localhost:5173`  
+**API URL**: `http://localhost:8000/api/v1`
+
+### 📦 Chart Library Notes
+- The frontend charts now use `Chart.js` and `react-chartjs-2`.
+- Run `npm install` in `frontend/` to ensure the Chart.js packages from `package.json` are present on the new laptop.
 
 ---
 

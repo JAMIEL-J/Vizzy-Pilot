@@ -86,6 +86,89 @@ DOMAIN_SCHEMAS: Dict[DomainType, Dict[str, List[str]]] = {
         "metric_expense": ["expense", "costs", "spending"],
         "metric_balance": ["balance", "equity", "holding"],
     },
+    DomainType.HR: {
+        "metric_headcount": ["headcount", "employee count", "employees"],
+        "metric_salary": ["salary", "payroll", "compensation", "wage", "pay"],
+        "metric_tenure": ["tenure", "years at company", "yearsatcompany", "experience", "seniority"],
+        "metric_performance": ["performance", "rating", "score"],
+        "attr_department": ["department", "team", "org", "division"],
+        "attr_role": ["role", "job", "title", "position", "grade", "level"],
+        "attr_location": ["location", "office", "region", "site", "city", "country"],
+        "attr_employment_type": ["employment type", "full time", "part time", "contract", "status"],
+    },
+    DomainType.LOGISTICS: {
+        "metric_delivery_time": ["delivery time", "transit time", "lead time", "days for shipment"],
+        "metric_shipping_cost": ["shipping cost", "freight", "transport cost", "logistics cost"],
+        "metric_inventory": ["inventory", "stock", "on hand", "inventory level"],
+        "metric_weight": ["weight", "volume", "load"],
+        "attr_carrier": ["carrier", "courier", "ship mode", "shipping type"],
+        "attr_route": ["route", "origin", "destination", "lane"],
+        "attr_warehouse": ["warehouse", "facility", "distribution center"],
+        "attr_status": ["delivery status", "shipment status", "late", "delay"],
+    },
+    DomainType.EDUCATION: {
+        "metric_gpa": ["gpa", "grade", "score", "marks"],
+        "metric_attendance": ["attendance", "presence", "absent"],
+        "metric_enrollment": ["enrollment", "credits", "units"],
+        "attr_program": ["program", "major", "course", "subject", "class"],
+        "attr_student": ["student", "student id", "cohort", "year"],
+        "attr_instructor": ["teacher", "instructor", "faculty", "professor"],
+        "attr_status": ["status", "graduation", "passed", "completion"],
+    },
+    DomainType.ECOMMERCE: {
+        "metric_revenue": ["revenue", "sales", "gmv", "amount", "total"],
+        "metric_orders": ["orders", "order count", "transactions"],
+        "metric_conversion": ["conversion", "cvr", "conversion rate"],
+        "metric_abandonment": ["abandonment", "cart abandonment", "abandoned"],
+        "attr_product": ["product", "item", "sku", "service"],
+        "attr_category": ["category", "subcategory", "department", "type"],
+        "attr_channel": ["channel", "source", "medium", "campaign"],
+        "attr_device": ["device", "platform", "browser"],
+        "attr_customer": ["customer", "client", "buyer", "account"],
+    },
+    DomainType.REAL_ESTATE: {
+        "metric_price": ["price", "rent", "listing price", "sale price"],
+        "metric_dom": ["days on market", "dom", "time on market"],
+        "metric_occupancy": ["occupancy", "vacancy", "occupied"],
+        "metric_sqft": ["sqft", "square feet", "area"],
+        "attr_property_type": ["property type", "listing type", "unit type"],
+        "attr_location": ["location", "city", "neighborhood", "zip", "region"],
+        "attr_agent": ["agent", "broker", "realtor"],
+        "attr_status": ["status", "available", "sold", "leased"],
+    },
+    DomainType.CUSTOMER_SUPPORT: {
+        "metric_resolution_time": ["resolution time", "time to resolve", "mttr"],
+        "metric_response_time": ["response time", "first response"],
+        "metric_csat": ["csat", "satisfaction", "survey score"],
+        "metric_sla": ["sla", "service level"],
+        "attr_channel": ["channel", "source", "medium"],
+        "attr_priority": ["priority", "severity", "urgency"],
+        "attr_category": ["category", "issue type", "reason"],
+        "attr_agent": ["agent", "assignee", "owner"],
+        "attr_status": ["status", "state"],
+    },
+    DomainType.IT_OPERATIONS: {
+        "metric_uptime": ["uptime", "availability"],
+        "metric_downtime": ["downtime", "outage"],
+        "metric_latency": ["latency", "response time"],
+        "metric_cpu": ["cpu", "utilization", "cpu usage"],
+        "metric_memory": ["memory", "ram", "memory usage"],
+        "metric_incidents": ["incident", "alerts", "tickets"],
+        "attr_service": ["service", "app", "application", "system"],
+        "attr_environment": ["environment", "env", "prod", "staging"],
+        "attr_region": ["region", "datacenter", "zone"],
+        "attr_severity": ["severity", "priority"],
+    },
+    DomainType.CYBERSECURITY: {
+        "metric_alerts": ["alert", "threat", "incident"],
+        "metric_vulnerabilities": ["vulnerability", "cve", "exposure"],
+        "metric_risk": ["risk", "risk score"],
+        "metric_remediate_time": ["remediate", "mttr", "resolution time"],
+        "attr_severity": ["severity", "critical", "high"],
+        "attr_attack_type": ["attack", "threat type", "malware", "phishing"],
+        "attr_asset": ["asset", "endpoint", "host", "device"],
+        "attr_source": ["source", "ip", "user", "account"],
+    },
     DomainType.GENERIC: {
         "metric_value": ["value", "amount", "total", "count", "sum", "quantity"],
         "attr_type": ["category", "type", "group", "status", "name"]
@@ -213,6 +296,35 @@ def _is_date_column(df: pd.DataFrame, col: str) -> bool:
     exclude_keywords = ['charge', 'cost', 'price', 'amount', 'fee', 'balance', 'salary', 'income', 'revenue', 'tenure', 'duration', 'age', 'mrr']
     if any(kw in col_lower for kw in exclude_keywords):
         return False
+
+    # Exclude HR numeric metrics that contain 'year' but are NOT dates
+    # e.g., "Training Times Last Year", "Years In Current Role", "Years Since Last Promotion",
+    #        "Total Working Years", "Years With Curr Manager", "Num Companies Worked"
+    hr_metric_patterns = [
+        'trainingtimes', 'traininglast', 'yearsincurrent', 'yearssince',
+        'yearswithcurr', 'yearswith', 'yearsatcompany', 'totalworking',
+        'numcompanies', 'companiesworked', 'workingyears', 'currentrole',
+        'lastpromotion', 'stockoption', 'performancerating', 'joblevel',
+        'percentsalaryhike', 'salaryhike', 'monthlyrate', 'hourlyrate',
+        'dailyrate', 'monthlyincome', 'distancefromhome',
+    ]
+    if any(pat in col_lower for pat in hr_metric_patterns):
+        return False
+
+    # Exclude columns that are purely numeric integers with small values (not year-like)
+    # These are likely ratings, counts, or levels, not dates
+    if df[col].dtype in ['int64', 'int32', 'float64', 'float32']:
+        try:
+            vals = pd.to_numeric(df[col], errors='coerce').dropna()
+            if not vals.empty:
+                col_max = vals.max()
+                col_min = vals.min()
+                # If values are small integers (0-100), they're not dates
+                # unless they look like years (1900-2100)
+                if col_max < 200 and col_min >= 0:
+                    return False
+        except Exception:
+            pass
         
     temporal_keywords = ['date', 'time', 'datetime', 'timestamp', 'created', 'updated', 'shipped', 'opened', 'closed', 'year', 'month', 'quarter', 'period', 'discharge', 'admitted']
     if any(kw in col_lower for kw in temporal_keywords):
@@ -237,8 +349,16 @@ def _is_date_column(df: pd.DataFrame, col: str) -> bool:
             
         # Special case for integer-based temporal columns or string periods (e.g. "Q1", "Jan")
         if any(kw in col_lower for kw in ['year', 'month', 'quarter', 'period']):
-            # Verify it's not just a random high-cardinality number
-            if df[col].nunique() < 20 or (df[col].dtype in ['int64', 'int32'] and df[col].max() < 2100 and df[col].min() > 1900):
+            # Verify it's actually a year column (values in 1900-2100 range)
+            if df[col].dtype in ['int64', 'int32']:
+                try:
+                    vals = pd.to_numeric(df[col], errors='coerce').dropna()
+                    if not vals.empty and vals.max() <= 2100 and vals.min() >= 1900:
+                        return True
+                except Exception:
+                    pass
+            # String periods like "Q1", "Jan 2024", etc.
+            elif df[col].dtype == 'object' and df[col].nunique() < 20:
                 return True
             
     return False

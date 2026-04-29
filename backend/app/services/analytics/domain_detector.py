@@ -18,6 +18,14 @@ class DomainType(str, Enum):
     MARKETING = "marketing"
     FINANCE = "finance"
     HEALTHCARE = "healthcare"
+    HR = "hr"
+    LOGISTICS = "logistics"
+    EDUCATION = "education"
+    ECOMMERCE = "ecommerce"
+    REAL_ESTATE = "real_estate"
+    CUSTOMER_SUPPORT = "customer_support"
+    IT_OPERATIONS = "it_operations"
+    CYBERSECURITY = "cybersecurity"
     GENERIC = "generic"
 
 
@@ -82,6 +90,96 @@ DOMAIN_KEYWORDS: Dict[DomainType, Dict[str, Dict[str, int]]] = {
             "forecast": 3, "payment": 3, "invoice": 3, "allocation": 3,
             "projection": 3, "planned": 3, "card": 3, "dividend": 3,
             "interest": 3, "rate": 3
+        }
+    },
+    DomainType.HR: {
+        "primary": {
+            "employee": 5, "hr": 5, "headcount": 5, "turnover": 5,
+            "attrition": 5, "salary": 5, "payroll": 5, "hire": 5,
+            "recruitment": 5, "performance": 5
+        },
+        "secondary": {
+            "title": 3, "department": 3, "manager": 3, "job": 3,
+            "role": 3, "leave": 3, "absence": 3, "bonus": 3,
+            "benefit": 3, "training": 3, "staff": 3
+        }
+    },
+    DomainType.LOGISTICS: {
+        "primary": {
+            "shipment": 5, "delivery": 5, "freight": 5, "inventory": 5,
+            "warehouse": 5, "carrier": 5, "transit": 5, "route": 5,
+            "supply_chain": 5
+        },
+        "secondary": {
+            "origin": 3, "destination": 3, "vehicle": 3, "driver": 3,
+            "tracking": 3, "dispatch": 3, "load": 3, "weight": 3,
+            "volume": 3, "delay": 3
+        }
+    },
+    DomainType.EDUCATION: {
+        "primary": {
+            "student": 5, "course": 5, "grade": 5, "enrollment": 5,
+            "teacher": 5, "graduation": 5, "attendance": 5, "class": 5
+        },
+        "secondary": {
+            "gpa": 3, "exam": 3, "test": 3, "assignment": 3,
+            "semester": 3, "term": 3, "scholarship": 3, "major": 3,
+            "degree": 3, "faculty": 3
+        }
+    },
+    DomainType.ECOMMERCE: {
+        "primary": {
+            "cart": 5, "checkout": 5, "order": 5, "product": 5,
+            "customer": 5, "revenue": 5, "conversion": 5, "traffic": 5
+        },
+        "secondary": {
+            "session": 3, "visit": 3, "abandonment": 3, "coupon": 3,
+            "promo": 3, "category": 3, "brand": 3, "review": 3,
+            "rating": 3, "refund": 3
+        }
+    },
+    DomainType.REAL_ESTATE: {
+        "primary": {
+            "property": 5, "listing": 5, "agent": 5, "rent": 5,
+            "lease": 5, "mortgage": 5, "tenant": 5, "landlord": 5
+        },
+        "secondary": {
+            "sqft": 3, "bedroom": 3, "bathroom": 3, "acre": 3,
+            "commercial": 3, "residential": 3, "price": 3, "appraisal": 3,
+            "viewing": 3, "commission": 3
+        }
+    },
+    DomainType.CUSTOMER_SUPPORT: {
+        "primary": {
+            "ticket": 5, "case": 5, "agent": 5, "resolution": 5,
+            "satisfaction": 5, "csat": 5, "sla": 5, "escalation": 5
+        },
+        "secondary": {
+            "queue": 3, "response_time": 3, "wait_time": 3, "priority": 3,
+            "issue": 3, "feedback": 3, "chat": 3, "call": 3,
+            "survey": 3, "channel": 3
+        }
+    },
+    DomainType.IT_OPERATIONS: {
+        "primary": {
+            "server": 5, "network": 5, "uptime": 5, "downtime": 5,
+            "incident": 5, "deployment": 5, "memory": 5, "cpu": 5
+        },
+        "secondary": {
+            "log": 3, "error": 3, "latency": 3, "bandwidth": 3,
+            "storage": 3, "disk": 3, "node": 3, "cluster": 3,
+            "pod": 3, "container": 3
+        }
+    },
+    DomainType.CYBERSECURITY: {
+        "primary": {
+            "threat": 5, "vulnerability": 5, "breach": 5, "attack": 5,
+            "malware": 5, "phishing": 5, "firewall": 5, "intrusion": 5
+        },
+        "secondary": {
+            "alert": 3, "risk": 3, "compliance": 3, "audit": 3,
+            "patch": 3, "exploit": 3, "ip_address": 3, "port": 3,
+            "payload": 3, "endpoint": 3
         }
     }
 }

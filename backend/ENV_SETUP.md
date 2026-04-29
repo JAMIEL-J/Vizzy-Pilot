@@ -2,20 +2,41 @@
 
 ## Quick Start
 
-1. **Copy the example file:**
-   ```bash
-   cp .env.example .env
-   ```
+For a fresh laptop, use this order:
 
-2. **Edit `.env` with your values:**
-   - Add your API keys (see below for where to get them)
-   - Update database settings if needed
-   - Generate a secure auth secret key
+1. Install Python 3.10+ and Node.js 18+.
+2. Clone the repo and open the workspace root.
+3. In `backend/`, copy `.env.example` to `.env`.
+4. In `frontend/`, make sure `.env` contains `VITE_API_URL=http://localhost:8000/api/v1`.
+5. Start the backend first, then the frontend.
 
-3. **Restart the backend:**
-   ```bash
-   python -m uvicorn app.main:app --reload
-   ```
+### Backend `.env`
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Edit `.env` with your values:
+
+- Add your API keys (see below for where to get them)
+- Update database settings if needed
+- Generate a secure auth secret key
+
+Restart the backend:
+
+```bash
+python -m uvicorn app.main:app --reload
+```
+
+## Frontend Environment
+
+The frontend reads `VITE_API_URL` from `frontend/.env`. If the file is missing on the new laptop, create it with:
+
+```env
+VITE_API_URL=http://localhost:8000/api/v1
+```
+
+The chart migration already uses `Chart.js` and `react-chartjs-2`, so no Recharts install is needed.
 
 ---
 

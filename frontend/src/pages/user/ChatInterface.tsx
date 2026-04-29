@@ -583,7 +583,7 @@ export default function ChatInterface() {
              if (count > 0) {
                  metricValueStr = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(sum);
                  const mlLower = metricLabel.toLowerCase();
-                 if (mlLower.includes('revenue') || mlLower.includes('price') || mlLower.includes('amount') || mlLower.includes('cost') || mlLower.includes('sales')) {
+                 if (mlLower.startsWith('usd') || mlLower.includes('revenue') || mlLower.includes('price') || mlLower.includes('amount') || mlLower.includes('cost') || mlLower.includes('sales') || mlLower.includes('salary') || mlLower.includes('income') || mlLower.includes('wage') || mlLower.includes('rate') && ['daily', 'hourly', 'monthly'].some(p => mlLower.includes(p))) {
                      metricValueStr = (targetData?.currency || '$') + metricValueStr;
                  }
              } else if (targetData?.type === 'kpi' && targetData?.data?.value !== undefined) {

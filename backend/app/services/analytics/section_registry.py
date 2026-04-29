@@ -262,6 +262,354 @@ FINANCE_SECTIONS = [
 ]
 
 # ────────────────────────────────────────────────────────────────────
+# HR DOMAIN
+# ────────────────────────────────────────────────────────────────────
+HR_SECTIONS = [
+    SectionRule(
+        id="workforce_overview",
+        title="Workforce Overview",
+        icon="groups",
+        priority=1,
+        match_metric=["headcount", "employee", "staff"],
+        match_dimension=["department", "team", "role", "job", "title"],
+        match_type=["bar", "hbar", "pie", "donut"],
+        match_title=["employee", "headcount", "workforce"],
+    ),
+    SectionRule(
+        id="attrition_retention",
+        title="Attrition & Retention",
+        icon="person_off",
+        priority=2,
+        match_metric=["attrition", "turnover", "retention", "churn"],
+        match_dimension=["attrition", "turnover", "status", "left"],
+        match_type=["bar", "hbar", "donut"],
+        match_title=["attrition", "turnover", "retention"],
+    ),
+    SectionRule(
+        id="comp_performance",
+        title="Compensation & Performance",
+        icon="payments",
+        priority=3,
+        match_metric=["salary", "pay", "compensation", "bonus", "performance", "rating", "score"],
+        match_dimension=["role", "job", "level", "grade", "department"],
+        match_type=["bar", "hbar"],
+        match_title=["salary", "performance", "rating"],
+    ),
+    SectionRule(
+        id="mobility_demo",
+        title="Mobility & Demographics",
+        icon="travel_explore",
+        priority=4,
+        match_metric=["tenure", "age", "experience"],
+        match_dimension=["gender", "travel", "location", "office"],
+        match_type=["pie", "donut", "bar"],
+        match_title=["demographic", "travel", "location", "tenure"],
+    ),
+]
+
+# ────────────────────────────────────────────────────────────────────
+# LOGISTICS DOMAIN
+# ────────────────────────────────────────────────────────────────────
+LOGISTICS_SECTIONS = [
+    SectionRule(
+        id="delivery_performance",
+        title="Delivery Performance",
+        icon="local_shipping",
+        priority=1,
+        match_metric=["delivery", "transit", "late", "delay", "lead"],
+        match_dimension=["carrier", "route", "origin", "destination"],
+        match_type=["bar", "hbar", "line"],
+        match_title=["delivery", "transit", "late"],
+    ),
+    SectionRule(
+        id="cost_efficiency",
+        title="Cost & Efficiency",
+        icon="attach_money",
+        priority=2,
+        match_metric=["cost", "freight", "shipping", "expense"],
+        match_dimension=["carrier", "route", "mode"],
+        match_type=["bar", "hbar"],
+        match_title=["cost", "freight", "shipping"],
+    ),
+    SectionRule(
+        id="inventory_warehousing",
+        title="Inventory & Warehousing",
+        icon="warehouse",
+        priority=3,
+        match_metric=["inventory", "stock"],
+        match_dimension=["warehouse", "facility"],
+        match_type=["bar", "hbar"],
+        match_title=["inventory", "warehouse"],
+    ),
+    SectionRule(
+        id="logistics_geo",
+        title="Network Footprint",
+        icon="map",
+        priority=4,
+        match_metric=[],
+        match_dimension=["region", "country", "city", "origin", "destination"],
+        match_type=["geo_map"],
+        match_title=["map", "region", "country"],
+    ),
+]
+
+# ────────────────────────────────────────────────────────────────────
+# EDUCATION DOMAIN
+# ────────────────────────────────────────────────────────────────────
+EDUCATION_SECTIONS = [
+    SectionRule(
+        id="enrollment",
+        title="Enrollment & Cohorts",
+        icon="school",
+        priority=1,
+        match_metric=["enrollment", "student", "headcount"],
+        match_dimension=["program", "course", "class", "cohort", "year"],
+        match_type=["bar", "hbar", "pie", "donut"],
+        match_title=["enrollment", "cohort"],
+    ),
+    SectionRule(
+        id="academic_performance",
+        title="Academic Performance",
+        icon="bar_chart",
+        priority=2,
+        match_metric=["gpa", "grade", "score", "marks"],
+        match_dimension=["program", "course", "class"],
+        match_type=["bar", "hbar"],
+        match_title=["gpa", "grade", "score"],
+    ),
+    SectionRule(
+        id="attendance",
+        title="Attendance & Engagement",
+        icon="event_available",
+        priority=3,
+        match_metric=["attendance", "presence"],
+        match_dimension=["class", "course", "program"],
+        match_type=["bar", "hbar"],
+        match_title=["attendance", "engagement"],
+    ),
+    SectionRule(
+        id="outcomes",
+        title="Outcomes",
+        icon="emoji_events",
+        priority=4,
+        match_metric=["graduation", "completion", "pass"],
+        match_dimension=["status", "outcome"],
+        match_type=["bar", "donut"],
+        match_title=["completion", "graduation"],
+    ),
+]
+
+# ────────────────────────────────────────────────────────────────────
+# ECOMMERCE DOMAIN
+# ────────────────────────────────────────────────────────────────────
+ECOMMERCE_SECTIONS = [
+    SectionRule(
+        id="revenue_orders",
+        title="Revenue & Orders",
+        icon="shopping_cart",
+        priority=1,
+        match_metric=["revenue", "sales", "orders", "gmv"],
+        match_dimension=["category", "product", "brand"],
+        match_type=["bar", "hbar", "line"],
+        match_title=["revenue", "orders"],
+    ),
+    SectionRule(
+        id="conversion_funnel",
+        title="Conversion & Funnel",
+        icon="swap_vert",
+        priority=2,
+        match_metric=["conversion", "cvr", "abandonment", "cart"],
+        match_dimension=["channel", "device", "source"],
+        match_type=["bar", "hbar"],
+        match_title=["conversion", "abandon"],
+    ),
+    SectionRule(
+        id="customer_segments",
+        title="Customer & Segments",
+        icon="groups",
+        priority=3,
+        match_metric=[],
+        match_dimension=["customer", "segment", "cohort"],
+        match_type=["bar", "donut"],
+        match_title=["customer", "segment"],
+    ),
+    SectionRule(
+        id="fulfillment",
+        title="Fulfillment & Returns",
+        icon="local_shipping",
+        priority=4,
+        match_metric=["refund", "return", "shipping"],
+        match_dimension=["status", "carrier"],
+        match_type=["bar", "hbar"],
+        match_title=["fulfillment", "return"],
+    ),
+]
+
+# ────────────────────────────────────────────────────────────────────
+# REAL ESTATE DOMAIN
+# ────────────────────────────────────────────────────────────────────
+REAL_ESTATE_SECTIONS = [
+    SectionRule(
+        id="listings_pricing",
+        title="Listings & Pricing",
+        icon="home",
+        priority=1,
+        match_metric=["price", "rent", "listing"],
+        match_dimension=["property", "listing", "type"],
+        match_type=["bar", "hbar", "line"],
+        match_title=["price", "listing"],
+    ),
+    SectionRule(
+        id="market_velocity",
+        title="Market Velocity",
+        icon="speed",
+        priority=2,
+        match_metric=["days on market", "dom", "time"],
+        match_dimension=["property", "type"],
+        match_type=["bar", "hbar"],
+        match_title=["days", "market"],
+    ),
+    SectionRule(
+        id="occupancy",
+        title="Occupancy & Tenancy",
+        icon="meeting_room",
+        priority=3,
+        match_metric=["occupancy", "vacancy"],
+        match_dimension=["status", "tenant", "lease"],
+        match_type=["bar", "donut"],
+        match_title=["occupancy", "vacancy"],
+    ),
+    SectionRule(
+        id="agent_performance",
+        title="Agent Performance",
+        icon="person",
+        priority=4,
+        match_metric=[],
+        match_dimension=["agent", "broker", "realtor"],
+        match_type=["bar", "hbar"],
+        match_title=["agent", "broker"],
+    ),
+]
+
+# ────────────────────────────────────────────────────────────────────
+# CUSTOMER SUPPORT DOMAIN
+# ────────────────────────────────────────────────────────────────────
+CUSTOMER_SUPPORT_SECTIONS = [
+    SectionRule(
+        id="ticket_volume",
+        title="Ticket Volume",
+        icon="inbox",
+        priority=1,
+        match_metric=["ticket", "case", "volume"],
+        match_dimension=["category", "channel", "priority"],
+        match_type=["bar", "hbar", "donut"],
+        match_title=["ticket", "case"],
+    ),
+    SectionRule(
+        id="service_levels",
+        title="Service Levels",
+        icon="check_circle",
+        priority=2,
+        match_metric=["sla", "response", "resolution", "time"],
+        match_dimension=["priority", "channel"],
+        match_type=["bar", "hbar", "line"],
+        match_title=["sla", "response", "resolution"],
+    ),
+    SectionRule(
+        id="satisfaction",
+        title="Customer Satisfaction",
+        icon="sentiment_satisfied",
+        priority=3,
+        match_metric=["csat", "satisfaction", "survey"],
+        match_dimension=["channel", "agent"],
+        match_type=["bar", "hbar"],
+        match_title=["csat", "satisfaction"],
+    ),
+]
+
+# ────────────────────────────────────────────────────────────────────
+# IT OPERATIONS DOMAIN
+# ────────────────────────────────────────────────────────────────────
+IT_OPERATIONS_SECTIONS = [
+    SectionRule(
+        id="availability_incidents",
+        title="Availability & Incidents",
+        icon="dns",
+        priority=1,
+        match_metric=["uptime", "downtime", "incident", "alert"],
+        match_dimension=["service", "system", "app"],
+        match_type=["bar", "hbar", "line"],
+        match_title=["uptime", "incident"],
+    ),
+    SectionRule(
+        id="performance_latency",
+        title="Performance & Latency",
+        icon="speed",
+        priority=2,
+        match_metric=["latency", "response"],
+        match_dimension=["service", "region"],
+        match_type=["bar", "line"],
+        match_title=["latency", "performance"],
+    ),
+    SectionRule(
+        id="infra_utilization",
+        title="Infrastructure Utilization",
+        icon="memory",
+        priority=3,
+        match_metric=["cpu", "memory", "utilization"],
+        match_dimension=["host", "node", "cluster"],
+        match_type=["bar", "hbar"],
+        match_title=["cpu", "memory"],
+    ),
+    SectionRule(
+        id="change_deployments",
+        title="Change & Deployments",
+        icon="sync",
+        priority=4,
+        match_metric=["deploy", "release", "change"],
+        match_dimension=["environment", "version"],
+        match_type=["bar", "line"],
+        match_title=["deploy", "release"],
+    ),
+]
+
+# ────────────────────────────────────────────────────────────────────
+# CYBERSECURITY DOMAIN
+# ────────────────────────────────────────────────────────────────────
+CYBERSECURITY_SECTIONS = [
+    SectionRule(
+        id="threat_detection",
+        title="Threat Detection",
+        icon="security",
+        priority=1,
+        match_metric=["alert", "threat", "incident"],
+        match_dimension=["attack", "type", "source", "severity"],
+        match_type=["bar", "hbar", "donut"],
+        match_title=["threat", "alert"],
+    ),
+    SectionRule(
+        id="vulnerability_risk",
+        title="Vulnerability & Risk",
+        icon="bug_report",
+        priority=2,
+        match_metric=["vulnerability", "risk", "cve"],
+        match_dimension=["asset", "endpoint", "host"],
+        match_type=["bar", "hbar"],
+        match_title=["vulnerability", "risk"],
+    ),
+    SectionRule(
+        id="incident_response",
+        title="Incident Response",
+        icon="health_and_safety",
+        priority=3,
+        match_metric=["remediate", "mttr", "response"],
+        match_dimension=["severity", "team"],
+        match_type=["bar", "hbar", "line"],
+        match_title=["response", "remediation"],
+    ),
+]
+
+# ────────────────────────────────────────────────────────────────────
 # GENERIC DOMAIN (fallback — group by chart purpose)
 # ────────────────────────────────────────────────────────────────────
 GENERIC_SECTIONS = [
@@ -313,6 +661,14 @@ DOMAIN_SECTION_REGISTRY: Dict[str, List[SectionRule]] = {
     "healthcare": HEALTHCARE_SECTIONS,
     "marketing": MARKETING_SECTIONS,
     "finance": FINANCE_SECTIONS,
+    "hr": HR_SECTIONS,
+    "logistics": LOGISTICS_SECTIONS,
+    "education": EDUCATION_SECTIONS,
+    "ecommerce": ECOMMERCE_SECTIONS,
+    "real_estate": REAL_ESTATE_SECTIONS,
+    "customer_support": CUSTOMER_SUPPORT_SECTIONS,
+    "it_operations": IT_OPERATIONS_SECTIONS,
+    "cybersecurity": CYBERSECURITY_SECTIONS,
     "generic": GENERIC_SECTIONS,
 }
 

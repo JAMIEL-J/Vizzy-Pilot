@@ -85,10 +85,18 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
     const isFinancialMetricName = (metricKey?: string) => {
         const key = String(metricKey || '').toLowerCase();
         if (!key) return false;
-        if (['quantity', 'qty', 'count', 'unit', 'units', 'volume', 'age', 'tenure', 'day', 'days', 'month', 'months', 'year', 'years'].some((kw) => key.includes(kw))) {
+        // Explicit backend value_labels like "USD/day", "USD/hr"
+        if (key.startsWith('usd')) return true;
+        if (['quantity', 'qty', 'count', 'unit', 'units', 'volume', 'age', 'tenure', 'day', 'days',
+             'month', 'months', 'year', 'years', 'rating', 'miles', 'sessions', 'hours',
+        ].some((kw) => key.includes(kw))) {
             return false;
         }
-        return ['revenue', 'profit', 'income', 'earnings', 'cost', 'expense', 'price', 'charge', 'payment', 'budget', 'fee', 'sales', 'discount', 'amount', 'billing'].some((kw) => key.includes(kw));
+        return ['revenue', 'profit', 'income', 'earnings', 'cost', 'expense', 'price', 'charge',
+                'payment', 'budget', 'fee', 'sales', 'discount', 'amount', 'billing',
+                'salary', 'wage', 'compensation', 'payroll',
+                'daily rate', 'hourly rate', 'monthly rate', 'monthly income',
+        ].some((kw) => key.includes(kw));
     };
 
     const isCurrencyMetric = (metricKey?: string) => {
@@ -101,8 +109,13 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
     const isPercentMetric = (metricKey?: string) => {
         const displayFormat = getDisplayFormat(metricKey);
         if (displayFormat?.type === 'percent') return true;
+        if (displayFormat?.type === 'currency') return false;
         const key = String(metricKey || '').toLowerCase();
-        return key.includes('rate') || key.includes('percent') || key.includes('%');
+        // Exclude pay rates — 'daily rate', 'hourly rate' etc. are currency, not percent
+        if (key.startsWith('usd') || ['daily', 'hourly', 'monthly', 'annual'].some(p => key.includes(p) && key.includes('rate'))) return false;
+        return key.includes('percent') || key.includes('percentage') || key.includes('pct')
+            || key.includes('%') || key.includes('ratio') || key.includes('margin')
+            || (key.includes('rate') && !['daily', 'hourly', 'monthly', 'annual'].some(p => key.includes(p)));
     };
 
     const currencySymbolForMetric = (metricKey?: string) => {
@@ -116,8 +129,10 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
     const isWholeNumberMetric = (metricKey?: string) => {
         const key = String(metricKey || '').toLowerCase();
         if (!key) return false;
-        return ['age', 'tenure', 'duration', 'day', 'days', 'month', 'months', 'year', 'years', 'los', 'length of stay', 'lengthofstay']
-            .some((kw) => key.includes(kw));
+        return ['age', 'tenure', 'duration', 'day', 'days', 'month', 'months', 'year', 'years',
+                'los', 'length of stay', 'lengthofstay',
+                'miles', 'km', 'hours', 'sessions', 'count', 'rating',
+        ].some((kw) => key.includes(kw));
     };
 
     const isPercentage =
@@ -127,8 +142,10 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
         data.format === 'percent' ||
         data.format === 'percentage' ||
         data.format_type === 'percentage' ||
+        data.format_type === 'percent' ||
         data.data?.format === 'percent' ||
         data.data?.format_type === 'percentage' ||
+        data.data?.format_type === 'percent' ||
         data.response_type === 'percentage';
 
     const getCurrencyInfo = () => {
