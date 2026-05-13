@@ -48,6 +48,14 @@ def init_db() -> None:
     """
     SQLModel.metadata.create_all(engine)
     _ensure_users_name_column()
+    _ensure_dataset_versions_semantic_map_json_column()
+    _ensure_dataset_versions_status_column()
+    _ensure_dataset_versions_schema_json_column()
+    _ensure_dataset_versions_parent_version_id_column()
+    _ensure_dataset_versions_change_type_column()
+    _ensure_dataset_versions_approved_by_column()
+    _ensure_dataset_versions_approved_at_column()
+    _ensure_dataset_versions_chart_configs_json_column()
 
 
 def _ensure_users_name_column() -> None:
@@ -89,6 +97,118 @@ def _ensure_users_name_column() -> None:
                     """
                 )
             )
+
+
+def _ensure_dataset_versions_semantic_map_json_column() -> None:
+    """Best-effort schema patch for legacy dataset_versions tables."""
+    inspector = inspect(engine)
+    if "dataset_versions" not in inspector.get_table_names():
+        return
+
+    columns = {col["name"] for col in inspector.get_columns("dataset_versions")}
+    if "semantic_map_json" in columns:
+        return
+
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE dataset_versions ADD COLUMN semantic_map_json TEXT"))
+
+
+def _ensure_dataset_versions_status_column() -> None:
+    """Best-effort schema patch for legacy dataset_versions tables."""
+    inspector = inspect(engine)
+    if "dataset_versions" not in inspector.get_table_names():
+        return
+
+    columns = {col["name"] for col in inspector.get_columns("dataset_versions")}
+    if "status" in columns:
+        return
+
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE dataset_versions ADD COLUMN status VARCHAR(32) DEFAULT 'ready'"))
+
+
+def _ensure_dataset_versions_schema_json_column() -> None:
+    """Best-effort schema patch for legacy dataset_versions tables."""
+    inspector = inspect(engine)
+    if "dataset_versions" not in inspector.get_table_names():
+        return
+
+    columns = {col["name"] for col in inspector.get_columns("dataset_versions")}
+    if "schema_json" in columns:
+        return
+
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE dataset_versions ADD COLUMN schema_json TEXT"))
+
+
+def _ensure_dataset_versions_parent_version_id_column() -> None:
+    """Best-effort schema patch for legacy dataset_versions tables."""
+    inspector = inspect(engine)
+    if "dataset_versions" not in inspector.get_table_names():
+        return
+
+    columns = {col["name"] for col in inspector.get_columns("dataset_versions")}
+    if "parent_version_id" in columns:
+        return
+
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE dataset_versions ADD COLUMN parent_version_id VARCHAR(36)"))
+
+
+def _ensure_dataset_versions_change_type_column() -> None:
+    """Best-effort schema patch for legacy dataset_versions tables."""
+    inspector = inspect(engine)
+    if "dataset_versions" not in inspector.get_table_names():
+        return
+
+    columns = {col["name"] for col in inspector.get_columns("dataset_versions")}
+    if "change_type" in columns:
+        return
+
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE dataset_versions ADD COLUMN change_type VARCHAR(64)"))
+
+
+def _ensure_dataset_versions_approved_by_column() -> None:
+    """Best-effort schema patch for legacy dataset_versions tables."""
+    inspector = inspect(engine)
+    if "dataset_versions" not in inspector.get_table_names():
+        return
+
+    columns = {col["name"] for col in inspector.get_columns("dataset_versions")}
+    if "approved_by" in columns:
+        return
+
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE dataset_versions ADD COLUMN approved_by VARCHAR(36)"))
+
+
+def _ensure_dataset_versions_approved_at_column() -> None:
+    """Best-effort schema patch for legacy dataset_versions tables."""
+    inspector = inspect(engine)
+    if "dataset_versions" not in inspector.get_table_names():
+        return
+
+    columns = {col["name"] for col in inspector.get_columns("dataset_versions")}
+    if "approved_at" in columns:
+        return
+
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE dataset_versions ADD COLUMN approved_at DATETIME"))
+
+
+def _ensure_dataset_versions_chart_configs_json_column() -> None:
+    """Best-effort schema patch for legacy dataset_versions tables."""
+    inspector = inspect(engine)
+    if "dataset_versions" not in inspector.get_table_names():
+        return
+
+    columns = {col["name"] for col in inspector.get_columns("dataset_versions")}
+    if "chart_configs_json" in columns:
+        return
+
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE dataset_versions ADD COLUMN chart_configs_json TEXT"))
 
 
 def get_session() -> Generator[Session, None, None]:

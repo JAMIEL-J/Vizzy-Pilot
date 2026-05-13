@@ -48,13 +48,23 @@ class KPI:
     subtitle: Optional[str] = None  # e.g., "209 unique orders"
 
 
-def _find_column(df: pd.DataFrame, keywords: List[str], classification: ColumnClassification, search_excluded: bool = False) -> Optional[str]:
-    """Find a column matching any of the keywords using fuzzy semantic matching."""
+def _find_column(df: pd.DataFrame, keywords: List[str], classification: ColumnClassification, search_excluded: bool = False, semantic_map_json: Optional[str] = None) -> Optional[str]:
+    """Find a column matching any of the keywords using fuzzy semantic matching or a confirmed semantic map."""
     all_cols = classification.metrics + classification.dimensions + classification.targets
     if search_excluded:
         all_cols = all_cols + classification.excluded
 
-    # Primary: semantic resolver (handles abbreviations, CamelCase, fuzzy)
+    # 1. Primary: Use Confirmed Semantic Map (The "Gold Standard")
+    if semantic_map_json:
+        from .role_resolver import resolve_column_by_role
+        # We try to resolve the first keyword as the primary role
+        # e.g., if keywords are ['revenue', 'sales'], we check if 'revenue' is mapped.
+        for kw in keywords:
+            resolved = resolve_column_by_role(kw, semantic_map_json)
+            if resolved:
+                return resolved
+
+    # 2. Fallback: semantic resolver (handles abbreviations, CamelCase, fuzzy)
     try:
         from .semantic_resolver import find_column as semantic_find
         result = semantic_find(keywords, all_cols, threshold=0.55)
@@ -63,7 +73,7 @@ def _find_column(df: pd.DataFrame, keywords: List[str], classification: ColumnCl
     except ImportError:
         pass
 
-    # Fallback: simple substring matching
+    # 3. Final Fallback: simple substring matching
     for keyword in keywords:
         for col in all_cols:
             if keyword.lower() in col.lower().replace("_", ""):
@@ -389,7 +399,7 @@ def _marketing_groupby_aggregate(df: pd.DataFrame, dim_col: str, metric_col: str
     return frame.groupby('_dim')['_metric'].sum()
 
 
-def _find_marketing_entity_identifier(df: pd.DataFrame, classification: ColumnClassification) -> Optional[tuple[str, str]]:
+def _find_marketing_entity_identifier(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None) -> Optional[tuple[str, str]]:
     """Find a marketing entity identifier column and return (column_name, entity_label)."""
     ordered_cols: List[str] = []
     for col in (classification.excluded or []) + (classification.dimensions or []) + (classification.metrics or []):
@@ -435,16 +445,16 @@ def _find_marketing_entity_identifier(df: pd.DataFrame, classification: ColumnCl
 # =============================================================================
 
 
-def _generate_sales_kpis(df: pd.DataFrame, classification: ColumnClassification) -> List[KPI]:
+def _generate_sales_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None) -> List[KPI]:
     """Generate KPIs for Sales domain - answers key business questions."""
     kpis = []
     
     # Find key columns
-    revenue_col = _find_column(df, ['revenue', 'sales', 'amount', 'total_sales', 'totalsales'], classification)
-    profit_col = _find_column(df, ['profit', 'gross_profit', 'net_profit'], classification)
-    quantity_col = _find_column(df, ['quantity', 'qty', 'units', 'volume', 'order_quantity', 'ordered'], classification)
-    discount_col = _find_column(df, ['discount', 'discount_amount', 'discount_percent'], classification)
-    customer_col = _find_column(df, ['customer', 'customerid', 'customer_id', 'client'], classification)
+    revenue_col = _find_column(df, ['revenue', 'sales', 'amount', 'total_sales', 'totalsales'], classification, semantic_map_json=semantic_map_json)
+    profit_col = _find_column(df, ['profit', 'gross_profit', 'net_profit'], classification, semantic_map_json=semantic_map_json)
+    quantity_col = _find_column(df, ['quantity', 'qty', 'units', 'volume', 'order_quantity', 'ordered'], classification, semantic_map_json=semantic_map_json)
+    discount_col = _find_column(df, ['discount', 'discount_amount', 'discount_percent'], classification, semantic_map_json=semantic_map_json)
+    customer_col = _find_column(df, ['customer', 'customerid', 'customer_id', 'client'], classification, semantic_map_json=semantic_map_json)
     
     # Improved Order Identifier Logic:
     # 1. Search for explicit ID/Number columns first
@@ -483,9 +493,9 @@ def _generate_sales_kpis(df: pd.DataFrame, classification: ColumnClassification)
             order_col = None
     
     total_orders = df[order_col].nunique() if order_col else len(df)
-    product_col = _find_column(df, ['product', 'item', 'sku', 'category'], classification)
-    region_col = _find_column(df, ['region', 'market', 'zone', 'territory'], classification)
-    state_col = _find_column(df, ['state', 'province'], classification)
+    product_col = _find_column(df, ['product', 'item', 'sku', 'category'], classification, semantic_map_json=semantic_map_json)
+    region_col = _find_column(df, ['region', 'market', 'zone', 'territory'], classification, semantic_map_json=semantic_map_json)
+    state_col = _find_column(df, ['state', 'province'], classification, semantic_map_json=semantic_map_json)
 
     # Fallback discovery from dimensions when semantic search misses.
     if not product_col or not region_col or not state_col:
@@ -887,7 +897,7 @@ def _generate_sales_kpis(df: pd.DataFrame, classification: ColumnClassification)
 
 
 
-def _generate_churn_kpis(df: pd.DataFrame, classification: ColumnClassification) -> List[KPI]:
+def _generate_churn_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None) -> List[KPI]:
     """Generate KPIs for Churn domain - works for Telco, Banking, SaaS, HR."""
     kpis = []
     
@@ -915,7 +925,7 @@ def _generate_churn_kpis(df: pd.DataFrame, classification: ColumnClassification)
     age_like = [c for c in numeric_candidates if 'age' in _normalized_col(c)]
     lifecycle_col = (tenure_like[0] if tenure_like else (age_like[0] if age_like else None))
 
-    contract_col = _find_column(df, ['contract', 'subscription_type', 'membership'], classification)
+    contract_col = _find_column(df, ['contract', 'subscription_type', 'membership'], classification, semantic_map_json=semantic_map_json)
     
     # Churn Mask Detection (Handles strings "Yes", booleans True, and numeric 1/0)
     positive_keywords = ['yes', 'true', '1', '1.0', 'churned', 'exited', 'left', 'positive']
@@ -1000,7 +1010,7 @@ def _generate_churn_kpis(df: pd.DataFrame, classification: ColumnClassification)
             ))
 
     # 5. Domain Specifics (Banking Risk)
-    credit_col = _find_column(df, ['creditscore', 'credit_score'], classification)
+    credit_col = _find_column(df, ['creditscore', 'credit_score'], classification, semantic_map_json=semantic_map_json)
     if credit_col and churned_mask is not None:
         avg_credit_churned = pd.to_numeric(df.loc[churned_mask, credit_col], errors='coerce').mean()
         if pd.notna(avg_credit_churned):
@@ -1073,7 +1083,7 @@ def _generate_churn_kpis(df: pd.DataFrame, classification: ColumnClassification)
         ))
 
     # 9. Support Intensity (Tickets/Calls)
-    ticket_col = _find_column(df, ['ticket', 'complaint', 'incident', 'call', 'support', 'issue'], classification)
+    ticket_col = _find_column(df, ['ticket', 'complaint', 'incident', 'call', 'support', 'issue'], classification, semantic_map_json=semantic_map_json)
     if ticket_col:
         total_tickets = _safe_sum(df, ticket_col)
         avg_tickets = total_tickets / total_customers if total_customers > 0 else 0
@@ -1164,14 +1174,14 @@ def _generate_churn_kpis(df: pd.DataFrame, classification: ColumnClassification)
     return kpis
 
 
-def _generate_marketing_kpis(df: pd.DataFrame, classification: ColumnClassification) -> List[KPI]:
+def _generate_marketing_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None) -> List[KPI]:
     """Generate KPIs for Marketing domain."""
     kpis = []
 
     # Primary volume columns
-    imp_col = _find_column(df, ['impression', 'impressions', 'views'], classification)
-    click_col = _find_column(df, ['click', 'clicks'], classification)
-    entity_identifier = _find_marketing_entity_identifier(df, classification)
+    imp_col = _find_column(df, ['impression', 'impressions', 'views'], classification, semantic_map_json=semantic_map_json)
+    click_col = _find_column(df, ['click', 'clicks'], classification, semantic_map_json=semantic_map_json)
+    entity_identifier = _find_marketing_entity_identifier(df, classification, semantic_map_json=semantic_map_json)
 
     # Conversion candidates (volume/count vs explicit rate)
     metric_and_target_cols = classification.metrics + classification.targets
@@ -1197,7 +1207,7 @@ def _generate_marketing_kpis(df: pd.DataFrame, classification: ColumnClassificat
         None,
     )
     if not conv_col:
-        conv_col = _find_column(df, ['conversion', 'conversions', 'converted', 'lead', 'leads', 'signup', 'signups'], classification)
+        conv_col = _find_column(df, ['conversion', 'conversions', 'converted', 'lead', 'leads', 'signup', 'signups'], classification, semantic_map_json=semantic_map_json)
         if conv_col == conv_rate_col:
             conv_col = None
 
@@ -1464,12 +1474,12 @@ def _generate_marketing_kpis(df: pd.DataFrame, classification: ColumnClassificat
     return kpis
 
 
-def _generate_finance_kpis(df: pd.DataFrame, classification: ColumnClassification) -> List[KPI]:
+def _generate_finance_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None) -> List[KPI]:
     """Generate KPIs for Finance domain."""
     kpis = []
     
     # 1. Total Income/Revenue
-    income_col = _find_column(df, ['income', 'revenue', 'total', 'amount'], classification)
+    income_col = _find_column(df, ['income', 'revenue', 'total', 'amount'], classification, semantic_map_json=semantic_map_json)
     if income_col:
         total_income = _safe_sum(df, income_col)
         kpis.append(KPI(
@@ -1483,7 +1493,7 @@ def _generate_finance_kpis(df: pd.DataFrame, classification: ColumnClassificatio
         ))
     
     # 2. Total Expenses
-    expense_col = _find_column(df, ['expense', 'cost', 'spending'], classification)
+    expense_col = _find_column(df, ['expense', 'cost', 'spending'], classification, semantic_map_json=semantic_map_json)
     if expense_col:
         total_expense = _safe_sum(df, expense_col)
         kpis.append(KPI(
@@ -1523,16 +1533,16 @@ def _generate_finance_kpis(df: pd.DataFrame, classification: ColumnClassificatio
     return kpis
 
 
-def _generate_healthcare_kpis(df: pd.DataFrame, classification: ColumnClassification) -> List[KPI]:
+def _generate_healthcare_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None) -> List[KPI]:
     """Generate operational/clinical KPIs for Healthcare domain."""
     kpis = []
     
     # Detect key columns
-    patient_col = _find_column(df, ['patient', 'patientid', 'name'], classification)
-    age_col = _find_column(df, ['age'], classification)
-    condition_col = _find_column(df, ['condition', 'diagnosis', 'disease', 'medical_condition'], classification)
-    insurance_col = _find_column(df, ['insurance', 'provider', 'insurance_provider'], classification)
-    cost_col = _find_column(df, ['cost', 'charge', 'charges', 'bill', 'billing', 'billing_amount'], classification)
+    patient_col = _find_column(df, ['patient', 'patientid', 'name'], classification, semantic_map_json=semantic_map_json)
+    age_col = _find_column(df, ['age'], classification, semantic_map_json=semantic_map_json)
+    condition_col = _find_column(df, ['condition', 'diagnosis', 'disease', 'medical_condition'], classification, semantic_map_json=semantic_map_json)
+    insurance_col = _find_column(df, ['insurance', 'provider', 'insurance_provider'], classification, semantic_map_json=semantic_map_json)
+    cost_col = _find_column(df, ['cost', 'charge', 'charges', 'bill', 'billing', 'billing_amount'], classification, semantic_map_json=semantic_map_json)
     
     total_patients = df[patient_col].nunique() if patient_col else len(df)
     
@@ -1619,7 +1629,7 @@ def _generate_healthcare_kpis(df: pd.DataFrame, classification: ColumnClassifica
     return kpis
 
 
-def _generate_hr_kpis(df: pd.DataFrame, classification: ColumnClassification) -> List[KPI]:
+def _generate_hr_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None) -> List[KPI]:
     """Generate KPIs for HR domain — senior HR analyst grade.
 
     Covers the 10 most important workforce metrics:
@@ -1653,46 +1663,46 @@ def _generate_hr_kpis(df: pd.DataFrame, classification: ColumnClassification) ->
     salary_col = _find_column(df, [
         'monthly income', 'monthlyincome', 'salary', 'pay', 'wage',
         'compensation', 'payroll', 'income', 'annual income'
-    ], classification)
+    ], classification, semantic_map_json=semantic_map_json)
 
     tenure_col = _find_column(df, [
         'years at company', 'yearsatcompany', 'tenure', 'experience',
         'seniority', 'total working years', 'totalworkingyears'
-    ], classification)
+    ], classification, semantic_map_json=semantic_map_json)
 
     performance_col = _find_column(df, [
         'performance rating', 'performancerating', 'performance', 'rating',
         'score', 'review', 'appraisal'
-    ], classification)
+    ], classification, semantic_map_json=semantic_map_json)
 
     satisfaction_col = _find_column(df, [
         'job satisfaction', 'jobsatisfaction', 'satisfaction'
-    ], classification)
+    ], classification, semantic_map_json=semantic_map_json)
 
     env_satisfaction_col = _find_column(df, [
         'environment satisfaction', 'environmentsatisfaction'
-    ], classification)
+    ], classification, semantic_map_json=semantic_map_json)
 
     rel_satisfaction_col = _find_column(df, [
         'relationship satisfaction', 'relationshipsatisfaction'
-    ], classification)
+    ], classification, semantic_map_json=semantic_map_json)
 
     worklife_col = _find_column(df, [
         'work life balance', 'worklifebalance', 'work life', 'worklife'
-    ], classification)
+    ], classification, semantic_map_json=semantic_map_json)
 
     overtime_col = _find_column(df, [
         'overtime', 'over time', 'over_time'
-    ], classification)
+    ], classification, semantic_map_json=semantic_map_json)
 
     training_col = _find_column(df, [
         'training times last year', 'trainingtimeslastyear', 'training',
         'training times', 'courses', 'learning'
-    ], classification)
+    ], classification, semantic_map_json=semantic_map_json)
 
     involvement_col = _find_column(df, [
         'job involvement', 'jobinvolvement', 'involvement', 'engagement'
-    ], classification)
+    ], classification, semantic_map_json=semantic_map_json)
 
     # ── 1. Total Employees ─────────────────────────────────────────────
     kpis.append(KPI(
@@ -1860,7 +1870,7 @@ def _generate_hr_kpis(df: pd.DataFrame, classification: ColumnClassification) ->
     return kpis
 
 
-def _generate_logistics_kpis(df: pd.DataFrame, classification: ColumnClassification) -> List[KPI]:
+def _generate_logistics_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None) -> List[KPI]:
     """Generate KPIs for Logistics domain."""
     kpis = []
 
@@ -1881,7 +1891,7 @@ def _generate_logistics_kpis(df: pd.DataFrame, classification: ColumnClassificat
         reason="Unique shipments" if shipment_col else "Row count"
     ))
 
-    delivery_time_col = _find_column(df, ['delivery time', 'transit time', 'lead time', 'days for shipment'], classification)
+    delivery_time_col = _find_column(df, ['delivery time', 'transit time', 'lead time', 'days for shipment'], classification, semantic_map_json=semantic_map_json)
     if delivery_time_col:
         avg_delivery = _safe_mean(df, delivery_time_col)
         kpis.append(KPI(
@@ -1894,7 +1904,7 @@ def _generate_logistics_kpis(df: pd.DataFrame, classification: ColumnClassificat
             reason=f"Mean of {delivery_time_col}"
         ))
 
-    shipping_cost_col = _find_column(df, ['shipping cost', 'freight', 'transport cost', 'logistics cost'], classification)
+    shipping_cost_col = _find_column(df, ['shipping cost', 'freight', 'transport cost', 'logistics cost'], classification, semantic_map_json=semantic_map_json)
     if shipping_cost_col:
         total_cost = _safe_sum(df, shipping_cost_col)
         kpis.append(KPI(
@@ -1931,7 +1941,7 @@ def _generate_logistics_kpis(df: pd.DataFrame, classification: ColumnClassificat
             reason=f"Derived from {late_col}"
         ))
 
-    inventory_col = _find_column(df, ['inventory', 'stock', 'on hand', 'inventory level'], classification)
+    inventory_col = _find_column(df, ['inventory', 'stock', 'on hand', 'inventory level'], classification, semantic_map_json=semantic_map_json)
     if inventory_col:
         inventory_total = _safe_sum(df, inventory_col)
         kpis.append(KPI(
@@ -1947,7 +1957,7 @@ def _generate_logistics_kpis(df: pd.DataFrame, classification: ColumnClassificat
     return kpis
 
 
-def _generate_education_kpis(df: pd.DataFrame, classification: ColumnClassification) -> List[KPI]:
+def _generate_education_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None) -> List[KPI]:
     """Generate KPIs for Education domain."""
     kpis = []
 
@@ -1968,7 +1978,7 @@ def _generate_education_kpis(df: pd.DataFrame, classification: ColumnClassificat
         reason="Unique students" if student_col else "Row count"
     ))
 
-    gpa_col = _find_column(df, ['gpa', 'grade', 'score', 'marks'], classification)
+    gpa_col = _find_column(df, ['gpa', 'grade', 'score', 'marks'], classification, semantic_map_json=semantic_map_json)
     if gpa_col:
         avg_gpa = _safe_mean(df, gpa_col)
         kpis.append(KPI(
@@ -1981,7 +1991,7 @@ def _generate_education_kpis(df: pd.DataFrame, classification: ColumnClassificat
             reason=f"Mean of {gpa_col}"
         ))
 
-    attendance_col = _find_column(df, ['attendance', 'presence', 'absent'], classification)
+    attendance_col = _find_column(df, ['attendance', 'presence', 'absent'], classification, semantic_map_json=semantic_map_json)
     if attendance_col:
         attendance_rate = _rate_series_to_percent(df[attendance_col])
         if attendance_rate is None:
@@ -2015,11 +2025,11 @@ def _generate_education_kpis(df: pd.DataFrame, classification: ColumnClassificat
     return kpis
 
 
-def _generate_ecommerce_kpis(df: pd.DataFrame, classification: ColumnClassification) -> List[KPI]:
+def _generate_ecommerce_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None) -> List[KPI]:
     """Generate KPIs for Ecommerce domain."""
     kpis = []
 
-    revenue_col = _find_column(df, ['revenue', 'sales', 'gmv', 'amount', 'total'], classification)
+    revenue_col = _find_column(df, ['revenue', 'sales', 'gmv', 'amount', 'total'], classification, semantic_map_json=semantic_map_json)
     order_col = _find_column(
         df,
         ['order_id', 'orderid', 'invoice', 'transaction', 'order'],
@@ -2062,7 +2072,7 @@ def _generate_ecommerce_kpis(df: pd.DataFrame, classification: ColumnClassificat
                 reason="Revenue / Orders"
             ))
 
-    conversion_col = _find_column(df, ['conversion', 'cvr', 'conversion rate'], classification)
+    conversion_col = _find_column(df, ['conversion', 'cvr', 'conversion rate'], classification, semantic_map_json=semantic_map_json)
     if conversion_col:
         conversion_rate = _rate_series_to_percent(df[conversion_col])
         if conversion_rate is None:
@@ -2077,7 +2087,7 @@ def _generate_ecommerce_kpis(df: pd.DataFrame, classification: ColumnClassificat
             reason=f"Average of {conversion_col}"
         ))
 
-    abandonment_col = _find_column(df, ['abandon', 'cart abandonment', 'abandoned'], classification)
+    abandonment_col = _find_column(df, ['abandon', 'cart abandonment', 'abandoned'], classification, semantic_map_json=semantic_map_json)
     if abandonment_col:
         abandonment_rate = _rate_series_to_percent(df[abandonment_col])
         if abandonment_rate is None:
@@ -2095,7 +2105,7 @@ def _generate_ecommerce_kpis(df: pd.DataFrame, classification: ColumnClassificat
     return kpis
 
 
-def _generate_real_estate_kpis(df: pd.DataFrame, classification: ColumnClassification) -> List[KPI]:
+def _generate_real_estate_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None) -> List[KPI]:
     """Generate KPIs for Real Estate domain."""
     kpis = []
 
@@ -2116,7 +2126,7 @@ def _generate_real_estate_kpis(df: pd.DataFrame, classification: ColumnClassific
         reason="Unique listings" if listing_col else "Row count"
     ))
 
-    price_col = _find_column(df, ['price', 'rent', 'listing price', 'sale price'], classification)
+    price_col = _find_column(df, ['price', 'rent', 'listing price', 'sale price'], classification, semantic_map_json=semantic_map_json)
     if price_col:
         avg_price = _safe_mean(df, price_col)
         kpis.append(KPI(
@@ -2129,7 +2139,7 @@ def _generate_real_estate_kpis(df: pd.DataFrame, classification: ColumnClassific
             reason=f"Mean of {price_col}"
         ))
 
-    dom_col = _find_column(df, ['days on market', 'dom', 'time on market'], classification)
+    dom_col = _find_column(df, ['days on market', 'dom', 'time on market'], classification, semantic_map_json=semantic_map_json)
     if dom_col:
         avg_dom = _safe_mean(df, dom_col)
         kpis.append(KPI(
@@ -2171,7 +2181,7 @@ def _generate_real_estate_kpis(df: pd.DataFrame, classification: ColumnClassific
     return kpis
 
 
-def _generate_customer_support_kpis(df: pd.DataFrame, classification: ColumnClassification) -> List[KPI]:
+def _generate_customer_support_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None) -> List[KPI]:
     """Generate KPIs for Customer Support domain."""
     kpis = []
 
@@ -2192,7 +2202,7 @@ def _generate_customer_support_kpis(df: pd.DataFrame, classification: ColumnClas
         reason="Unique tickets" if ticket_col else "Row count"
     ))
 
-    resolution_col = _find_column(df, ['resolution time', 'time to resolve', 'mttr'], classification)
+    resolution_col = _find_column(df, ['resolution time', 'time to resolve', 'mttr'], classification, semantic_map_json=semantic_map_json)
     if resolution_col:
         avg_resolution = _safe_mean(df, resolution_col)
         kpis.append(KPI(
@@ -2205,7 +2215,7 @@ def _generate_customer_support_kpis(df: pd.DataFrame, classification: ColumnClas
             reason=f"Mean of {resolution_col}"
         ))
 
-    response_col = _find_column(df, ['response time', 'first response'], classification)
+    response_col = _find_column(df, ['response time', 'first response'], classification, semantic_map_json=semantic_map_json)
     if response_col:
         avg_response = _safe_mean(df, response_col)
         kpis.append(KPI(
@@ -2218,7 +2228,7 @@ def _generate_customer_support_kpis(df: pd.DataFrame, classification: ColumnClas
             reason=f"Mean of {response_col}"
         ))
 
-    csat_col = _find_column(df, ['csat', 'satisfaction', 'survey score'], classification)
+    csat_col = _find_column(df, ['csat', 'satisfaction', 'survey score'], classification, semantic_map_json=semantic_map_json)
     if csat_col:
         avg_csat = _safe_mean(df, csat_col)
         kpis.append(KPI(
@@ -2231,7 +2241,7 @@ def _generate_customer_support_kpis(df: pd.DataFrame, classification: ColumnClas
             reason=f"Mean of {csat_col}"
         ))
 
-    sla_col = _find_column(df, ['sla', 'service level'], classification)
+    sla_col = _find_column(df, ['sla', 'service level'], classification, semantic_map_json=semantic_map_json)
     if sla_col:
         sla_rate = _rate_series_to_percent(df[sla_col])
         if sla_rate is None:
@@ -2259,7 +2269,7 @@ def _generate_customer_support_kpis(df: pd.DataFrame, classification: ColumnClas
             reason=f"Positive {target_col} / total"
         ))
 
-    status_col = _find_column(df, ['status', 'state'], classification)
+    status_col = _find_column(df, ['status', 'state'], classification, semantic_map_json=semantic_map_json)
     if status_col and status_col in df.columns:
         open_keywords = ['open', 'pending', 'new', 'in progress']
         open_count = df[status_col].astype(str).str.lower().isin(open_keywords).sum()
@@ -2277,7 +2287,7 @@ def _generate_customer_support_kpis(df: pd.DataFrame, classification: ColumnClas
     return kpis
 
 
-def _generate_it_operations_kpis(df: pd.DataFrame, classification: ColumnClassification) -> List[KPI]:
+def _generate_it_operations_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None) -> List[KPI]:
     """Generate KPIs for IT Operations domain."""
     kpis = []
 
@@ -2298,7 +2308,7 @@ def _generate_it_operations_kpis(df: pd.DataFrame, classification: ColumnClassif
         reason="Unique incidents" if incident_col else "Row count"
     ))
 
-    uptime_col = _find_column(df, ['uptime', 'availability'], classification)
+    uptime_col = _find_column(df, ['uptime', 'availability'], classification, semantic_map_json=semantic_map_json)
     if uptime_col:
         uptime_rate = _rate_series_to_percent(df[uptime_col])
         if uptime_rate is None:
@@ -2313,7 +2323,7 @@ def _generate_it_operations_kpis(df: pd.DataFrame, classification: ColumnClassif
             reason=f"Average of {uptime_col}"
         ))
 
-    downtime_col = _find_column(df, ['downtime', 'outage'], classification)
+    downtime_col = _find_column(df, ['downtime', 'outage'], classification, semantic_map_json=semantic_map_json)
     if downtime_col:
         avg_downtime = _safe_mean(df, downtime_col)
         kpis.append(KPI(
@@ -2326,7 +2336,7 @@ def _generate_it_operations_kpis(df: pd.DataFrame, classification: ColumnClassif
             reason=f"Mean of {downtime_col}"
         ))
 
-    latency_col = _find_column(df, ['latency', 'response time'], classification)
+    latency_col = _find_column(df, ['latency', 'response time'], classification, semantic_map_json=semantic_map_json)
     if latency_col:
         avg_latency = _safe_mean(df, latency_col)
         kpis.append(KPI(
@@ -2339,7 +2349,7 @@ def _generate_it_operations_kpis(df: pd.DataFrame, classification: ColumnClassif
             reason=f"Mean of {latency_col}"
         ))
 
-    cpu_col = _find_column(df, ['cpu', 'utilization'], classification)
+    cpu_col = _find_column(df, ['cpu', 'utilization'], classification, semantic_map_json=semantic_map_json)
     if cpu_col:
         avg_cpu = _safe_mean(df, cpu_col)
         kpis.append(KPI(
@@ -2355,7 +2365,7 @@ def _generate_it_operations_kpis(df: pd.DataFrame, classification: ColumnClassif
     return kpis
 
 
-def _generate_cybersecurity_kpis(df: pd.DataFrame, classification: ColumnClassification) -> List[KPI]:
+def _generate_cybersecurity_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None) -> List[KPI]:
     """Generate KPIs for Cybersecurity domain."""
     kpis = []
 
@@ -2382,7 +2392,7 @@ def _generate_cybersecurity_kpis(df: pd.DataFrame, classification: ColumnClassif
         reason=alert_reason
     ))
 
-    vuln_col = _find_column(df, ['vulnerability', 'cve', 'exposure'], classification)
+    vuln_col = _find_column(df, ['vulnerability', 'cve', 'exposure'], classification, semantic_map_json=semantic_map_json)
     if vuln_col:
         total_vuln = _safe_sum(df, vuln_col)
         kpis.append(KPI(
@@ -2395,7 +2405,7 @@ def _generate_cybersecurity_kpis(df: pd.DataFrame, classification: ColumnClassif
             reason=f"Sum of {vuln_col}"
         ))
 
-    risk_col = _find_column(df, ['risk', 'risk score'], classification)
+    risk_col = _find_column(df, ['risk', 'risk score'], classification, semantic_map_json=semantic_map_json)
     if risk_col:
         avg_risk = _safe_mean(df, risk_col)
         kpis.append(KPI(
@@ -2408,7 +2418,7 @@ def _generate_cybersecurity_kpis(df: pd.DataFrame, classification: ColumnClassif
             reason=f"Mean of {risk_col}"
         ))
 
-    mttr_col = _find_column(df, ['remediate', 'mttr', 'resolution time'], classification)
+    mttr_col = _find_column(df, ['remediate', 'mttr', 'resolution time'], classification, semantic_map_json=semantic_map_json)
     if mttr_col:
         avg_mttr = _safe_mean(df, mttr_col)
         kpis.append(KPI(
@@ -2421,7 +2431,7 @@ def _generate_cybersecurity_kpis(df: pd.DataFrame, classification: ColumnClassif
             reason=f"Mean of {mttr_col}"
         ))
 
-    severity_col = _find_column(df, ['severity', 'critical', 'high'], classification)
+    severity_col = _find_column(df, ['severity', 'critical', 'high'], classification, semantic_map_json=semantic_map_json)
     if severity_col and severity_col in df.columns:
         sev_values = df[severity_col].astype(str).str.lower()
         high_mask = sev_values.str.contains('critical') | sev_values.str.contains('high')
@@ -2439,7 +2449,7 @@ def _generate_cybersecurity_kpis(df: pd.DataFrame, classification: ColumnClassif
     return kpis
 
 
-def _generate_generic_kpis(df: pd.DataFrame, classification: ColumnClassification) -> List[KPI]:
+def _generate_generic_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None) -> List[KPI]:
     """Generate generic KPIs when domain is unknown."""
     kpis = []
     
@@ -2645,7 +2655,7 @@ def _select_top_kpis(kpis: List[KPI], limit: int, domain: DomainType) -> List[KP
 # =============================================================================
 
 
-def generate_kpis(df: pd.DataFrame, domain: DomainType, classification: ColumnClassification) -> Dict[str, Any]:
+def generate_kpis(df: pd.DataFrame, domain: DomainType, classification: ColumnClassification, semantic_map_json: Optional[str] = None) -> Dict[str, Any]:
     """
     Generate KPIs based on domain and data classification.
     
@@ -2669,7 +2679,7 @@ def generate_kpis(df: pd.DataFrame, domain: DomainType, classification: ColumnCl
     }
     
     generator = generators.get(domain, _generate_generic_kpis)
-    kpis = generator(df, classification)
+    kpis = generator(df, classification, semantic_map_json=semantic_map_json)
     kpis = _dedupe_kpis(kpis)
     dynamic_limit = _dynamic_kpi_limit(df, domain, classification, len(kpis))
     kpis = _select_top_kpis(kpis, dynamic_limit, domain)

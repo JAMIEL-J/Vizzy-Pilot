@@ -597,9 +597,22 @@ def get_dashboard_analytics(  # pyright: ignore
         # Classify columns
         classification = filter_columns(df, domain)
         
-        # Apply classification overrides
+        # Merge saved semantic mapping with runtime overrides
+        effective_overrides = {}
+        if latest_version.semantic_map_json:
+            try:
+                saved_map = json.loads(latest_version.semantic_map_json)
+                if isinstance(saved_map, dict):
+                    effective_overrides.update(saved_map)
+            except Exception as e:
+                logger.error(f"Failed to parse saved semantic map: {e}")
+        
         if state.classification_overrides:
-            for col, role in state.classification_overrides.items():
+            effective_overrides.update(state.classification_overrides)
+
+        # Apply classification overrides
+        if effective_overrides:
+            for col, role in effective_overrides.items():
                 if col in df.columns:
                     # Remove from current lists
                     if col in classification.metrics: classification.metrics.remove(col)
@@ -608,17 +621,17 @@ def get_dashboard_analytics(  # pyright: ignore
                     if col in classification.dates: classification.dates.remove(col)
                     if col in classification.excluded: classification.excluded.remove(col)
                     
-                    # Add to new list
+                    # Add to new list based on semantic role mapping
                     role_lower = role.lower()
-                    if role_lower.startswith('metric'):
+                    if role_lower in ['metric', 'revenue', 'cost', 'profit', 'quantity']:
                         classification.metrics.append(col)
-                    elif role_lower == 'dimension':
+                    elif role_lower in ['dimension', 'category', 'region']:
                         classification.dimensions.append(col)
                     elif role_lower == 'target':
                         classification.targets.append(col)
                     elif role_lower == 'date':
                         classification.dates.append(col)
-                    elif role_lower == 'excluded':
+                    elif role_lower in ['excluded', 'identifier', 'generic']:
                         classification.excluded.append(col)
         
         # Find target column for filtering

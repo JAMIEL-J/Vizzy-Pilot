@@ -42,11 +42,36 @@ class LLMRouter:
 
     def _parse_json(self, response_text: str) -> dict:
         # Failsafe cleaner for possible markdown block leakage
-        cleaned = response_text.replace("```json", "").replace("```", "").strip()
+        cleaned = response_text.strip()
+        
+        # 1. Strip markdown code fences
+        if "```" in cleaned:
+            import re
+            match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", cleaned)
+            if match:
+                cleaned = match.group(1).strip()
+            else:
+                cleaned = cleaned.replace("```json", "").replace("```", "").strip()
+        
+        # 2. Try direct JSON parse
         try:
             return json.loads(cleaned)
         except json.JSONDecodeError:
-            # Fallback attempt: if it's not JSON, maybe it's text wrapped in one
-            if not cleaned.startswith("{"):
-                return {"text": cleaned}
-            raise ValueError(f"LLM returned invalid JSON: {cleaned[:100]}...")
+            pass
+        
+        # 3. Try to find the outermost JSON object in the text
+        import re
+        # Find the first { and last } to extract the JSON block
+        first_brace = cleaned.find("{")
+        last_brace = cleaned.rfind("}")
+        if first_brace != -1 and last_brace > first_brace:
+            candidate = cleaned[first_brace:last_brace + 1]
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                pass
+        
+        # 4. Fallback: wrap as text for downstream extraction
+        if not cleaned.startswith("{"):
+            return {"text": cleaned}
+        raise ValueError(f"LLM returned invalid JSON: {cleaned[:200]}...")

@@ -60,6 +60,17 @@ def _normalize_aggregation(aggregation: Optional[str], default: str = 'COUNT') -
     return alias_map.get(agg, agg)
 
 
+def _get_chart_config_value(chart_config: Any, attr: str, *fallback_keys: str) -> Any:
+    """Resolve chart config values for both objects and dicts."""
+    if hasattr(chart_config, attr):
+        return getattr(chart_config, attr)
+    if isinstance(chart_config, dict):
+        for key in (attr, *fallback_keys):
+            if key in chart_config:
+                return chart_config.get(key)
+    return None
+
+
 def build_filter_where_clause(
     filters: Dict[str, List[str]],
     target_column: Optional[str] = None,
@@ -184,7 +195,7 @@ def build_filter_where_clause(
 
 
 def build_chart_query(
-    chart_config: Dict[str, Any],
+    chart_config: Any,
     filters: Dict[str, List[str]],
     target_column: Optional[str] = None,
     target_value: str = "all",
@@ -192,22 +203,13 @@ def build_chart_query(
 ) -> Tuple[str, List[Any]]:
     """
     Build SQL query for a single chart based on its configuration.
-
-    Args:
-        chart_config: Chart configuration (dimension, metric, aggregation, type, etc.)
-        filters: Active filters {column: [values]}
-        target_column: Target column for churn/outcome analysis
-        target_value: Target tab value ("all", "churned", "retained")
-        table_name: DuckDB table name
-
-    Returns:
-        (query, params) tuple for parameterized execution
     """
-    dimension = chart_config.get('dimension')
-    metric = chart_config.get('metric')
-    aggregation = _normalize_aggregation(chart_config.get('aggregation'), default='COUNT')
-    chart_type = chart_config.get('type', 'bar')
-    is_date = chart_config.get('is_date', False)
+    dimension = _get_chart_config_value(chart_config, 'x_col', 'dimension', 'x_column')
+    metric = _get_chart_config_value(chart_config, 'y_col', 'metric', 'y_column')
+    aggregation = _normalize_aggregation(_get_chart_config_value(chart_config, 'aggregation'), default='COUNT')
+    chart_type = _get_chart_config_value(chart_config, 'chart_type', 'type') or 'bar'
+    is_date = False # Default for now, can be inferred from ROLE_TAXONOMY if needed
+
 
     where_clause, params = build_filter_where_clause(filters, target_column, target_value)
 
@@ -219,8 +221,8 @@ def build_chart_query(
 
     if chart_type == 'scatter':
         # Scatter plot: return x, y pairs
-        x_col = dimension or chart_config.get('x_column')
-        y_col = metric or chart_config.get('y_column')
+        x_col = dimension or _get_chart_config_value(chart_config, 'x_column', 'dimension', 'x_col')
+        y_col = metric or _get_chart_config_value(chart_config, 'y_column', 'metric', 'y_col')
 
         if x_col and y_col:
             return f'''
@@ -283,19 +285,16 @@ def build_chart_query(
 
 def execute_chart_queries(
     conn: duckdb.DuckDBPyConnection,
-    chart_configs: Dict[str, Dict[str, Any]],
+    chart_configs: Dict[str, Any],
     filters: Dict[str, List[str]],
     target_column: Optional[str] = None,
     target_value: str = "all"
 ) -> Dict[str, List[Dict[str, Any]]]:
     """
     Execute all chart queries and return results.
-
-    Returns:
-        Dict mapping chart_id -> list of data rows
     """
     results = {}
-
+    
     for chart_id, config in chart_configs.items():
         try:
             query, params = build_chart_query(
@@ -304,6 +303,7 @@ def execute_chart_queries(
                 target_column=target_column,
                 target_value=target_value
             )
+
 
             logger.info("[DUCKDB QUERY] chart_id=%s sql=%s params=%s", chart_id, query, params)
 

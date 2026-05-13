@@ -9,7 +9,7 @@ Auto-generates multi-widget BI dashboards powered by:
 """
 
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 import pandas as pd
 
 from app.services.analytics.domain_detector import detect_domain, DomainType
@@ -23,16 +23,10 @@ logger = logging.getLogger(__name__)
 def generate_overview_dashboard(
     df: pd.DataFrame,
     schema: Dict[str, Any],
+    semantic_map_json: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Generate a full BI dashboard with domain-aware KPIs and intelligent charts.
-
-    Pipeline (mirrors QuickSight / Tableau auto-dashboard):
-    1. Detect domain (Sales, Churn, Finance, Healthcare, Marketing, Generic)
-    2. Classify columns (metrics, dimensions, targets, dates)
-    3. Generate domain-specific KPIs (revenue, churn rate, patient count, etc.)
-    4. Recommend optimal charts (bar, line, pie, donut, scatter, geo map, etc.)
-    5. Assemble into a grid layout with KPI row + chart rows
     """
     # ── 1. Domain Detection ──
     domain, domain_scores = detect_domain(df)
@@ -40,6 +34,37 @@ def generate_overview_dashboard(
 
     # ── 2. Column Classification ──
     classification = filter_columns(df, domain)
+
+    # SEMANTIC OVERRIDE: If user confirmed a semantic map, force-override the heuristics.
+    # This prevents "EXCLUDED" columns from blocking the dashboard if they have a role.
+    if semantic_map_json:
+        import json
+        try:
+            s_map = json.loads(semantic_map_json)
+            for col, role in s_map.items():
+                if col not in df.columns:
+                    continue
+
+                # Force removal from excluded list
+                if col in classification.excluded:
+                    classification.excluded.remove(col)
+
+                # Assign to correct bucket based on role
+                if role in ('revenue', 'cost', 'amount', 'profit'):
+                    if col not in classification.metrics:
+                        classification.metrics.append(col)
+                elif role == 'date':
+                    if col not in classification.dates:
+                        classification.dates.append(col)
+                elif role in ('category', 'identifier', 'region'):
+                    if col not in classification.dimensions:
+                        classification.dimensions.append(col)
+                elif role == 'target':
+                    if col not in classification.targets:
+                        classification.targets.append(col)
+        except Exception as e:
+            logger.error(f"Failed to apply semantic override: {e}")
+
     logger.info(
         f"Classified columns — metrics: {classification.metrics}, "
         f"dimensions: {classification.dimensions}, "
@@ -48,12 +73,12 @@ def generate_overview_dashboard(
     )
 
     # ── 3. Domain-Specific KPIs ──
-    kpi_dict = generate_kpis(df, domain, classification)
+    kpi_dict = generate_kpis(df, domain, classification, semantic_map_json=semantic_map_json)
     kpi_widgets = _kpis_to_widgets(kpi_dict)
     logger.info(f"Generated {len(kpi_widgets)} KPIs")
 
     # ── 4. Smart Chart Recommendations ──
-    chart_dict = recommend_charts(df, domain, classification)
+    chart_dict = recommend_charts(df, domain, classification, semantic_map_json=semantic_map_json)
     chart_widgets = _charts_to_widgets(chart_dict)
     logger.info(f"Generated {len(chart_widgets)} charts")
 

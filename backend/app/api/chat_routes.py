@@ -953,11 +953,12 @@ async def send_message(
                         db_engine = DBEngine()
                         
                         try:
-                            db_engine.load_csv("data", data_path)
+                            await db_engine.load_csv("data", data_path)
                         except Exception as csv_err:
                             logging.getLogger(__name__).warning(f"Direct CSV load failed, falling back to Pandas: {csv_err}")
                             df = pd.read_csv(data_path)
-                            db_engine.load_dataframe("data", df)
+                            await db_engine.load_dataframe("data", df)
+
 
                         # Apply memory management
                         context_messages = chat_service.get_recent_context(

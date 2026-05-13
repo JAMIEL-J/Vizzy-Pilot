@@ -86,7 +86,7 @@ def get_duckdb_build_status(dataset_id: UUID, version_id: UUID) -> Dict[str, Any
     return {"status": "building", "error": None, "duckdb_path": str(duckdb_path)}
 
 
-def build_duckdb_from_csv(
+async def build_duckdb_from_csv(
     dataset_id: UUID,
     version_id: UUID,
     csv_path: str,
@@ -131,7 +131,7 @@ def build_duckdb_from_csv(
         db_engine = DBEngine(db_path=str(duckdb_path))
 
         # Load CSV into DuckDB (creates table + runs coercion pipeline)
-        db_engine.load_csv("data", csv_path)
+        await db_engine.load_csv("data", csv_path)
 
         # Close connection to finalize file
         db_engine.close()

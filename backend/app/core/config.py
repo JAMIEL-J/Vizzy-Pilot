@@ -113,8 +113,13 @@ class LLMSettings(BaseSettings):
     groq_chat_api_key: SecretStr = Field(default=SecretStr(""))
     groq_chat_model: str = Field(default="openai/gpt-oss-120b")
 
-    # Provider Selection (Always Groq)
-    primary_provider: Literal["groq"] = Field(default="groq")
+    # Gemini configurations
+    gemini_api_key: SecretStr = Field(default=SecretStr(""))
+    gemini_model: str = Field(default="gemma-4-26b-a4b-it")
+    gemini_chat_model: str = Field(default="gemma-4-26b-a4b-it")
+
+    # Provider Selection
+    primary_provider: Literal["groq", "gemini"] = Field(default="groq")
 
     # Token optimization settings (IMPORTANT for free tier)
     max_tokens: int = Field(default=512, ge=64, le=8192)  # Increased for Pro model

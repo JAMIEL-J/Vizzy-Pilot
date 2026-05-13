@@ -6,7 +6,9 @@ Uses BI dashboard best practices to prioritize business-critical metrics.
 """
 
 import logging
+import json
 from typing import Dict, Any, List, Optional, Set
+from app.services.semantic_audit import ROLE_TAXONOMY
 from dataclasses import dataclass
 import warnings
 import re
@@ -21,6 +23,33 @@ class AggregationData(list):
         super().__init__(data)
         self.outliers = outliers
         self.data_without_outliers = data_without_outliers
+
+
+@dataclass
+class ChartRecommendation:
+    slot: str
+    title: str
+    chart_type: str
+    data: Any
+    confidence: str
+    reason: str
+    format_type: Optional[str] = None
+    value_label: Optional[str] = None
+    dimension: Optional[str] = None
+    metric: Optional[str] = None
+    aggregation: Optional[str] = None
+    categories: Optional[List[str]] = None
+    geo_meta: Optional[Dict[str, Any]] = None
+    granularity: Optional[str] = None
+    section: Optional[str] = None
+    variance_score: float = 0.0
+    outliers: Optional[Dict[str, Any]] = None
+    data_without_outliers: Optional[List[Dict[str, Any]]] = None
+
+    def __post_init__(self):
+        if isinstance(self.data, AggregationData) and self.data.outliers:
+            self.outliers = self.data.outliers
+            self.data_without_outliers = self.data.data_without_outliers
 
 logger = logging.getLogger(__name__)
 
@@ -884,26 +913,108 @@ def _detect_map_type(col_values: List[str]) -> Optional[str]:
 
 
 @dataclass
-class ChartRecommendation:
-    """Represents a chart recommendation."""
-    slot: str
-    title: str
-    chart_type: str  # bar, hbar, pie, donut, line, scatter, stacked, geo_map
-    data: List[Dict[str, Any]]
-    confidence: str
-    reason: str
-    categories: Optional[List[str]] = None  # For stacked charts
-    geo_meta: Optional[Dict[str, Any]] = None  # For geo_map charts
-    format_type: Optional[str] = None  # e.g., 'currency', 'percentage', 'number'
-    value_label: Optional[str] = None  # What the value represents: 'Orders', 'Customers', etc.
-    outliers: Optional[Dict[str, Any]] = None
-    data_without_outliers: Optional[List[Dict[str, Any]]] = None
-    dimension: Optional[str] = None
-    metric: Optional[str] = None
-    aggregation: Optional[str] = None  # 'sum', 'mean', 'count'
-    granularity: Optional[str] = None  # 'year', 'ytd', 'month', 'week', 'day'
-    section: Optional[str] = None
-    variance_score: float = 0.0
+class ChartConfig:
+    """Configuration for a chart to be executed by the hybrid engine."""
+    chart_id: str
+    chart_type: str  # line, bar, gauge, kpi, etc.
+    x_col: Optional[str] = None
+    y_col: Optional[str] = None
+    execution_slot: str = "duckdb"  # "duckdb" or "pandas"
+    title: str = ""
+    aggregation: str = "sum"  # "sum", "mean", "count"
+    numerator_col: Optional[str] = None  # For pandas ratio_pct
+    denominator_col: Optional[str] = None # For pandas ratio_pct
+
+def generate_chart_configs(semantic_map: Any) -> List[ChartConfig]:
+    """
+    Pure function. Takes approved semantic_map_json (string or dict).
+    Returns list of ChartConfig objects with execution_slot assigned.
+    No LLM calls inside this function ever.
+    """
+    configs = []
+    
+    # 1. Parse if it's a JSON string
+    if isinstance(semantic_map, str):
+        try:
+            semantic_map = json.loads(semantic_map)
+        except json.JSONDecodeError:
+            return []
+
+    # 2. Normalize to a list of mapping dicts
+    if isinstance(semantic_map, dict):
+        # If it's a role->column map: {"revenue": "Tot_Rev"}
+        # We need to resolve the role's affinity/slot from ROLE_TAXONOMY
+        mappings = []
+        for role, col in semantic_map.items():
+            role_info = ROLE_TAXONOMY.get(role, {"affinity": "none", "execution_slot": None})
+            mappings.append({
+                "column": col,
+                "role": role,
+                "affinity": role_info["affinity"],
+                "execution_slot": role_info["execution_slot"]
+            })
+    elif isinstance(semantic_map, list):
+        mappings = semantic_map
+    else:
+        return []
+    
+    date_cols = [m for m in mappings if m.get("role") in ("date", "datetime", "year_month") or m.get("affinity") == "time_series_x"]
+    measure_cols = [m for m in mappings if m.get("affinity") == "measure_y"]
+    category_cols = [m for m in mappings if m.get("affinity") == "groupby_x"]
+    ratio_cols = [m for m in mappings if m.get("role") == "ratio_pct"]
+
+    
+    # Rule 1: Time series — date × measure (cap 3)
+    if date_cols:
+        primary_date = date_cols[0]["column"]
+        for measure in measure_cols[:3]:
+            chart_id = f"chart_{measure['column']}_{primary_date}_trend"
+            configs.append(ChartConfig(
+                chart_id=chart_id,
+                chart_type="line",
+                x_col=primary_date,
+                y_col=measure["column"],
+                execution_slot=measure.get("execution_slot", "duckdb"),
+                title=f"{measure['column']} over time"
+            ))
+    
+    # Rule 2: Bar charts — category × measure (1 per category col)
+    for cat in category_cols[:2]:
+        for measure in measure_cols[:2]:
+            chart_id = f"chart_{measure['column']}_{cat['column']}_bar"
+            configs.append(ChartConfig(
+                chart_id=chart_id,
+                chart_type="bar",
+                x_col=cat["column"],
+                y_col=measure["column"],
+                execution_slot="duckdb",
+                title=f"{measure['column']} by {cat['column']}"
+            ))
+    
+    # Rule 3: Gauge charts — ratio_pct columns
+    for ratio in ratio_cols:
+        chart_id = f"chart_{ratio['column']}_gauge"
+        configs.append(ChartConfig(
+            chart_id=chart_id,
+            chart_type="gauge",
+            y_col=ratio["column"],
+            execution_slot="pandas",  # always pandas for derived ratios
+            title=ratio["column"]
+        ))
+    
+    # Rule 4: KPI cards — count/score with no pairing
+    for measure in measure_cols:
+        if measure.get("role") in ("count", "score"):
+            chart_id = f"chart_{measure['column']}_kpi"
+            configs.append(ChartConfig(
+                chart_id=chart_id,
+                chart_type="kpi",
+                y_col=measure["column"],
+                execution_slot="duckdb",
+                title=f"Total {measure['column']}"
+            ))
+            
+    return configs
 
     def __post_init__(self):
         if isinstance(self.data, AggregationData) and self.data.outliers:

@@ -379,16 +379,17 @@ async def _execute_diagnostic_batch_sql(
 ) -> List[Dict[str, Any]]:
     """Execute a full diagnostic batch in SQL mode using a transient DuckDB engine."""
     from app.services.analytics.db_engine import DBEngine
-
+    
     engine = DBEngine(db_path=":memory:")
     try:
-        engine.load_dataframe("data", df)
+        await engine.load_dataframe("data", df)
         out: List[Dict[str, Any]] = []
         for q in diag_queries:
             out.append(await _execute_diagnostic_sql(engine, q))
         return out
     finally:
         engine.close()
+
 
 
 async def run_diagnostic_battery(

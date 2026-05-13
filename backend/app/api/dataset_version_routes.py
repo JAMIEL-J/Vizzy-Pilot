@@ -1,4 +1,5 @@
-from typing import List, Optional
+import logging
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
@@ -11,6 +12,7 @@ from app.core.exceptions import (
     ResourceNotFound,
     AuthorizationError,
     InvalidOperation,
+    ValidationError,
 )
 
 
@@ -28,6 +30,10 @@ class VersionCreateRequest(BaseModel):
     row_count: Optional[int] = None
 
 
+class MappingConfirmRequest(BaseModel):
+    mappings: Dict[str, str]
+
+
 class VersionResponse(BaseModel):
     id: UUID
     dataset_id: UUID
@@ -38,6 +44,8 @@ class VersionResponse(BaseModel):
     schema_hash: str
     created_by: UUID
     is_active: bool
+    semantic_map_json: Optional[str] = None
+    parent_version_id: Optional[UUID] = None
 
     class Config:
         from_attributes = True
@@ -67,6 +75,7 @@ def create_version(
             schema_hash=request.schema_hash,
             row_count=request.row_count,
             created_by=UUID(current_user.user_id),
+            role=current_user.role,
         )
         return VersionResponse.model_validate(version)
 
@@ -137,3 +146,104 @@ def get_version(
 
     except AuthorizationError as e:
         raise HTTPException(status_code=403, detail=e.message)
+
+
+@router.post("/{version_id}/propose-mapping")
+async def propose_mapping(
+    dataset_id: UUID,
+    version_id: UUID,
+    session: DBSession,
+    current_user: RateLimitedUser,
+) -> Dict[str, Any]:
+    try:
+        return await dataset_version_service.propose_semantic_mapping(
+            session=session,
+            version_id=version_id,
+        )
+    except ResourceNotFound as e:
+        raise HTTPException(status_code=404, detail=e.message)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.message)
+    except Exception as e:
+        logger = logging.getLogger(__name__)
+        logger.exception("Unhandled error in propose_mapping")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{version_id}/confirm-mapping")
+def confirm_mapping(
+    dataset_id: UUID,
+    version_id: UUID,
+    request: MappingConfirmRequest,
+    session: DBSession,
+    current_user: RateLimitedUser,
+) -> VersionResponse:
+    logger = logging.getLogger(__name__)
+    logger.info(f"Confirming mapping for dataset={dataset_id}, version={version_id}")
+    try:
+        version = dataset_version_service.confirm_semantic_mapping(
+            session=session,
+            version_id=version_id,
+            confirmed_map=request.mappings,
+            approved_by=UUID(current_user.user_id),
+        )
+        return VersionResponse.model_validate(version)
+    except ResourceNotFound as e:
+        logger.warning(f"Resource not found during confirm_mapping: {e.message}")
+        raise HTTPException(status_code=404, detail=e.message)
+    except ValidationError as e:
+        logger.warning(f"Validation error during confirm_mapping: {e.message}")
+        raise HTTPException(status_code=422, detail=e.message)
+    except Exception as e:
+        logger.exception("Unhandled error in confirm_mapping")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+@router.post("/{version_id}/remap")
+def remap_mapping_preview(
+    dataset_id: UUID,
+    version_id: UUID,
+    request: MappingConfirmRequest,
+    session: DBSession,
+    current_user: RateLimitedUser,
+) -> Dict[str, Any]:
+    """
+    Preview impact of remapping before confirmation.
+    """
+    try:
+        return dataset_version_service.preview_remap_impact(
+            session=session,
+            version_id=version_id,
+            proposed_map=request.mappings,
+            user_id=UUID(current_user.user_id),
+        )
+    except ResourceNotFound as e:
+        raise HTTPException(status_code=404, detail=e.message)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{version_id}/remap/confirm")
+def remap_mapping_confirm(
+    dataset_id: UUID,
+    version_id: UUID,
+    request: MappingConfirmRequest,
+    session: DBSession,
+    current_user: RateLimitedUser,
+) -> VersionResponse:
+    """
+    Confirm remap and create a new DatasetVersion.
+    """
+    try:
+        version = dataset_version_service.remap_semantic_mapping(
+            session=session,
+            version_id=version_id,
+            confirmed_map=request.mappings,
+            approved_by=UUID(current_user.user_id),
+        )
+        return VersionResponse.model_validate(version)
+    except ResourceNotFound as e:
+        raise HTTPException(status_code=404, detail=e.message)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Annotated, Callable, Optional
 
-from fastapi import Depends, Header
+from fastapi import Depends, Header, Query
 from jose import JWTError, jwt
 import bcrypt
 from pydantic import BaseModel
@@ -171,6 +171,33 @@ async def get_current_user(
         raise AuthenticationError("Invalid authorization header format")
 
     token = authorization[7:]
+    token_data = verify_token(token)
+
+    return CurrentUser(
+        user_id=token_data.user_id,
+        role=token_data.role,
+    )
+
+
+async def get_current_user_from_header_or_query(
+    authorization: Optional[str] = Header(default=None),
+    access_token: Optional[str] = Query(default=None, alias="access_token"),
+) -> CurrentUser:
+    """
+    Resolve the current user from Authorization header or access_token query param.
+    Used for EventSource endpoints where custom headers are not allowed.
+    """
+    token: Optional[str] = None
+
+    if authorization:
+        if not authorization.startswith("Bearer "):
+            raise AuthenticationError("Invalid authorization header format")
+        token = authorization[7:]
+    elif access_token:
+        token = access_token
+    else:
+        raise AuthenticationError("Authorization header missing")
+
     token_data = verify_token(token)
 
     return CurrentUser(

@@ -3,7 +3,13 @@ from typing import Annotated, Generator
 from fastapi import Depends
 from sqlmodel import Session
 
-from app.core.security import CurrentUser, UserRole, get_current_user, require_role
+from app.core.security import (
+    CurrentUser,
+    UserRole,
+    get_current_user,
+    get_current_user_from_header_or_query,
+    require_role,
+)
 from app.core.rate_limit import check_rate_limit
 from app.models.database import engine
 
@@ -20,6 +26,12 @@ DBSession = Annotated[Session, Depends(get_db)]
 AuthenticatedUser = Annotated[
     CurrentUser,
     Depends(get_current_user),
+]
+
+
+AuthenticatedUserHeaderOrQuery = Annotated[
+    CurrentUser,
+    Depends(get_current_user_from_header_or_query),
 ]
 
 

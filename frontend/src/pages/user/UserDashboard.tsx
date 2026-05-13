@@ -1,32 +1,47 @@
 // @ts-nocheck
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useTheme } from '../../context/ThemeContext';
-import { datasetService } from '../../lib/api/dataset';
+import { datasetService, semanticMappingService } from '../../lib/api/dataset';
 import { analyticsService, correlationService, narrativeService, type DashboardAnalytics, type CorrelationMatrix } from '../../lib/api/dashboard';
+import { useDashboardStream } from '../../hooks/useDashboardStream';
+import { HeaderSkeleton, KPISkeleton, ChartSkeleton } from '../../components/dashboard/DashboardSkeletons';
+import VersionDiffModal from '../../components/dashboard/VersionDiffModal';
 import GeoMapCard from './GeoMapCard';
 import SettingsDropdown from '../../components/common/SettingsDropdown';
 import { useFilterStore } from '../../store/useFilterStore';
+import RemapModal from '../../components/dashboard/RemapModal';
+import { ColumnClassificationPanel } from '../../components/dashboard/ColumnClassificationPanel';
 import {
     Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, RadialLinearScale, BubbleController,
   Title, Tooltip as ChartTooltip, Legend as ChartLegend, Filler
 } from 'chart.js';
 import { TreemapController, TreemapElement } from 'chartjs-chart-treemap';
 import { Bar, Line, Pie, Scatter, Radar, Bubble, PolarArea, Chart as ReactChart } from 'react-chartjs-2';
-
-ChartJS.register(
-    CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, RadialLinearScale, BubbleController, TreemapController, TreemapElement,
-  Title, ChartTooltip, ChartLegend, Filler
-);
-import { ColumnClassificationPanel } from '../../components/dashboard/ColumnClassificationPanel';
-import { DashboardSkeleton } from '../../components/dashboard/DashboardSkeleton';
 import { Button } from '@/components/ui/button';
 import { VIZZY_THEME } from '../../theme/tokens';
+import { toast } from 'react-hot-toast';
+
+ChartJS.register(
+    CategoryScale,
+    LinearScale,
+    PointElement,
+    LineElement,
+    BarElement,
+    ArcElement,
+    RadialLinearScale,
+    BubbleController,
+    TreemapController,
+    TreemapElement,
+    Title,
+    ChartTooltip,
+    ChartLegend,
+    Filler
+);
 
 type CachedEntry<T> = {
     value: T;
     createdAt: number;
 };
-
 const DASHBOARD_CACHE_TTL_MS = 10 * 60 * 1000;
 const DASHBOARD_SESSION_CACHE_KEY = 'vizzy.dashboard.analyticsCache.v2';
 const DASHBOARD_CACHE_SCHEMA_VERSION = 'v3';
@@ -480,6 +495,8 @@ const ChartRenderer = ({
     const safeChartId = chartColorSeed.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'chart';
     const baseColorIndex = Array.from(chartColorSeed).reduce((hash, char) => ((hash * 31) + char.charCodeAt(0)) >>> 0, 0) % polishedPalette.length;
     const getPaletteColor = (index: number) => polishedPalette[(baseColorIndex + index) % polishedPalette.length];
+    const chartInstanceKey = `${safeChartId}-${String(chart?.type || 'chart')}-${rawChartData?.length ?? 0}-${quickReact ? 'q' : 'n'}`;
+    const chartRedraw = true;
 
     if (!rawChartData?.length) {
         return (
@@ -1177,7 +1194,8 @@ const ChartRenderer = ({
                     {renderOutlierToggle()}
                     <div style={{ height: 192, width: '100%' }}>
                         <Bar
-                            key={`bar-${chart?.id || chart?.title || 'chart'}-x`}
+                            key={`${chartInstanceKey}-bar-x`}
+                            redraw={chartRedraw}
                             data={{
                                 labels: categoryLabels,
                                 datasets: [{
@@ -1198,7 +1216,8 @@ const ChartRenderer = ({
                     {renderOutlierToggle()}
                     <div style={{ height: chartData.length >= 8 ? Math.min(chartData.length * 28 + 40, 300) : 192, width: '100%' }}>
                         <Bar
-                            key={`bar-${chart?.id || chart?.title || 'chart'}-y`}
+                            key={`${chartInstanceKey}-bar-y`}
+                            redraw={chartRedraw}
                             data={{
                                 labels: categoryLabels,
                                 datasets: [{
@@ -1221,7 +1240,8 @@ const ChartRenderer = ({
                     {renderOutlierToggle()}
                     <div style={{ height: 192, width: '100%' }}>
                         <Bar
-                            key={`stacked-${chart?.id || chart?.title || 'chart'}`}
+                            key={`${chartInstanceKey}-stacked`}
+                            redraw={chartRedraw}
                             data={{
                                 labels: categoryLabels,
                                 datasets: activeStackKeys.map((key, idx) => ({
@@ -1261,7 +1281,8 @@ const ChartRenderer = ({
                     {renderOutlierToggle()}
                     <div style={{ height: 210, width: '100%' }}>
                         <Pie
-                            key={`pie-${chart?.id || chart?.title || 'chart'}-${chart.type}`}
+                            key={`${chartInstanceKey}-pie`}
+                            redraw={chartRedraw}
                             data={{
                                 labels: chartData.map((d: any) => normalizeLabel(d[nameKey] || d.name)),
                                 datasets: [{
@@ -1297,7 +1318,8 @@ const ChartRenderer = ({
                     {renderOutlierToggle()}
                     <div style={{ height: 210, width: '100%' }}>
                         <PolarArea
-                            key={`polar-${chart?.id || chart?.title || 'chart'}`}
+                            key={`${chartInstanceKey}-polar`}
+                            redraw={chartRedraw}
                             data={{
                                 labels: chartData.map((d: any) => normalizeLabel(d[nameKey] || d.name)),
                                 datasets: [{
@@ -1343,7 +1365,8 @@ const ChartRenderer = ({
                     {renderOutlierToggle()}
                     <div style={{ height: 192, width: '100%' }}>
                         <Line
-                            key={`line-${chart?.id || chart?.title || 'chart'}-${chart.type}`}
+                            key={`${chartInstanceKey}-line`}
+                            redraw={chartRedraw}
                             data={{
                                 labels: chartData.map((d: any) => d.timestamp || d.date || d[nameKey]),
                                 datasets: chart.type === 'stacked' 
@@ -1383,7 +1406,8 @@ const ChartRenderer = ({
                     {renderOutlierToggle()}
                     <div style={{ height: 192, width: '100%' }}>
                         <Scatter
-                            key={`scatter-${chart?.id || chart?.title || 'chart'}`}
+                            key={`${chartInstanceKey}-scatter`}
+                            redraw={chartRedraw}
                             data={{
                                 datasets: [{
                                     data: chartData.map((d: any) => ({ x: d.x, y: d.y })),
@@ -1402,7 +1426,8 @@ const ChartRenderer = ({
                     {renderOutlierToggle()}
                     <div style={{ height: 192, width: '100%' }}>
                         <Bubble
-                            key={`bubble-${chart?.id || chart?.title || 'chart'}`}
+                            key={`${chartInstanceKey}-bubble`}
+                            redraw={chartRedraw}
                             data={{
                                 datasets: [{
                                     label: valueAxisLabel,
@@ -1428,7 +1453,8 @@ const ChartRenderer = ({
                     {renderOutlierToggle()}
                     <div style={{ height: 210, width: '100%' }}>
                         <Radar
-                            key={`radar-${chart?.id || chart?.title || 'chart'}`}
+                            key={`${chartInstanceKey}-radar`}
+                            redraw={chartRedraw}
                             data={{
                                 labels: categoryLabels,
                                 datasets: [{
@@ -1481,7 +1507,8 @@ const ChartRenderer = ({
                     <div style={{ height: 210, width: '100%' }}>
                         <ReactChart
                             type="treemap"
-                            key={`treemap-${chart?.id || chart?.title || 'chart'}`}
+                            key={`${chartInstanceKey}-treemap`}
+                            redraw={chartRedraw}
                             data={{
                                 datasets: [{
                                     label: valueAxisLabel,
@@ -2230,6 +2257,7 @@ interface ChartItem {
 export default function UserDashboard() {
     const cacheRef = useRef<DashboardCacheBundle>(getDashboardCacheBundle());
     const [analytics, setAnalytics] = useState<DashboardAnalytics | null>(null);
+    const [versionId, setVersionId] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false); // Only for full data loads (Dataset/Domain/Classification)
     const [isKPILoading, setIsKPILoading] = useState(false); // Only for background KPI refreshes (Filters)
     const [error, setError] = useState<string | null>(null);
@@ -2258,6 +2286,8 @@ export default function UserDashboard() {
     const { theme } = useTheme();
     const isDark = theme === 'dark';
 
+    const { charts: streamedCharts, kpis: streamedKpis, done: streamDone, error: streamError } = useDashboardStream(versionId || '');
+
     // Dynamic Chart Colors
     const chartColors = {
         grid: isDark ? '#1F2937' : '#E5E7EB',
@@ -2279,6 +2309,12 @@ export default function UserDashboard() {
     const [dataQualityOpen, setDataQualityOpen] = useState(false);
     const [quickReactCharts, setQuickReactCharts] = useState(false);
     const quickReactResetRef = useRef<number | null>(null);
+
+    const [isRemapModalOpen, setIsRemapModalOpen] = useState(false);
+    const [isDiffModalOpen, setIsDiffModalOpen] = useState(false);
+    const [remapVersionId, setRemapVersionId] = useState<string | null>(null);
+    const [remapCurrentMappings, setRemapCurrentMappings] = useState<Record<string, string> | null>(null);
+    const [versionDiffData, setVersionDiffData] = useState<{ prev: any[], curr: any[] }>({ prev: [], curr: [] });
 
     const previousDatasetIdRef = useRef<string>('');
 
@@ -2346,6 +2382,62 @@ export default function UserDashboard() {
         }, 700);
     };
 
+    const handleOpenRemap = async () => {
+        try {
+            if (!selectedDatasetId) return;
+            setIsLoading(true);
+            
+            const latestVersion = await datasetService.getLatestVersion(selectedDatasetId);
+            const versionDetails = await datasetService.getVersion(latestVersion.id);
+            
+            const mappings = JSON.parse(versionDetails.semantic_map_json || '{}');
+            
+            setRemapVersionId(latestVersion.id);
+            setRemapCurrentMappings(mappings);
+            setIsRemapModalOpen(true);
+        } catch (err: any) {
+            toast.error(err?.response?.data?.detail || err?.message || 'Failed to load mappings for remap');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleOpenDiff = async () => {
+        try {
+            if (!selectedDatasetId) return;
+            setIsLoading(true);
+            
+            const versions = await datasetService.listVersionsForDataset(selectedDatasetId);
+            if (versions.length < 2) {
+                toast.error('At least two versions are required to show a diff.');
+                return;
+            }
+            
+            const current = versions[0];
+            const previous = versions[1];
+            
+            const currMap = JSON.parse(current.semantic_map_json || '[]');
+            const prevMap = JSON.parse(previous.semantic_map_json || '[]');
+            
+            // Normalize to array of {column_name, role}
+            const normalize = (map: any) => {
+                if (Array.isArray(map)) return map;
+                return Object.entries(map).map(([role, col]) => ({ column_name: col, role }));
+            };
+            
+            setVersionDiffData({
+                prev: normalize(prevMap),
+                curr: normalize(currMap)
+            });
+            setIsDiffModalOpen(true);
+        } catch (err: any) {
+            toast.error(err?.response?.data?.detail || err?.message || 'Failed to load version history');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+
     useEffect(() => {
         return () => {
             if (quickReactResetRef.current) {
@@ -2353,6 +2445,16 @@ export default function UserDashboard() {
             }
         };
     }, []);
+
+    useEffect(() => {
+        if (!selectedDatasetId) {
+            setVersionId(null);
+            return;
+        }
+        datasetService.getLatestVersion(selectedDatasetId)
+            .then(v => setVersionId(v.id))
+            .catch(() => setVersionId(null));
+    }, [selectedDatasetId]);
 
     useEffect(() => { loadDatasets(); }, []);
 
@@ -3262,15 +3364,29 @@ export default function UserDashboard() {
             <header className="bg-white dark:bg-[#15161a] h-16 sticky top-0 z-50 border-b border-[#eceeee] dark:border-[#272a31] px-6 flex items-center justify-between">
                 <div className="flex-1" />
                 <h1 className="text-[20px] leading-7 font-extrabold text-[#203044] dark:text-[#eceff4] tracking-tight">{getDashboardTitle(analytics?.domain)}</h1>
-                <div className="flex-1 flex justify-end items-center gap-2">
-                    <button className="w-8 h-8 rounded-full hover:bg-[#f3f4f4] dark:hover:bg-[#242730] flex items-center justify-center text-[#5a5c5c] dark:text-[#b9bec9]">
-                        <span className="material-symbols-outlined text-[18px]">notifications</span>
-                    </button>
-                    <SettingsDropdown />
-                    <div className="w-8 h-8 rounded-full border border-[#d8dada] bg-gradient-to-br from-[#e7e8e8] to-[#c8c9c9] flex items-center justify-center text-[11px] font-bold text-[#5a5c5c]">
-                        VX
-                    </div>
-                </div>
+                                 <div className="flex-1 flex justify-end items-center gap-2">
+                                     <button className="w-8 h-8 rounded-full hover:bg-[#f3f4f4] dark:hover:bg-[#242730] flex items-center justify-center text-[#5a5c5c] dark:text-[#b9bec9]">
+                                         <span className="material-symbols-outlined text-[18px]">notifications</span>
+                                     </button>
+                                     <button 
+                                         onClick={handleOpenDiff}
+                                         className="px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-widest bg-white dark:bg-[#1c1e24] border border-[#d8dada] dark:border-[#3a3f49] text-[#5a5c5c] dark:text-[#b9bec9] hover:bg-[#f8f9f9] dark:hover:bg-[#242730] transition-all"
+                                     >
+                                         History
+                                     </button>
+                                     <button 
+                                         onClick={handleOpenRemap}
+                                         className="px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-widest bg-white dark:bg-[#1c1e24] border border-[#d8dada] dark:border-[#3a3f49] text-[#5a5c5c] dark:text-[#b9bec9] hover:bg-[#f8f9f9] dark:hover:bg-[#242730] transition-all"
+                                     >
+                                         Remap
+                                     </button>
+                                     <SettingsDropdown />
+                                     <div className="w-8 h-8 rounded-full border border-[#d8dada] bg-gradient-to-br from-[#e7e8e8] to-[#c8c9c9] flex items-center justify-center text-[11px] font-bold text-[#5a5c5c]">
+                                         VX
+                                     </div>
+                                 </div>
+
+
             </header>
 
             <main className="w-full px-4 md:px-6 xl:px-10 2xl:px-14 py-8 md:py-10">
@@ -3279,19 +3395,20 @@ export default function UserDashboard() {
                         Select a dataset to start analytics.
                     </div>
                 )}
-
+                
                 {(isLoading || (!analytics && !!selectedDatasetId && !error)) && (
-                    <DashboardSkeleton isDark={isDark} />
+                    <HeaderSkeleton isDark={isDark} />
                 )}
-
+                
                 {!isLoading && error && (
                     <div className="bg-red-50 border border-red-200 rounded-2xl p-6">
                         <h3 className="font-semibold text-red-800">Error Loading Analytics</h3>
                         <p className="text-sm text-red-600 mt-1">{error}</p>
                     </div>
                 )}
-
+                
                 {!isLoading && !error && analytics && (
+
                     <div className="flex flex-col gap-8">
                         <section className="flex flex-col gap-6">
                             <div className="flex flex-wrap items-end justify-between gap-4">
@@ -3458,19 +3575,26 @@ export default function UserDashboard() {
 
                         <section>
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                                {kpiEntries.map(([key, kpi], idx) => (
-                                    <KPICard
-                                        key={key}
-                                        index={idx}
-                                        title={kpi.title}
-                                        value={isKPILoading ? '...' : formatValue(kpi.value, kpi.format)}
-                                        icon={kpi.icon || 'default'}
-                                        trend={kpi.trend}
-                                        trend_label={kpi.trend_label}
-                                        subtitle={Object.values(active_filters).some(f => f.length > 0) ? 'Filtered View' : kpi.subtitle}
-                                        cardColor={KPI_CARD_COLORS[idx % KPI_CARD_COLORS.length]}
-                                    />
-                                ))}
+                                 {kpiEntries.map(([key, kpi], idx) => {
+                                     const streamedKpi = streamedKpis[key];
+                                     const resolvedValue = streamedKpi?.data?.value ?? kpi.value;
+                                     const resolvedTrend = streamedKpi?.data?.trend ?? kpi.trend;
+                                     const resolvedTrendLabel = streamedKpi?.data?.trend_label ?? kpi.trend_label;
+                                     return (
+                                         <KPICard
+                                             key={key}
+                                             index={idx}
+                                             title={kpi.title}
+                                             value={isKPILoading && !streamedKpi ? '...' : formatValue(resolvedValue, kpi.format)}
+                                             icon={kpi.icon || 'default'}
+                                             trend={resolvedTrend}
+                                             trend_label={resolvedTrendLabel}
+                                             subtitle={Object.values(active_filters).some(f => f.length > 0) ? 'Filtered View' : kpi.subtitle}
+                                             cardColor={KPI_CARD_COLORS[idx % KPI_CARD_COLORS.length]}
+                                         />
+                                     );
+                                 })}
+
                             </div>
                         </section>
 
@@ -3498,26 +3622,32 @@ export default function UserDashboard() {
                                             </div>
 
                                             {/* Section Charts Grid */}
-                                            <div className="grid grid-cols-[repeat(auto-fit,minmax(340px,1fr))] gap-6">
-                                                {charts.map((chart) => (
-                                                    <ChartCard
-                                                        key={chart.id}
-                                                        title={chart.title || `Insight ${chart.id}`}
-                                                        actions={renderChartActions(chart)}
-                                                    >
-                                                        <div data-chart-id={chart.id} className="relative">
-                                                            <ChartRenderer
-                                                                chart={{ ...chart, type: chart_overrides[chart.id]?.type || chart.type }}
-                                                                chartColors={chartColors}
-                                                                isDark={isDark}
-                                                                onFilterClick={handleChartFilterClick}
-                                                                targetColumn={analytics?.target_column}
-                                                                quickReact={quickReactCharts}
-                                                            />
-                                                        </div>
-                                                    </ChartCard>
-                                                ))}
-                                            </div>
+                                             <div className="grid grid-cols-[repeat(auto-fit,minmax(340px,1fr))] gap-6">
+                                                 {charts.map((chart) => {
+                                                     const streamedChart = streamedCharts[chart.id];
+                                                     const resolvedData = streamedChart?.data ?? chart.data;
+                                                     if (!resolvedData && !isLoading) return <ChartSkeleton key={chart.id} isDark={isDark} />;
+                                                     return (
+                                                         <ChartCard
+                                                             key={chart.id}
+                                                             title={chart.title || `Insight ${chart.id}`}
+                                                             actions={renderChartActions(chart)}
+                                                         >
+                                                             <div data-chart-id={chart.id} className="relative">
+                                                                 <ChartRenderer
+                                                                     chart={{ ...chart, data: resolvedData, type: chart_overrides[chart.id]?.type || chart.type }}
+                                                                     chartColors={chartColors}
+                                                                     isDark={isDark}
+                                                                     onFilterClick={handleChartFilterClick}
+                                                                     targetColumn={analytics?.target_column}
+                                                                     quickReact={quickReactCharts}
+                                                                 />
+                                                             </div>
+                                                         </ChartCard>
+                                                     );
+                                                 })}
+                                             </div>
+
                                         </div>
                                     ))}
                                 </div>
@@ -3526,6 +3656,26 @@ export default function UserDashboard() {
                     </div>
                 )}
             </main>
+
+                    {isRemapModalOpen && (
+                        <RemapModal
+                            datasetId={selectedDatasetId || ''}
+                            versionId={remapVersionId || ''}
+                            currentMappings={remapCurrentMappings || {}}
+                            onConfirm={handleConfirmRemap}
+                            onCancel={() => setIsRemapModalOpen(false)}
+                        />
+                    )}
+                    {isDiffModalOpen && (
+                        <VersionDiffModal
+                            isOpen={isDiffModalOpen}
+                            onClose={() => setIsDiffModalOpen(false)}
+                            previousMap={versionDiffData.prev}
+                            currentMap={versionDiffData.curr}
+                        />
+                    )}
+
         </div>
     );
 }
+

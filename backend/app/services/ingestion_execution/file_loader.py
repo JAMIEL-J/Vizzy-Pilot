@@ -15,6 +15,9 @@ from app.core.exceptions import InvalidOperation
 
 ALLOWED_EXTENSIONS = {"csv", "xlsx", "xls", "json", "xml", "parquet"}
 
+# Try common encodings in order of likelihood
+_CSV_ENCODINGS = ["utf-8", "utf-8-sig", "latin-1", "cp1252", "iso-8859-1"]
+
 
 def validate_file(*, filename: str, file_size: int) -> str:
     """
@@ -54,41 +57,45 @@ def _validate_file_size(file_size: int) -> None:
         )
 
 
-def _load_csv(source: Union[Path, BinaryIO]) -> pd.DataFrame:
-    """Load CSV into DataFrame with robust error handling.
-    
-    Attempts multiple encodings to handle various CSV formats.
-    """
-    # Try common encodings in order of likelihood
-    encodings = ['utf-8', 'utf-8-sig', 'latin-1', 'cp1252', 'iso-8859-1']
+def _read_csv_with_encodings(source: Union[Path, BinaryIO], **kwargs: Any) -> pd.DataFrame:
+    """Read CSV with multiple encoding attempts."""
     last_error = None
-    
-    for encoding in encodings:
+
+    for encoding in _CSV_ENCODINGS:
         try:
-            # Reset stream position if it's a file-like object
-            if hasattr(source, 'seek'):
+            if hasattr(source, "seek"):
                 source.seek(0)
-            
+
             return pd.read_csv(
                 source,
                 encoding=encoding,
-                on_bad_lines='warn',  # Skip malformed lines instead of failing
-                low_memory=False,  # Better type inference for large files
+                on_bad_lines="warn",
+                low_memory=False,
+                **kwargs,
             )
         except UnicodeDecodeError:
             last_error = f"Encoding {encoding} failed"
             continue
         except Exception as e:
             last_error = str(e)
-            # If it's not an encoding error, break and report
-            if 'codec' not in str(e).lower() and 'decode' not in str(e).lower():
+            if "codec" not in str(e).lower() and "decode" not in str(e).lower():
                 break
-    
+
     raise InvalidOperation(
         operation="load_csv",
         reason="Failed to parse CSV file",
-        details=f"Tried encodings: {encodings}. Last error: {last_error}",
+        details=f"Tried encodings: {_CSV_ENCODINGS}. Last error: {last_error}",
     )
+
+
+def _load_csv(source: Union[Path, BinaryIO]) -> pd.DataFrame:
+    """Load CSV into DataFrame with robust error handling."""
+    return _read_csv_with_encodings(source)
+
+
+def load_csv_sample(source: Union[Path, BinaryIO], nrows: int = 5) -> pd.DataFrame:
+    """Load only a small CSV sample for schema inference."""
+    return _read_csv_with_encodings(source, nrows=nrows)
 
 
 

@@ -58,13 +58,19 @@ def create_dataset(
     current_user: RateLimitedUser,
 ) -> DatasetResponse:
     try:
+        owner_uuid = UUID(current_user.user_id)
         dataset = dataset_service.create_dataset(
             session=session,
             name=request.name,
-            owner_id=UUID(current_user.user_id),
+            owner_id=owner_uuid,
             description=request.description,
         )
         return DatasetResponse.model_validate(dataset)
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication context: user id is not a valid UUID",
+        )
     except InvalidOperation as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

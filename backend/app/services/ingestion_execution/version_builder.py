@@ -16,6 +16,8 @@ def build_dataset_version(
     schema_hash: str,
     created_by: UUID,
     row_count: Optional[int] = None,
+    status: str = "ready",
+    schema_metadata: Optional[str] = None,
 ) -> DatasetVersion:
     """
     Create a new immutable DatasetVersion from ingested metadata.
@@ -42,4 +44,6 @@ def build_dataset_version(
         schema_hash=schema_hash,
         created_by=created_by,
         row_count=row_count,
+        status=status,
+        schema_metadata=schema_metadata,
     )

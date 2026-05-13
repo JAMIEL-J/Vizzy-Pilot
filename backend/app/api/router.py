@@ -17,6 +17,7 @@ from app.api import (
     chat_routes,
     download_routes,
     dashboard_routes,
+    dashboard_load_routes,
     analytics_routes,
 )
 
@@ -111,6 +112,12 @@ api_router.include_router(
 api_router.include_router(
     dashboard_routes.router,
     tags=["Saved Dashboards"],
+)
+
+api_router.include_router(
+    dashboard_load_routes.router,
+    prefix="/dashboard",
+    tags=["Dashboard Load"],
 )
 
 api_router.include_router(

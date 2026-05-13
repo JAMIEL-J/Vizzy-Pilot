@@ -31,6 +31,8 @@ class LLMProvider(str, Enum):
     GROQ_CHAT_INSIGHT = "groq_chat_insight"
     GROQ_NARRATIVE = "groq_narrative"
     GROQ_CHAT = "groq_chat"
+    GEMINI_NARRATIVE = "gemini_narrative"
+    GEMINI_CHAT = "gemini_chat"
 
 
 @dataclass
@@ -77,7 +79,7 @@ class LLMClient:
                 await self._http_client.aclose()
             
             self._http_client = httpx.AsyncClient(
-                timeout=self.settings.timeout_seconds
+                timeout=120.0  # Hardcoded longer timeout for large LLM generations
             )
             self._loop = loop
             
@@ -159,6 +161,7 @@ class LLMClient:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         purpose: str = "narrative",
+        response_format: Optional[Dict[str, Any]] = None,
     ) -> LLMResponse:
         """
         Send completion request using Groq with internal fallback based on purpose.
@@ -171,9 +174,18 @@ class LLMClient:
         temp = temperature if temperature is not None else self.settings.temperature
         tokens = max_tokens if max_tokens is not None else self.settings.max_tokens
 
-        # Keep SQL/chat responses compact; JSON SQL plans do not need very large output budgets.
-        if purpose in {"sql", "chat"}:
-            tokens = min(tokens, int(self.settings.max_tokens_sql))
+        # Determine output token budget
+        if purpose == "semantic_mapping":
+            # Semantic mapping requires a large JSON object.
+            # Gemini supports 50K, but Groq is capped at 32K.
+            if self.settings.primary_provider == "groq":
+                tokens = 4096 # Sufficient for mapping a few dozen columns
+            else:
+                tokens = 50000
+        elif self.settings.primary_provider == "gemini":
+
+            # Default to 50k for other Gemini tasks if requested, but semantic_mapping is the priority
+            tokens = 50000
 
         effective_system_prompt = system_prompt
         effective_user_prompt = user_prompt
@@ -186,24 +198,42 @@ class LLMClient:
             self._estimate_tokens(effective_system_prompt + effective_user_prompt),
         )
 
-        if purpose in ["sql", "chat"]:
-            # SQL/Chat Priority: groq_chat route first -> dashboard Llama fallback.
+        if purpose == "semantic_mapping":
+            # Use the Groq Dashboard Narrator provider for semantic mapping as requested
             providers = [
+                (LLMProvider.GROQ_DASHBOARD_NARRATIVE, self._call_groq_dashboard_narrative),
                 (LLMProvider.GROQ_CHAT, self._call_groq_chat),
-                (LLMProvider.GROQ_DASHBOARD_NARRATIVE, self._call_groq_dashboard_narrative),
             ]
-        elif purpose == "chat_insight":
-            # Chat insight priority: dedicated chat-insight Llama -> dashboard Llama (Fallback)
-            providers = [
-                (LLMProvider.GROQ_CHAT_INSIGHT, self._call_groq_chat_insight),
-                (LLMProvider.GROQ_DASHBOARD_NARRATIVE, self._call_groq_dashboard_narrative),
-            ]
+        elif self.settings.primary_provider == "gemini":
+            if purpose in ["sql", "chat"]:
+                providers = [
+                    (LLMProvider.GEMINI_CHAT, self._call_gemini_chat),
+                    (LLMProvider.GEMINI_NARRATIVE, self._call_gemini_narrative),
+                ]
+            else:
+                providers = [
+                    (LLMProvider.GEMINI_NARRATIVE, self._call_gemini_narrative),
+                    (LLMProvider.GEMINI_CHAT, self._call_gemini_chat),
+                ]
         else:
-            # Dashboard narrative priority: dashboard Llama -> chat-insight Llama (Fallback)
-            providers = [
-                (LLMProvider.GROQ_DASHBOARD_NARRATIVE, self._call_groq_dashboard_narrative),
-                (LLMProvider.GROQ_CHAT_INSIGHT, self._call_groq_chat_insight),
-            ]
+            if purpose in ["sql", "chat"]:
+                # SQL/Chat Priority: groq_chat route first -> dashboard Llama fallback.
+                providers = [
+                    (LLMProvider.GROQ_CHAT, self._call_groq_chat),
+                    (LLMProvider.GROQ_DASHBOARD_NARRATIVE, self._call_groq_dashboard_narrative),
+                ]
+            elif purpose == "chat_insight":
+                # Chat insight priority: dedicated chat-insight Llama -> dashboard Llama (Fallback)
+                providers = [
+                    (LLMProvider.GROQ_CHAT_INSIGHT, self._call_groq_chat_insight),
+                    (LLMProvider.GROQ_DASHBOARD_NARRATIVE, self._call_groq_dashboard_narrative),
+                ]
+            else:
+                # Dashboard narrative priority: dashboard Llama -> chat-insight Llama (Fallback)
+                providers = [
+                    (LLMProvider.GROQ_DASHBOARD_NARRATIVE, self._call_groq_dashboard_narrative),
+                    (LLMProvider.GROQ_CHAT_INSIGHT, self._call_groq_chat_insight),
+                ]
 
         last_error: Optional[Exception] = None
 
@@ -215,6 +245,7 @@ class LLMClient:
                     user_prompt=effective_user_prompt,
                     temperature=temp,
                     max_tokens=tokens,
+                    response_format=response_format,
                 )
                 logger.info(f"LLM call successful with {provider.value}")
                 return response
@@ -245,6 +276,7 @@ class LLMClient:
                             user_prompt=compressed_user,
                             temperature=temp,
                             max_tokens=tokens,
+                            response_format=response_format,
                         )
                         logger.info(f"LLM call successful after payload compression with {provider.value}")
                         return response
@@ -293,6 +325,7 @@ class LLMClient:
         temperature: float,
         max_tokens: int,
         provider: LLMProvider,
+        response_format: Optional[Dict[str, Any]] = None,
     ) -> LLMResponse:
         """Internal helper for Groq API calls."""
         if not api_key_str:
@@ -301,18 +334,23 @@ class LLMClient:
         url = "https://api.groq.com/openai/v1/chat/completions"
         client = await self._get_client()
         
+        json_payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        
+        if response_format:
+            json_payload["response_format"] = response_format
+            
         response = await client.post(
             url,
             headers={"Authorization": f"Bearer {api_key_str}"},
-            json={
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-            },
+            json=json_payload,
         )
         response.raise_for_status()
         data = response.json()
@@ -369,6 +407,78 @@ class LLMClient:
 
 
 
+
+    async def _call_gemini_internal(
+        self,
+        api_key_str: str,
+        model: str,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float,
+        max_tokens: int,
+        provider: LLMProvider,
+        response_format: Optional[Dict[str, Any]] = None,
+    ) -> LLMResponse:
+        """Internal helper for Gemini REST API calls."""
+        if not api_key_str:
+            raise ValueError(f"API key missing for {provider.value}")
+
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key_str}"
+        client = await self._get_client()
+
+        payload = {
+            "system_instruction": {
+                "parts": [{"text": system_prompt}]
+            },
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [{"text": user_prompt}]
+                }
+            ],
+            "generationConfig": {
+                "temperature": temperature,
+                "maxOutputTokens": max_tokens,
+            }
+        }
+        
+        if response_format and response_format.get("type") == "json_object":
+            payload["generationConfig"]["responseMimeType"] = "application/json"
+
+        response = await client.post(url, json=payload)
+        response.raise_for_status()
+        data = response.json()
+        
+        try:
+            content = data["candidates"][0]["content"]["parts"][0]["text"]
+        except (KeyError, IndexError):
+            content = "{}"
+
+        return LLMResponse(
+            content=content,
+            provider=provider,
+            model=model,
+        )
+
+    async def _call_gemini_narrative(self, **kwargs) -> LLMResponse:
+        """Call Gemini for narrative tasks."""
+        api_key = self.settings.gemini_api_key.get_secret_value()
+        return await self._call_gemini_internal(
+            api_key_str=api_key,
+            model=self.settings.gemini_model,
+            provider=LLMProvider.GEMINI_NARRATIVE,
+            **kwargs,
+        )
+
+    async def _call_gemini_chat(self, **kwargs) -> LLMResponse:
+        """Call Gemini for chat/sql tasks."""
+        api_key = self.settings.gemini_api_key.get_secret_value()
+        return await self._call_gemini_internal(
+            api_key_str=api_key,
+            model=self.settings.gemini_chat_model or self.settings.gemini_model,
+            provider=LLMProvider.GEMINI_CHAT,
+            **kwargs,
+        )
 
 
 def parse_json_response(content: str) -> Dict[str, Any]:

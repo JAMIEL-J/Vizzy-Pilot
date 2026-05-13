@@ -71,3 +71,6 @@ class InvalidOperation(VizzyException):
 
 class RateLimitExceeded(VizzyException):
     """Raised when API rate limit is exceeded."""
+
+class ValidationError(VizzyException):
+    """Raised when input validation fails."""
