@@ -14,10 +14,12 @@ export interface Dataset {
 export interface DuckDBStatus {
     dataset_id: string;
     version_id: string;
-    status: 'building' | 'ready' | 'failed' | string;
-    ready: boolean;
+    status: 'building' | 'ready' | 'failed' | 'converting' | 'error' | string;
+    ready?: boolean;
     error?: string | null;
     duckdb_path?: string | null;
+    schema?: Array<{ name: string; dtype: string; nullable: boolean }> | null;
+    row_count?: number | null;
 }
 
 export interface DatasetVersionSummary {
@@ -32,73 +34,107 @@ export interface DatasetVersionSummary {
     is_active: boolean;
 }
 
+export interface MappingProposalItem {
+    column_name: string;
+    role: string;
+    evidence: string;
+    confidence: number;
+}
+
+export interface MappingProposalResponse {
+    version_id: string;
+    proposal: {
+        metadata: {
+            proposals: MappingProposalItem[];
+        };
+    };
+}
+
 export const datasetService = {
-    // List datasets
     listDatasets: async () => {
         const response = await apiClient.get<{ datasets: Dataset[] }>('/datasets');
         return response.data.datasets;
     },
 
-    // Create dataset (metadata only)
     createDataset: async (name: string, description?: string) => {
-        const response = await apiClient.post<Dataset>('/datasets', {
-            name,
-            description
-        });
+        const response = await apiClient.post<Dataset>('/datasets', { name, description });
         return response.data;
     },
 
-    // Get single dataset
     getDataset: async (datasetId: string) => {
         const response = await apiClient.get<Dataset>(`/datasets/${datasetId}`);
         return response.data;
     },
 
-    // Get DuckDB build status for latest dataset version
     getDuckdbStatus: async (datasetId: string) => {
-        const response = await apiClient.get<DuckDBStatus>(`/datasets/${datasetId}/duckdb-status`);
+        const response = await apiClient.get<DuckDBStatus>(`/datasets/${datasetId}/status`);
         return response.data;
     },
 
-    // Get latest dataset version metadata (contains row_count when available)
     getLatestVersion: async (datasetId: string) => {
         const response = await apiClient.get<DatasetVersionSummary>(`/datasets/${datasetId}/versions/latest`);
         return response.data;
     },
 
-    // Delete dataset
+    getVersion: async (versionId: string) => {
+        const response = await apiClient.get<any>(`/datasets/versions/${versionId}`);
+        return response.data;
+    },
+
     deleteDataset: async (datasetId: string) => {
         await apiClient.delete(`/datasets/${datasetId}`);
     },
 
-    // Download raw dataset
     downloadRaw: async (datasetId: string) => {
-        const response = await apiClient.get(`/datasets/${datasetId}/download/raw`, {
-            responseType: 'blob'
-        });
+        const response = await apiClient.get(`/datasets/${datasetId}/download/raw`, { responseType: 'blob' });
         return response.data;
     },
 
-    // Download cleaned dataset
     downloadCleaned: async (datasetId: string) => {
-        const response = await apiClient.get(`/datasets/${datasetId}/download/cleaned`, {
-            responseType: 'blob'
-        });
+        const response = await apiClient.get(`/datasets/${datasetId}/download/cleaned`, { responseType: 'blob' });
         return response.data;
     }
 };
 
 export const uploadService = {
-    // Upload file to dataset
     uploadFile: async (datasetId: string, file: File) => {
         const formData = new FormData();
         formData.append('file', file);
-
         const response = await apiClient.post(`/datasets/${datasetId}/upload`, formData, {
-            headers: {
-                'Content-Type': 'multipart/form-data',
-            },
+            headers: { 'Content-Type': 'multipart/form-data' },
         });
         return response.data;
     }
+};
+
+export const semanticMappingService = {
+    proposeMapping: async (datasetId: string, versionId: string) => {
+        const response = await apiClient.post<MappingProposalResponse>(
+            `/datasets/${datasetId}/versions/${versionId}/propose-mapping`
+        );
+        return response.data;
+    },
+
+    previewRemap: async (datasetId: string, versionId: string, proposedMap: Record<string, string>) => {
+        const response = await apiClient.post<any>(`/datasets/${datasetId}/versions/${versionId}/remap/preview`, {
+            mappings: proposedMap
+        });
+        return response.data;
+    },
+
+    confirmMapping: async (datasetId: string, versionId: string, mappings: Record<string, string>) => {
+        const response = await apiClient.post<DatasetVersionSummary>(
+            `/datasets/${datasetId}/versions/${versionId}/confirm-mapping`,
+            { mappings }
+        );
+        return response.data;
+    },
+
+    remapMapping: async (datasetId: string, versionId: string, mappings: Record<string, string>) => {
+        const response = await apiClient.post<DatasetVersionSummary>(
+            `/datasets/${datasetId}/versions/${versionId}/remap/confirm`,
+            { mappings }
+        );
+        return response.data;
+    },
 };

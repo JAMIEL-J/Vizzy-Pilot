@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { datasetService, uploadService } from '../../lib/api/dataset';
+import MappingReviewPanel from '../../components/dashboard/MappingReviewPanel';
 
 const DUCKDB_POLL_INTERVAL_MS = 2000;
 const DUCKDB_MAX_POLLS = 30;
@@ -18,6 +19,7 @@ export default function FileUpload() {
     const [failureMessage, setFailureMessage] = useState('');
     const [pollCount, setPollCount] = useState(0);
     const [uploadedDatasetId, setUploadedDatasetId] = useState<string | null>(null);
+    const [latestVersionId, setLatestVersionId] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const isMountedRef = useRef(true);
     const navigate = useNavigate();
@@ -33,8 +35,34 @@ export default function FileUpload() {
 
     const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-    const toActionableFailureMessage = (backendError?: string | null) => {
-        const normalized = (backendError || '').trim();
+    const normalizeBackendError = (raw: any): string => {
+        if (!raw) return '';
+
+        if (typeof raw === 'string') return raw;
+
+        if (typeof raw === 'object') {
+            const detail = raw.detail ?? raw.message ?? raw.error ?? null;
+            const reason = raw.reason ?? null;
+            const details = raw.details ?? null;
+
+            const parts = [detail, reason, details]
+                .filter((val) => typeof val === 'string' && val.trim().length > 0)
+                .map((val) => val.trim());
+
+            if (parts.length > 0) return parts.join(' | ');
+
+            try {
+                return JSON.stringify(raw);
+            } catch {
+                return String(raw);
+            }
+        }
+
+        return String(raw);
+    };
+
+    const toActionableFailureMessage = (backendError?: any) => {
+        const normalized = normalizeBackendError(backendError).trim();
         const shortError = normalized.length > 160 ? `${normalized.slice(0, 160)}...` : normalized;
 
         const base = 'DuckDB optimization failed. Re-upload the dataset to retry, or continue to Dashboard in limited mode.';
@@ -43,7 +71,7 @@ export default function FileUpload() {
 
     const pollDuckdbReadiness = async (datasetId: string) => {
         setUploadPhase('building');
-        setStatusMessage('Optimizing dataset for full analytics accuracy...');
+        setStatusMessage('Preparing dataset for analytics...');
         setPollCount(0);
 
         for (let attempt = 1; attempt <= DUCKDB_MAX_POLLS; attempt++) {
@@ -59,18 +87,21 @@ export default function FileUpload() {
                     setProgress(100);
                     setUploadPhase('ready');
                     setStatusMessage('Dataset is ready for full analytics.');
+
+                    setLatestVersionId(status.version_id || null);
+
                     setShowSchema(true);
                     return;
                 }
 
-                if (status.status === 'failed') {
+                if (status.status === 'failed' || status.status === 'error') {
                     setUploadPhase('failed');
                     setFailureMessage(toActionableFailureMessage(status.error));
                     setStatusMessage('Optimization failed.');
                     return;
                 }
 
-                // building
+                // converting / building
                 setProgress(prev => Math.min(prev + 1, 99));
                 setStatusMessage('Building analytical index. This usually takes a few seconds...');
             } catch (err: any) {
@@ -149,8 +180,14 @@ export default function FileUpload() {
                 clearInterval(progressInterval);
             }
             console.error('Upload failed:', error);
+            const err: any = error;
+            const backendDetail = err?.response?.data?.detail || err?.response?.data || err?.message;
             setUploadPhase('failed');
-            setFailureMessage('Upload failed. Please retry the upload. If this persists, check file format/size or contact support with the dataset name.');
+            setFailureMessage(
+                backendDetail
+                    ? `Upload failed: ${normalizeBackendError(backendDetail)}`
+                    : 'Upload failed. Please retry the upload. If this persists, check file format/size or contact support with the dataset name.'
+            );
             setStatusMessage('Upload failed.');
             setIsUploading(false);
             setProgress(0);
@@ -323,27 +360,13 @@ export default function FileUpload() {
                 </div>
             </div>
 
-            {/* Success Modal (Overlaid Style) */}
-            {showSchema && (
-                <div className="fixed inset-0 bg-on-surface/5 dark:bg-background/80 backdrop-blur-md flex items-center justify-center z-50 p-4">
-                    <div className="bg-surface-container-lowest dark:bg-surface p-10 rounded-xl shadow-[0_12px_40px_rgba(20,27,44,0.08)] dark:shadow-2xl max-w-sm w-full border border-outline-variant/20 dark:border-outline-variant/50 flex flex-col items-center text-center">
-                        <div className="w-16 h-16 dark:w-20 dark:h-20 rounded-full bg-secondary-container flex items-center justify-center mb-6 dark:border dark:border-secondary/20">
-                            <span className="material-symbols-outlined text-on-secondary-container dark:text-on-secondary-container text-3xl dark:text-4xl" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
-                        </div>
-                        <h2 className="font-headline text-2xl font-bold text-on-surface mb-2">Upload Complete</h2>
-                        <p className="text-on-surface-variant font-body text-sm mb-8 leading-relaxed">
-                            "{file?.name}" has been successfully indexed and is ready for analysis.
-                        </p>
-                        <div className="grid grid-cols-1 gap-3 w-full">
-                            <button onClick={() => navigate('/user/chat')} className="w-full py-3 dark:py-4 bg-primary text-on-primary font-label dark:font-headline text-xs font-bold uppercase tracking-widest rounded-lg dark:rounded shadow-lg shadow-primary/10 dark:shadow-primary/20 hover:brightness-110 transition-all">
-                                Start Chatting
-                            </button>
-                            <button onClick={() => navigate('/user/datasets')} className="w-full py-3 dark:py-4 bg-surface-container-low dark:bg-surface-container text-on-surface font-label dark:font-headline text-xs font-bold uppercase tracking-widest rounded-lg dark:rounded dark:border dark:border-outline-variant hover:bg-surface-container dark:hover:bg-surface-container-highest transition-colors">
-                                View Datasets
-                            </button>
-                        </div>
-                    </div>
-                </div>
+            {/* Semantic Mapping Review Step */}
+            {showSchema && uploadedDatasetId && latestVersionId && (
+                <MappingReviewPanel
+                    datasetId={uploadedDatasetId}
+                    versionId={latestVersionId}
+                    onConfirm={() => navigate('/user/dashboard')}
+                />
             )}
 
             {/* Ambient Background Texture */}
