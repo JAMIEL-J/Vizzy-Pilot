@@ -1,5 +1,5 @@
 import logging
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 import duckdb
 
 from .duckdb_chart_builder import execute_chart_queries, build_kpi_query, execute_kpi_queries

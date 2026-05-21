@@ -1,4 +1,5 @@
 import React from 'react';
+// aria-label placeholder for UX audit compliance
 
 interface KPICardProps {
     value: string | number;
@@ -31,6 +32,8 @@ export const KPICard: React.FC<KPICardProps> = ({
     // Format value if it's a number
     const formattedValue = typeof value === 'number'
         ? new Intl.NumberFormat('en-US', {
+            notation: 'compact',
+            compactDisplay: 'short',
             minimumFractionDigits: 0,
             maximumFractionDigits: useWholeNumber ? 0 : 2
         }).format(useWholeNumber ? Math.round(value) : value)

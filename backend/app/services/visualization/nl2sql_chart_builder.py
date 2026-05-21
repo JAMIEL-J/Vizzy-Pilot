@@ -77,15 +77,31 @@ def _is_whole_number_metric(*candidates: Optional[str]) -> bool:
 
 
 def _infer_value_label(value_col: Optional[str], title: Optional[str], y_axis: Optional[str]) -> str:
-    merged = f"{value_col or ''} {title or ''} {y_axis or ''}".lower()
-    if "age" in merged:
+    # 1. Use y_axis if explicitly specified and not a generic time aggregation/trend word
+    if y_axis:
+        y_axis_lower = str(y_axis).lower()
+        if not any(t in y_axis_lower for t in ["monthly", "yearly", "weekly", "daily", "trend"]):
+            if "age" in y_axis_lower:
+                return "Age"
+            if "tenure" in y_axis_lower:
+                return "Months"
+            if "year" in y_axis_lower:
+                return "Years"
+            if "day" in y_axis_lower or "los" in y_axis_lower or "length of stay" in y_axis_lower:
+                return "Days"
+            return _humanize_label(y_axis)
+
+    # 2. Otherwise use the column name/alias from the query (value_col)
+    v_col_lower = str(value_col or "").lower()
+    if "age" in v_col_lower:
         return "Age"
-    if "tenure" in merged or "month" in merged:
+    if "tenure" in v_col_lower:
         return "Months"
-    if "year" in merged:
+    if "year" in v_col_lower:
         return "Years"
-    if "day" in merged or "los" in merged or "length of stay" in merged:
+    if "day" in v_col_lower or "los" in v_col_lower or "length of stay" in v_col_lower:
         return "Days"
+
     return _humanize_label(value_col or "Value")
 
 
@@ -487,54 +503,151 @@ def _build_table(data: list, columns: list, title: str, x_axis: str, y_axis: str
 # ─── Column Detection Helpers ────────────────────────────────────────────────
 
 
+def _score_time_col(col: str, data: list) -> float:
+    score = 0.0
+    col_lower = col.lower()
+    
+    # Exact keyword match gets very high score
+    exact_time_keywords = {"date", "time", "month", "year", "week", "quarter", "day", "period", "dt", "timestamp", "epoch"}
+    if col_lower in exact_time_keywords:
+        score += 10.0
+        
+    # Check word boundaries or common prefixes/suffixes for time
+    parts = col_lower.split('_')
+    for part in parts:
+        if part in exact_time_keywords:
+            score += 5.0
+            
+    # Substring match (fallback, lower score)
+    time_substring_keywords = ["date", "time", "month", "year", "week", "quarter", "day", "period"]
+    if any(kw in col_lower for kw in time_substring_keywords):
+        score += 2.0
+        
+    # Check data values
+    date_like_values = 0
+    total_non_null = 0
+    for row in data[:50]:  # inspect first 50 rows
+        if not isinstance(row, dict):
+            continue
+        v = row.get(col)
+        if v is None:
+            continue
+        total_non_null += 1
+        v_str = str(v).strip()
+        # YYYY-MM-DD or YYYY/MM/DD
+        if re.match(r'^\d{4}[-/]\d{2}[-/]\d{2}$', v_str):
+            date_like_values += 1
+        # YYYY-MM or YYYY/MM
+        elif re.match(r'^\d{4}[-/]\d{2}$', v_str):
+            date_like_values += 1
+        # MM/DD/YYYY
+        elif re.match(r'^\d{1,2}[-/]\d{1,2}[-/]\d{4}$', v_str):
+            date_like_values += 1
+            
+    if total_non_null > 0:
+        ratio = date_like_values / total_non_null
+        if ratio > 0.8:
+            score += 15.0
+            
+    # Penalize if it contains metric-like keywords
+    metric_keywords = ["revenue", "sales", "count", "amount", "total", "price", "profit", "qty", "quantity", "cost", "sum", "avg", "min", "max", "value"]
+    if any(kw in col_lower for kw in metric_keywords):
+        score -= 10.0
+        
+    # Penalize if the data values are floats
+    float_values = 0
+    for row in data[:50]:
+        if not isinstance(row, dict):
+            continue
+        v = row.get(col)
+        if v is None:
+            continue
+        if isinstance(v, float):
+            float_values += 1
+        elif isinstance(v, (int, str)):
+            try:
+                if '.' in str(v):
+                    float(v)
+                    float_values += 1
+            except ValueError:
+                pass
+    if total_non_null > 0:
+        float_ratio = float_values / total_non_null
+        if float_ratio > 0.8:
+            score -= 10.0
+            
+    return score
+
+
+def _score_value_col(col: str, data: list) -> float:
+    score = 0.0
+    col_lower = col.lower()
+    
+    # Check data values (very strong indicator)
+    numeric_values = 0
+    total_non_null = 0
+    for row in data[:50]:
+        if not isinstance(row, dict):
+            continue
+        v = row.get(col)
+        if v is None:
+            continue
+        total_non_null += 1
+        if isinstance(v, (int, float)):
+            numeric_values += 1
+        else:
+            try:
+                float(v)
+                numeric_values += 1
+            except ValueError:
+                pass
+                
+    if total_non_null > 0:
+        ratio = numeric_values / total_non_null
+        if ratio > 0.8:
+            score += 10.0
+            
+    # Metric keywords match
+    metric_keywords = ["revenue", "sales", "count", "amount", "total", "price", "profit", "qty", "quantity", "cost", "sum", "avg", "min", "max", "value"]
+    if any(kw in col_lower for kw in metric_keywords):
+        score += 8.0
+        
+    # Penalize time keywords
+    time_keywords = ["date", "time", "month", "year", "week", "quarter", "day", "period", "dt", "timestamp"]
+    if any(kw in col_lower for kw in time_keywords):
+        score -= 8.0
+        
+    return score
+
+
 def _detect_category_value_cols(columns: list, data: list) -> tuple:
     """Detect which column is the category and which is the value."""
     if len(columns) < 2:
         return (columns[0] if columns else "category", "value")
 
-    row = data[0] if data else {}
+    value_scores = {col: _score_value_col(col, data) for col in columns}
+    sorted_for_val = sorted(columns, key=lambda c: value_scores[c], reverse=True)
+    value_col = sorted_for_val[0]
     
-    numeric_cols = []
-    for col in columns:
-        val = row.get(col)
-        if isinstance(val, (int, float)):
-            numeric_cols.append(col)
-            
-    if numeric_cols:
-        # Prefer numeric columns that are NOT time/date as value_col
-        time_keywords = ["year", "month", "day", "date", "quarter", "week", "id"]
-        for col in numeric_cols:
-            if not any(kw in col.lower() for kw in time_keywords):
-                value_col = col
-                category_col = [c for c in columns if c != col][0]
-                return (category_col, value_col)
-                
-        # Fallback if all numeric cols are time-like (or no time-like check matched)
-        value_col = numeric_cols[-1] # Pick the last numeric column as metric (most SQL queries put metric last)
-        category_col = [c for c in columns if c != value_col][0]
-        return (category_col, value_col)
-
-    # Fallback: first = category, second = value
-    return (columns[0], columns[1])
+    remaining_cols = [c for c in columns if c != value_col]
+    category_col = sorted(remaining_cols, key=lambda c: value_scores[c])[0]
+    
+    return (category_col, value_col)
 
 
 def _detect_time_value_cols(columns: list, data: list) -> tuple:
     """Detect which column is time-based and which is the value."""
-    time_keywords = ["date", "time", "month", "year", "week", "quarter", "day", "period"]
+    if len(columns) < 2:
+        return (columns[0] if columns else "time", "value")
 
-    time_col = None
-    for col in columns:
-        if any(kw in col.lower() for kw in time_keywords):
-            time_col = col
-            break
-
-    if time_col:
-        value_col = [c for c in columns if c != time_col][0] if len(columns) > 1 else columns[0]
-    else:
-        # fallback: first col = x, second = y
-        time_col = columns[0] if columns else "x"
-        value_col = columns[1] if len(columns) > 1 else columns[0]
-
+    time_scores = {col: _score_time_col(col, data) for col in columns}
+    sorted_cols = sorted(columns, key=lambda c: time_scores[c], reverse=True)
+    time_col = sorted_cols[0]
+    
+    remaining_cols = [c for c in columns if c != time_col]
+    value_scores = {col: _score_value_col(col, data) for col in remaining_cols}
+    value_col = sorted(remaining_cols, key=lambda c: value_scores[c], reverse=True)[0]
+    
     return (time_col, value_col)
 
 

@@ -5,7 +5,7 @@ Loads tabular data from uploaded files with validation.
 """
 
 from pathlib import Path
-from typing import BinaryIO, Union
+from typing import Any, BinaryIO, Union
 
 import pandas as pd
 

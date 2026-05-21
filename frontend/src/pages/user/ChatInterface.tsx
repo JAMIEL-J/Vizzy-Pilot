@@ -199,6 +199,7 @@ export default function ChatInterface() {
     const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
     const [chartModes, setChartModes] = useState<Record<string, 'chart' | 'table'>>({});
     const [copiedSqlMsgId, setCopiedSqlMsgId] = useState<string | null>(null);
+    const [showSql, setShowSql] = useState<Record<string, boolean>>({});
 
     // Artifact Viewer State
     const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
@@ -642,6 +643,18 @@ export default function ChatInterface() {
                             </Button>
                         )}
 
+                        {targetData?.sql && (
+                            <Button
+                                type="button"
+                                onClick={() => setShowSql(prev => ({ ...prev, [msg.id]: !prev[msg.id] }))}
+                                className={`h-8 px-3 lg:px-4 rounded-lg bg-surface-container-high text-xs transition-colors flex items-center ${showSql[msg.id] ? 'text-primary border border-primary/20 bg-primary/5' : 'text-on-surface-variant hover:text-on-surface'}`}
+                                variant="ghost"
+                            >
+                                <span className="material-symbols-outlined text-[15px] mr-1.5 leading-none">database</span>
+                                <span>{showSql[msg.id] ? 'Hide SQL' : 'View SQL'}</span>
+                            </Button>
+                        )}
+
                         {isMobile && (
                             <Button
                                 variant="ghost"
@@ -699,6 +712,36 @@ export default function ChatInterface() {
 
                             <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-primary/10 blur-[100px] rounded-full pointer-events-none"></div>
                         </div>
+
+                        {showSql[msg.id] && targetData?.sql && (
+                            <div className="mt-6 rounded-xl border border-outline-variant/20 bg-surface-container-low p-4 shadow-xl">
+                                <div className="flex items-center justify-between border-b border-outline-variant/10 pb-2 mb-3">
+                                    <span className="text-xs font-bold tracking-wider text-on-surface uppercase font-mono">
+                                        Generated SQL
+                                    </span>
+                                    <Button
+                                        type="button"
+                                        onClick={() => {
+                                            navigator.clipboard.writeText(targetData.sql);
+                                            setCopiedSqlMsgId(msg.id);
+                                            setTimeout(() => setCopiedSqlMsgId(null), 2000);
+                                        }}
+                                        className="text-xs text-outline hover:text-primary transition-colors flex items-center gap-1.5"
+                                        variant="ghost"
+                                        size="sm"
+                                    >
+                                        {copiedSqlMsgId === msg.id ? (
+                                            <><span className="material-symbols-outlined text-[13px] leading-none text-primary">check</span> Copied!</>
+                                        ) : (
+                                            <><span className="material-symbols-outlined text-[13px] leading-none">content_copy</span> Copy</>
+                                        )}
+                                    </Button>
+                                </div>
+                                <pre className="p-3 bg-surface-container-lowest border border-outline-variant/10 rounded-lg text-xs font-mono text-primary overflow-x-auto whitespace-pre-wrap leading-relaxed">
+                                    <code>{targetData.sql}</code>
+                                </pre>
+                            </div>
+                        )}
 
 
 
@@ -1111,11 +1154,25 @@ export default function ChatInterface() {
                                                                                         <span>SVG</span>
                                                                                     </Button>
                                                                                 )}
+
+                                                                                {sqlQuery && (
+                                                                                    <Button
+                                                                                        type="button"
+                                                                                        onClick={() => setShowSql(prev => ({ ...prev, [msg.id]: !prev[msg.id] }))}
+                                                                                        className={`flex items-center space-x-1.5 text-[10px] uppercase tracking-wider font-bold transition-colors p-1 ${showSql[msg.id] ? 'text-primary' : 'text-themed-muted hover:text-primary'}`}
+                                                                                        title="Toggle SQL Code"
+                                                                                        variant="ghost"
+                                                                                        size="sm"
+                                                                                    >
+                                                                                        <span className="material-symbols-outlined text-[14px] leading-none">database</span>
+                                                                                        <span>{showSql[msg.id] ? 'Hide SQL' : 'View SQL'}</span>
+                                                                                    </Button>
+                                                                                )}
                                                                             </div>
                                                                         </div>
 
                                                                         {/* SQL Panel */}
-                                                                        {sqlQuery && (
+                                                                        {showSql[msg.id] && sqlQuery && (
                                                                             <div className="mt-4 rounded-sm border border-border-main bg-bg-main/40">
                                                                                 <div className="flex items-center justify-between px-3 py-2 border-b border-border-main/70">
                                                                                     <div className="flex items-center gap-2.5">

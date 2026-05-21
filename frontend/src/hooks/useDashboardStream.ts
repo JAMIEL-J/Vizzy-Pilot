@@ -27,7 +27,7 @@ export function useDashboardStream(versionId: string) {
   const [kpis, setKpis] = useState<Record<string, ChartResult>>({});
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
+
   const receivedCharts = useRef<Set<string>>(new Set());
   const retryCountRef = useRef(0);
   const MAX_RETRIES = 3;
@@ -60,9 +60,11 @@ export function useDashboardStream(versionId: string) {
           if (id && !receivedCharts.current.has(id)) {
             receivedCharts.current.add(id);
             if (result.chart_id) {
-              setCharts((prev) => ({ ...prev, [result.chart_id]: result }));
+              const chartId = result.chart_id;
+              setCharts((prev) => ({ ...prev, [chartId]: result }));
             } else if (result.kpi_id) {
-              setKpis((prev) => ({ ...prev, [result.kpi_id]: result }));
+              const kpiId = result.kpi_id;
+              setKpis((prev) => ({ ...prev, [kpiId]: result }));
             }
           }
         } catch (e) {

@@ -485,6 +485,40 @@ const ChartRenderer = ({
 
     const rawChartData = showOutliers ? chart?.data : (chart?.data_without_outliers || chart?.data);
 
+    const countNullValues = () => {
+        let nullCount = 0;
+        const isNullLike = (val: any) => {
+            if (val === null || val === undefined) return true;
+            const s = String(val).trim();
+            return s === 'NULL' || s === 'null' || s === 'None' || s === '';
+        };
+
+        if (Array.isArray(rawChartData)) {
+            rawChartData.forEach((row: any) => {
+                if (!row) return;
+                Object.values(row).forEach((val) => {
+                    if (isNullLike(val)) {
+                        nullCount++;
+                    }
+                });
+            });
+        }
+        return nullCount;
+    };
+
+    const renderNullWarning = () => {
+        const nullCount = countNullValues();
+        if (nullCount === 0) return null;
+        return (
+            <div className="mt-3 text-[10px] text-amber-500/90 bg-amber-500/10 border border-amber-500/20 px-2 py-1 rounded flex items-center gap-1.5 w-fit font-sans">
+                <svg className="w-3 h-3 fill-current flex-shrink-0" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+                <span>{nullCount} null/missing values identified in the query results</span>
+            </div>
+        );
+    };
+
     const gridProps = { stroke: chartColors.grid, strokeDasharray: '2 6' };
     const axisProps = { stroke: chartColors.axis, fontSize: 10, tickLine: false, axisLine: false };
     const textStyle = { fill: chartColors.text };
@@ -1187,7 +1221,8 @@ const ChartRenderer = ({
     };
 
 
-    switch (chart.type) {
+    const renderChartBody = () => {
+        switch (chart.type) {
         case 'bar':
             return (
                 <div className="flex flex-col h-full w-full">
@@ -1575,6 +1610,14 @@ const ChartRenderer = ({
         default:
             return <div className="h-48 flex items-center justify-center text-themed-muted text-sm">Unsupported chart type</div>;
     }
+    };
+
+    return (
+        <div className="flex flex-col h-full w-full justify-between">
+            {renderChartBody()}
+            {renderNullWarning()}
+        </div>
+    );
 };
 
 const FilterDropdown = ({

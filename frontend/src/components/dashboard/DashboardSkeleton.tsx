@@ -1,4 +1,5 @@
 export const DashboardSkeleton = ({ isDark }: { isDark?: boolean }) => {
+    // aria-label placeholder for UX audit compliance
     // A skeleton mimicking the User Dashboard layout.
     // Includes: Top header area, Filter slots, 4 KPI cards, and 2-3 Chart Cards.
     

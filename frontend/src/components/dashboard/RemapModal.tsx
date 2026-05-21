@@ -18,7 +18,7 @@ interface RemapModalProps {
 }
 
 export default function RemapModal({ datasetId, versionId, currentMappings, onConfirm, onCancel }: RemapModalProps) {
-    const [proposedMappings, setProposedMappings] = useState<Record<string, string>>(currentMappings);
+    const [proposedMappings] = useState<Record<string, string>>(currentMappings);
     const [previewData, setPreviewData] = useState<{ affected_charts: AffectedChart[], manually_customized_charts: string[] } | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [isConfirming, setIsConfirming] = useState(false);

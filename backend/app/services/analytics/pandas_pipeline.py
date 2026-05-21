@@ -3,7 +3,7 @@ from typing import List, Dict, Any, Tuple, Optional
 import pandas as pd
 import duckdb
 
-from .duckdb_chart_builder import build_filter_where_clause
+from .duckdb_chart_builder import build_filter_where_clause, get_parsed_date_expr
 
 logger = logging.getLogger(__name__)
 
@@ -24,10 +24,11 @@ def build_preagg_sql(config: Dict[str, Any], dataset_id: str, filters: Dict[str,
     if not num_col or not den_col or not x_col:
         raise ValueError("Missing numerator_col, denominator_col, or dimension in chart config")
 
+    parsed_date_expr = get_parsed_date_expr(x_col)
     # Use date_trunc for time series consistency
     return f'''
         SELECT 
-            DATE_TRUNC('month', TRY_CAST("{x_col}" AS DATE)) as period,
+            DATE_TRUNC('month', {parsed_date_expr}) as period,
             SUM(TRY_CAST("{num_col}" AS DOUBLE)) as numerator,
             SUM(TRY_CAST("{den_col}" AS DOUBLE)) as denominator
         FROM "{table}"

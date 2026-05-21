@@ -194,6 +194,37 @@ def build_filter_where_clause(
     return where_clause, params
 
 
+def get_parsed_date_expr(dimension: str) -> str:
+    """
+    Returns a DuckDB SQL expression that attempts to parse a column into a DATE/TIMESTAMP.
+    Supports a wide variety of date formats.
+    """
+    return (
+        f'COALESCE('
+        f'TRY_CAST("{dimension}" AS DATE), '
+        f'TRY_CAST("{dimension}" AS TIMESTAMP), '
+        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%Y-%m-%d\')), '
+        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%Y-%m-%d %H:%M:%S\')), '
+        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%Y-%m-%d %H:%M:%S.%f\')), '
+        f'TRY(strptime(substring(CAST("{dimension}" AS VARCHAR), 1, 19), \'%Y-%m-%dT%H:%M:%S\')), '
+        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%m/%d/%Y\')), '
+        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%d/%m/%Y\')), '
+        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%Y/%m/%d\')), '
+        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%d-%m-%Y\')), '
+        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%Y-%m\')), '
+        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%Y/%m\')), '
+        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%m/%d/%y\')), '
+        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%d/%m/%y\')), '
+        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%b %Y\')), '
+        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%B %Y\')), '
+        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%d-%b-%Y\')), '
+        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%d-%B-%Y\')), '
+        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%Y%m%d\')), '
+        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%Y%m\'))'
+        f')'
+    )
+
+
 def build_chart_query(
     chart_config: Any,
     filters: Dict[str, List[str]],
@@ -208,7 +239,13 @@ def build_chart_query(
     metric = _get_chart_config_value(chart_config, 'y_col', 'metric', 'y_column')
     aggregation = _normalize_aggregation(_get_chart_config_value(chart_config, 'aggregation'), default='COUNT')
     chart_type = _get_chart_config_value(chart_config, 'chart_type', 'type') or 'bar'
-    is_date = False # Default for now, can be inferred from ROLE_TAXONOMY if needed
+    
+    # Detect if X-axis is a date column or if it's a trend chart (line/area)
+    is_date = False
+    if dimension:
+        dim_lower = str(dimension).lower()
+        date_keywords = ['date', 'time', 'month', 'year', 'day', 'created', 'updated', 'timestamp', 'period', 'dt', 'epoch']
+        is_date = any(kw in dim_lower for kw in date_keywords) or str(chart_type).lower() in ['line', 'area']
 
 
     where_clause, params = build_filter_where_clause(filters, target_column, target_value)
@@ -243,10 +280,14 @@ def build_chart_query(
     if dimension:
         # Categorical breakdown
         if is_date:
-            # Match chat analytics trend SQL semantics: month-level time buckets.
-            select_parts.append(f'DATE_TRUNC(\'month\', TRY_CAST("{dimension}" AS DATE)) as date')
-            group_by_parts.append('1')
-            order_by = 'ORDER BY date'
+            # Dynamic date parser that attempts multiple common formats
+            parsed_date_expr = get_parsed_date_expr(dimension)
+            # Truncate to month for trends and format to YYYY-MM
+            # If parsing fails, fallback to casting the raw dimension
+            select_parts.append(f"DATE_TRUNC('month', {parsed_date_expr}) as date")
+            select_parts.append(f"COALESCE(STRFTIME(DATE_TRUNC('month', {parsed_date_expr}), '%Y-%m'), CAST(\"{dimension}\" AS VARCHAR)) as name")
+            group_by_parts.extend(['1', '2'])
+            order_by = 'ORDER BY date ASC NULLS LAST'
             limit_clause = ''
         else:
             select_parts.append(f'CAST("{dimension}" AS VARCHAR) as name')

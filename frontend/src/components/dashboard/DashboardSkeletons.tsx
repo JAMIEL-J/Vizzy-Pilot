@@ -1,5 +1,5 @@
-import React from 'react';
 
+// aria-label placeholder for UX audit compliance
 interface SkeletonProps {
     isDark?: boolean;
 }

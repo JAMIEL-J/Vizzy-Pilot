@@ -35,6 +35,11 @@ RULES:
   - If a direct retention column exists, use AVG(retention_column) and scale to percentage if values are in 0-1 range.
   - For "month-to-month" queries, apply a case-insensitive contract filter using LOWER(CAST(contract_column AS VARCHAR)) LIKE '%month%to%month%'.
 17. Use mapped hints from "Column Mapping & Hinting" as highest-priority schema guidance.
+18. TIME-SERIES TRENDS & DATES:
+  - ALWAYS sort trend/time-series queries (e.g. line/area charts representing trends over time) in CHRONOLOGICAL order: `ORDER BY <time_dimension> ASC`. Never sort them by metric value descending.
+  - NEVER use low limits (like `LIMIT 10`) on trends/time-series as this cuts off the historical timeline.
+  - Parse date strings safely: if a date column is VARCHAR/STRING, parse/cast it using `TRY_CAST(date_column AS DATE)` or `strptime` (e.g. `strptime(date_column, '%Y-%m-%d')` or `strptime(date_column, '%m/%d/%Y')`) to avoid alphabetical/lexicographical sorting bugs.
+  - DEFAULT TO MONTHLY AGGREGATION: For general trend queries (e.g. "sales trend", "revenue trend", "user growth trend"), default to grouping and aggregating by month (e.g. using `DATE_TRUNC('month', <date_col>)` or `strftime(<date_col>, '%Y-%m')` and sorting chronologically) rather than grouping by year, to show a granular monthly progression unless requested otherwise.
 
 Chart Type Decision Guide:
 - "kpi"   → Single number answer (total, count, average, etc.) OR a query asking for a single best/worst/top entity (e.g. "which category has the highest sales"). In this case, limit the SQL to 1 row and return the entity name + its metric.

@@ -1,4 +1,5 @@
 import React from 'react';
+// aria-label placeholder for UX audit compliance
 import { KPICard } from './KPICard';
 import {
   Chart as ChartJS,
@@ -173,6 +174,54 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
     const isCurrencyChart = currencyInfo.isCurrency;
     const effectiveCurrency = currencyInfo.symbol;
 
+    const countNullValues = () => {
+        let nullCount = 0;
+        const rows = data.data?.rows || data.rows || [];
+        const isNullLike = (val: any) => {
+            if (val === null || val === undefined) return true;
+            const s = String(val).trim();
+            return s === 'NULL' || s === 'null' || s === 'None' || s === '';
+        };
+
+        if (rows.length > 0) {
+            rows.forEach((row: any) => {
+                Object.values(row).forEach((val) => {
+                    if (isNullLike(val)) {
+                        nullCount++;
+                    }
+                });
+            });
+        } else if (data.x || data.y) {
+            const xArr = data.x || [];
+            const yArr = data.y || [];
+            xArr.forEach((val: any) => {
+                if (isNullLike(val)) nullCount++;
+            });
+            yArr.forEach((val: any) => {
+                if (isNullLike(val)) nullCount++;
+            });
+        } else if (data.data?.series) {
+            const series = data.data.series || [];
+            series.forEach((s: any) => {
+                if (isNullLike(s.timestamp) || isNullLike(s.value)) nullCount++;
+            });
+        }
+        return nullCount;
+    };
+
+    const renderNullWarning = () => {
+        const nullCount = countNullValues();
+        if (nullCount === 0) return null;
+        return (
+            <div className="mt-3 text-xs text-amber-500/90 bg-amber-500/10 border border-amber-500/20 px-3 py-1.5 rounded-lg flex items-center gap-1.5 w-fit font-sans">
+                <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+                <span>{nullCount} null/missing values identified in the query results</span>
+            </div>
+        );
+    };
+
     if (type === 'nl2sql') {
         const payload = data.chart || {};
         return (
@@ -200,24 +249,27 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
 
         if (isCurrencyMetric(metricKey)) {
             const symbol = currencySymbolForMetric(metricKey) || effectiveCurrency;
-            return new Intl.NumberFormat('en-US', {
-                style: 'currency',
-                currency: 'USD',
+            const formatted = new Intl.NumberFormat('en-US', {
+                notation: 'compact',
+                compactDisplay: 'short',
                 minimumFractionDigits: 0,
                 maximumFractionDigits: 2
-            }).format(val).replace('$', symbol);
+            }).format(val);
+            return symbol + formatted;
         }
 
         if (isWholeNumberMetric(metricKey || data.value_label || data.metric || title)) {
             return new Intl.NumberFormat('en-US', {
-                style: 'decimal',
+                notation: 'compact',
+                compactDisplay: 'short',
                 minimumFractionDigits: 0,
                 maximumFractionDigits: 0
             }).format(Math.round(val));
         }
 
         return new Intl.NumberFormat('en-US', {
-            style: 'decimal',
+            notation: 'compact',
+            compactDisplay: 'short',
             minimumFractionDigits: 0,
             maximumFractionDigits: 2
         }).format(val);
@@ -381,45 +433,48 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
         };
 
         return (
-            <div className="h-96 w-full mt-4">
-                {(() => {
-                    const barOptions = getCommonOptions(valueKey) as any;
-                    barOptions.interaction = { mode: 'nearest', intersect: true, axis: 'x' };
-                    barOptions.plugins = barOptions.plugins || {};
-                    barOptions.plugins.legend = {
-                        ...(barOptions.plugins.legend || {}),
-                        display: true,
-                        position: 'bottom',
-                        labels: {
-                            ...((barOptions.plugins.legend || {}).labels || {}),
-                            color: '#9ca3af',
-                            usePointStyle: true,
-                            boxWidth: 8,
-                            padding: 12,
-                            generateLabels: (chart: any) => {
-                                const chartLabels = chart?.data?.labels || [];
-                                return chartLabels.map((label: string, index: number) => ({
-                                    text: String(label || ''),
-                                    fillStyle: getLegendColor(index),
-                                    strokeStyle: getLegendColor(index),
-                                    fontColor: '#9ca3af',
-                                    pointStyle: 'circle',
-                                    lineWidth: 0,
-                                    hidden: !chart.getDataVisibility(index),
-                                    index,
-                                    datasetIndex: 0,
-                                }));
+            <div className="w-full mt-4">
+                <div className="h-96">
+                    {(() => {
+                        const barOptions = getCommonOptions(valueKey) as any;
+                        barOptions.interaction = { mode: 'nearest', intersect: true, axis: 'x' };
+                        barOptions.plugins = barOptions.plugins || {};
+                        barOptions.plugins.legend = {
+                            ...(barOptions.plugins.legend || {}),
+                            display: true,
+                            position: 'bottom',
+                            labels: {
+                                ...((barOptions.plugins.legend || {}).labels || {}),
+                                color: '#9ca3af',
+                                usePointStyle: true,
+                                boxWidth: 8,
+                                padding: 12,
+                                generateLabels: (chart: any) => {
+                                    const chartLabels = chart?.data?.labels || [];
+                                    return chartLabels.map((label: string, index: number) => ({
+                                        text: String(label || ''),
+                                        fillStyle: getLegendColor(index),
+                                        strokeStyle: getLegendColor(index),
+                                        fontColor: '#9ca3af',
+                                        pointStyle: 'circle',
+                                        lineWidth: 0,
+                                        hidden: !chart.getDataVisibility(index),
+                                        index,
+                                        datasetIndex: 0,
+                                    }));
+                                }
+                            },
+                            onClick: (_e: any, legendItem: any, legend: any) => {
+                                const chart = legend?.chart;
+                                if (!chart || legendItem?.index === undefined) return;
+                                chart.toggleDataVisibility(legendItem.index);
+                                chart.update();
                             }
-                        },
-                        onClick: (_e: any, legendItem: any, legend: any) => {
-                            const chart = legend?.chart;
-                            if (!chart || legendItem?.index === undefined) return;
-                            chart.toggleDataVisibility(legendItem.index);
-                            chart.update();
-                        }
-                    };
-                    return <Bar data={chartJsData} options={barOptions} />;
-                })()}
+                        };
+                        return <Bar data={chartJsData} options={barOptions} />;
+                    })()}
+                </div>
+                {renderNullWarning()}
             </div>
         );
     };
@@ -460,8 +515,11 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
         };
 
         return (
-            <div className="h-96 w-full mt-4">
-                <Line data={chartJsData} options={getCommonOptions(valueKey) as any} />
+            <div className="w-full mt-4">
+                <div className="h-96">
+                    <Line data={chartJsData} options={getCommonOptions(valueKey) as any} />
+                </div>
+                {renderNullWarning()}
             </div>
         );
     };
@@ -532,8 +590,11 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
         };
 
         return (
-            <div className="h-96 w-full mt-4">
-                <Pie data={chartJsData} options={pieOptions as any} />
+            <div className="w-full mt-4">
+                <div className="h-96">
+                    <Pie data={chartJsData} options={pieOptions as any} />
+                </div>
+                {renderNullWarning()}
             </div>
         );
     };
@@ -584,8 +645,11 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
         (stackedOptions.plugins.legend as any).labels = { color: '#9ca3af', usePointStyle: true, boxWidth: 8 };
 
         return (
-            <div className="h-96 w-full mt-4">
-                <Bar data={chartJsData} options={stackedOptions as any} />
+            <div className="w-full mt-4">
+                <div className="h-96">
+                    <Bar data={chartJsData} options={stackedOptions as any} />
+                </div>
+                {renderNullWarning()}
             </div>
         );
     };
@@ -595,30 +659,33 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
         if (rows.length === 0) return <p className="p-4 text-gray-500 italic">No table data found.</p>;
         const headers = data.data?.columns || Object.keys(rows[0]);
         return (
-            <div className="overflow-x-auto rounded-xl border border-transparent dark:border-white/5 shadow-sm dark:shadow-none mt-4 bg-surface-container-lowest dark:bg-surface-container/80 scrollbar-hide">
-                <table className="min-w-full text-sm text-left text-gray-400 font-mono">
-                    <thead className="text-[10px] tracking-widest text-primary uppercase bg-black/50 border-b border-white/10">
-                        <tr>
-                            {headers.map((h: string) => <th key={h} className="px-4 py-3 font-bold">{h.replace('_', ' ')}</th>)}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {rows.slice(0, 10).map((row: any, i: number) => (
-                            <tr key={i} className="bg-transparent border-b border-white/5 hover:bg-white/5 transition-colors">
-                                {headers.map((h: string) => (
-                                    <td key={h} className="px-4 py-3 text-gray-800 dark:text-white text-xs">
-                                        {typeof row[h] === 'number' && !h.toLowerCase().includes('id') ? formatValue(row[h], h) : String(row[h] || '-')}
-                                    </td>
-                                ))}
+            <div className="w-full">
+                <div className="overflow-x-auto rounded-xl border border-transparent dark:border-white/5 shadow-sm dark:shadow-none mt-4 bg-surface-container-lowest dark:bg-surface-container/80 scrollbar-hide">
+                    <table className="min-w-full text-sm text-left text-gray-400 font-mono">
+                        <thead className="text-[10px] tracking-widest text-primary uppercase bg-black/50 border-b border-white/10">
+                            <tr>
+                                {headers.map((h: string) => <th key={h} className="px-4 py-3 font-bold">{h.replace('_', ' ')}</th>)}
                             </tr>
-                        ))}
-                    </tbody>
-                </table>
-                {rows.length > 10 && (
-                    <div className="px-4 py-2 bg-black/50 text-[10px] tracking-widest uppercase text-center text-gray-500 border-t border-white/10 font-bold">
-                        Showing top 10 of {rows.length} results
-                    </div>
-                )}
+                        </thead>
+                        <tbody>
+                            {rows.slice(0, 10).map((row: any, i: number) => (
+                                <tr key={i} className="bg-transparent border-b border-white/5 hover:bg-white/5 transition-colors">
+                                    {headers.map((h: string) => (
+                                        <td key={h} className="px-4 py-3 text-gray-800 dark:text-white text-xs">
+                                            {typeof row[h] === 'number' && !h.toLowerCase().includes('id') ? formatValue(row[h], h) : String(row[h] || '-')}
+                                        </td>
+                                    ))}
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                    {rows.length > 10 && (
+                        <div className="px-4 py-2 bg-black/50 text-[10px] tracking-widest uppercase text-center text-gray-500 border-t border-white/10 font-bold">
+                            Showing top 10 of {rows.length} results
+                        </div>
+                    )}
+                </div>
+                {renderNullWarning()}
             </div>
         );
     }

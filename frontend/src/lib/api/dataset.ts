@@ -44,7 +44,8 @@ export interface MappingProposalItem {
 export interface MappingProposalResponse {
     version_id: string;
     proposal: {
-        metadata: {
+        error?: string;
+        metadata?: {
             proposals: MappingProposalItem[];
         };
     };
