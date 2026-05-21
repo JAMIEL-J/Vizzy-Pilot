@@ -12,6 +12,9 @@ from app.core.audit import record_audit_event
 
 from app.models.chart_customization import ChartCustomization
 from datetime import datetime, timezone
+from app.core.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def _assert_dataset_access(
@@ -183,8 +186,13 @@ async def propose_semantic_mapping(
             schema=schema,
             llm_router=llm_client,
         )
-    except Exception:
+    except Exception as audit_err:
         # Fallback: if LLM or DuckDB sampling fails, return a deterministic default proposal
+        logger.warning(
+            "Semantic audit failed, falling back to unclassified defaults: %s",
+            audit_err,
+            exc_info=True,
+        )
         results = []
 
     # 2. Structure proposal for MappingReviewPanel

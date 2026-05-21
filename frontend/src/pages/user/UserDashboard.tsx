@@ -519,6 +519,95 @@ const ChartRenderer = ({
         );
     };
 
+    const toHumanLabel = (key?: string, chartTitle?: string) => {
+        const raw = String(key || '').trim();
+        if (!raw) return '';
+        const normalized = raw.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const title = String(chartTitle || '').trim();
+
+        // 1. If we have a chart title, try to extract a specific metric name from it
+        if (title) {
+            // Check if the title has a separator like "by", "vs", "over", "per"
+            const separators = [/\bby\b/i, /\bvs\b/i, /\bover\b/i, /\bper\b/i];
+            for (const sep of separators) {
+                if (sep.test(title)) {
+                    const parts = title.split(sep);
+                    const candidate = parts[0].trim();
+                    // Make sure the candidate is not empty and is relevant to the key
+                    if (candidate.length > 2) {
+                        const normCandidate = candidate.toLowerCase().replace(/[^a-z0-9]/g, '');
+                        // If the key is contained in the candidate, or candidate has common keywords, return candidate
+                        if (
+                            normCandidate.includes(normalized) || 
+                            normalized.includes(normCandidate) ||
+                            ['revenue', 'profit', 'sales', 'cost', 'spend', 'charges', 'churn', 'count', 'record'].some(kw => normCandidate.includes(kw))
+                        ) {
+                            return candidate;
+                        }
+                    }
+                }
+            }
+
+            // Fallback: if the title is short and contains the metric keyword, use the title itself
+            if (title.length < 30) {
+                const normTitle = title.toLowerCase().replace(/[^a-z0-9]/g, '');
+                if (normTitle.includes(normalized)) {
+                    return title;
+                }
+            }
+        }
+
+        // 2. Direct dictionary mappings
+        if (normalized.includes('revenue') || normalized.includes('salesperorder')) {
+            return 'Total Revenue';
+        }
+        if (normalized.includes('profit')) {
+            return 'Total Profit';
+        }
+        if (normalized.includes('sales')) {
+            return 'Total Sales';
+        }
+        if (normalized.includes('cost') || normalized.includes('spend')) {
+            return 'Total Cost';
+        }
+        if (normalized.includes('charges')) {
+            return 'Total Charges';
+        }
+        if (normalized.includes('churn')) {
+            return 'Churn Rate';
+        }
+        if (normalized.includes('tenure')) {
+            return 'Tenure (Months)';
+        }
+
+        const mappings: Record<string, string> = {
+            recordcount: 'Record Count',
+            customerid: 'Customer ID',
+            paymentmethod: 'Payment Method',
+            contracttype: 'Contract Type',
+            paperlessbilling: 'Paperless Billing',
+            internetservice: 'Internet Service',
+            onlinesecurity: 'Online Security',
+            deviceprotection: 'Device Protection',
+            techsupport: 'Tech Support',
+            streamingtv: 'Streaming TV',
+            streamingmovies: 'Streaming Movies',
+            phoneservice: 'Phone Service',
+            multiplelines: 'Multiple Lines',
+            seniorcitizen: 'Senior Citizen',
+        };
+
+        if (mappings[normalized]) {
+            return mappings[normalized];
+        }
+
+        // Default title casing: replace underscores and dashes with spaces, and capitalize words
+        return raw
+            .replace(/[_-]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .replace(/\b\w/g, (c) => c.toUpperCase());
+    };
+
     const gridProps = { stroke: chartColors.grid, strokeDasharray: '2 6' };
     const axisProps = { stroke: chartColors.axis, fontSize: 10, tickLine: false, axisLine: false };
     const textStyle = { fill: chartColors.text };
@@ -877,19 +966,19 @@ const ChartRenderer = ({
 
     const axisTickFont = { size: 9, weight: '600', family: '"Be Vietnam Pro", sans-serif' };
     const axisTitleFont = { size: 10, weight: '700', family: '"Be Vietnam Pro", sans-serif' };
-    const dimensionAxisLabel = String(chart.x_axis || chart.dimension || nameKey || 'Category').replace(/_/g, ' ');
+    const dimensionAxisLabel = toHumanLabel(chart.x_axis || chart.dimension || nameKey || 'Category', chart.title);
 
     // Build Y-axis label: use metric name + unit suffix from value_label
-    const rawMetricLabel = String(chart.y_axis || chart.metric || 'Value').replace(/_/g, ' ');
+    const rawMetricLabel = toHumanLabel(chart.y_axis || chart.metric || 'Value', chart.title);
     const rawValueLabel = String(chart.value_label || '').trim();
     const unitSuffixes = ['usd', 'rating', 'miles', 'km', 'years', 'sessions', 'hours', 'count', '%'];
     const hasUnitSuffix = rawValueLabel && unitSuffixes.some(u => rawValueLabel.toLowerCase().startsWith(u) || rawValueLabel.toLowerCase().includes('('));
     const valueAxisLabel = hasUnitSuffix && rawValueLabel.toLowerCase() !== rawMetricLabel.toLowerCase()
-        ? `${rawMetricLabel} (${rawValueLabel})`
+        ? `${rawMetricLabel} (${toHumanLabel(rawValueLabel, chart.title)})`
         : rawMetricLabel;
 
-    const scatterXAxisLabel = String(chart.x_axis || chart.dimension || nameKey || 'X').replace(/_/g, ' ');
-    const scatterYAxisLabel = String(chart.y_axis || chart.metric || chart.value_label || 'Y').replace(/_/g, ' ');
+    const scatterXAxisLabel = toHumanLabel(chart.x_axis || chart.dimension || nameKey || 'X', chart.title);
+    const scatterYAxisLabel = toHumanLabel(chart.y_axis || chart.metric || chart.value_label || 'Y', chart.title);
 
     const numericSeriesValues = chartData
         .map((d: any) => Number(d?.value))
@@ -983,15 +1072,17 @@ const ChartRenderer = ({
             title: (ctxs: any) => {
                 const first = ctxs?.[0];
                 if (!first) return '';
+                let rawValue = '';
                 const rawLabel = first.label;
                 if (rawLabel !== undefined && rawLabel !== null && String(rawLabel).trim() !== '') {
-                    return normalizeLabel(rawLabel);
+                    rawValue = normalizeLabel(rawLabel);
+                } else {
+                    const rawName = first?.raw?.label ?? first?.raw?.name ?? first?.raw?._data?.name;
+                    if (rawName !== undefined && rawName !== null && String(rawName).trim() !== '') {
+                        rawValue = normalizeLabel(rawName);
+                    }
                 }
-                const rawName = first?.raw?.label ?? first?.raw?.name ?? first?.raw?._data?.name;
-                if (rawName !== undefined && rawName !== null && String(rawName).trim() !== '') {
-                    return normalizeLabel(rawName);
-                }
-                return '';
+                return rawValue;
             },
             label: (ctx: any) => {
                 if (ctx?.raw && typeof ctx.raw === 'object' && ('x' in ctx.raw || 'y' in ctx.raw)) {
@@ -1001,24 +1092,8 @@ const ChartRenderer = ({
                     return lines;
                 }
 
-                const seriesLabel = String(ctx.dataset.label || tooltipMetricLabel || 'Value');
-                const chartType = String(chart?.type || '').toLowerCase();
-                const isPieLike = chartType === 'pie' || chartType === 'doughnut' || chartType === 'donut';
-
-                if (isPieLike && typeof ctx.raw === 'number') {
-                    const lines = [` ${seriesLabel}: ${getTooltipVal(ctx.raw, tooltipMetricLabel)}`];
-                    const datasetValues = Array.isArray(ctx.dataset?.data)
-                        ? ctx.dataset.data.map((v: any) => Number(v) || 0)
-                        : [];
-                    const total = datasetValues.reduce((acc: number, val: number) => acc + val, 0);
-                    const isMetricAlreadyPercent = isPercentMetricLabel(tooltipMetricLabel) || isChartExplicitPercent;
-                    if (!isMetricAlreadyPercent && total > 0) {
-                        const share = (Number(ctx.raw) / total) * 100;
-                        lines.push(` Share: ${share.toFixed(1)}%`);
-                    }
-                    return lines;
-                }
-
+                const rawSeriesLabel = String(ctx.dataset.label || tooltipMetricLabel || 'Value');
+                const seriesLabel = toHumanLabel(rawSeriesLabel, chart.title);
                 return ` ${seriesLabel}: ${getTooltipVal(ctx.raw, tooltipMetricLabel)}`;
             }
         };
@@ -1234,6 +1309,7 @@ const ChartRenderer = ({
                             data={{
                                 labels: categoryLabels,
                                 datasets: [{
+                                    label: toHumanLabel(chart.y_axis || chart.metric || 'Value', chart.title),
                                     data: chartData.map((d: any) => d.value),
                                     backgroundColor: chartData.map((_: any, i: number) => getPaletteColor(i)),
                                     borderRadius: 6
@@ -1256,6 +1332,7 @@ const ChartRenderer = ({
                             data={{
                                 labels: categoryLabels,
                                 datasets: [{
+                                    label: toHumanLabel(chart.y_axis || chart.metric || 'Value', chart.title),
                                     data: chartData.map((d: any) => d.value),
                                     backgroundColor: chartData.map((_: any, i: number) => getPaletteColor(i)),
                                     borderRadius: 6
@@ -1280,7 +1357,7 @@ const ChartRenderer = ({
                             data={{
                                 labels: categoryLabels,
                                 datasets: activeStackKeys.map((key, idx) => ({
-                                    label: String(key).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+                                    label: toHumanLabel(key, chart.title),
                                     data: chartData.map((d: any) => getSeriesValue(d, key, idx)),
                                     backgroundColor: getPaletteColor(idx),
                                 }))
@@ -1321,6 +1398,7 @@ const ChartRenderer = ({
                             data={{
                                 labels: chartData.map((d: any) => normalizeLabel(d[nameKey] || d.name)),
                                 datasets: [{
+                                    label: toHumanLabel(chart.y_axis || chart.metric || 'Value', chart.title),
                                     data: chartData.map((d: any) => d.value),
                                     backgroundColor: chartData.map((_: any, i: number) => getPaletteColor(i)),
                                     borderWidth: isDark ? 2 : 0,
@@ -1358,6 +1436,7 @@ const ChartRenderer = ({
                             data={{
                                 labels: chartData.map((d: any) => normalizeLabel(d[nameKey] || d.name)),
                                 datasets: [{
+                                    label: toHumanLabel(chart.y_axis || chart.metric || 'Value', chart.title),
                                     data: chartData.map((d: any) => d.value),
                                     backgroundColor: chartData.map((_: any, i: number) => getPaletteColor(i)),
                                 }]
@@ -1406,13 +1485,14 @@ const ChartRenderer = ({
                                 labels: chartData.map((d: any) => d.timestamp || d.date || d[nameKey]),
                                 datasets: chart.type === 'stacked' 
                                     ? activeLineStackKeys.map((cat: string, i: number) => ({
-                                        label: cat,
+                                        label: toHumanLabel(cat, chart.title),
                                         data: chartData.map((d: any) => getSeriesValue(d, cat, i)),
                                         backgroundColor: getPaletteColor(i),
                                         borderColor: getPaletteColor(i),
                                         fill: true
                                     }))
                                     : [{
+                                        label: toHumanLabel(chart.y_axis || chart.metric || 'Value', chart.title),
                                         data: chartData.map((d: any) => d.value),
                                         backgroundColor: chart.type === 'line' ? 'transparent' : 'rgba(99, 102, 241, 0.2)',
                                         borderColor: getPaletteColor(0),
@@ -1445,6 +1525,7 @@ const ChartRenderer = ({
                             redraw={chartRedraw}
                             data={{
                                 datasets: [{
+                                    label: toHumanLabel(chart.y_axis || chart.metric || 'Value', chart.title),
                                     data: chartData.map((d: any) => ({ x: d.x, y: d.y })),
                                     backgroundColor: getPaletteColor(0)
                                 }]

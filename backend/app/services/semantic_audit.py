@@ -113,6 +113,9 @@ async def run_semantic_audit(
     Run the semantic audit against a dataset using DuckDB for sampling + stats,
     then batch columns into groups of 12 and classify via LLM.
 
+    Falls back to schema-only classification when DuckDB file is unavailable
+    (e.g. encoding error during build, still building in background).
+
     Returns a list of ColumnMapping dicts.
     """
     from app.services.analytics.semantic_mapper import SemanticMapper
@@ -120,19 +123,38 @@ async def run_semantic_audit(
     mapper = SemanticMapper()
     table = _table_name(dataset_id)
 
-    # Connect directly to dataset-specific DuckDB file
+    # Try connecting to dataset-specific DuckDB file
     duckdb_path = get_duckdb_path(dataset_id, version_id)
-    if not duckdb_path.exists():
-        raise FileNotFoundError(f"DuckDB file not found for dataset_id={dataset_id}, version_id={version_id}")
-    conn = duckdb.connect(str(duckdb_path), read_only=True)
+    conn = None
+    duckdb_available = False
+
+    if duckdb_path.exists():
+        try:
+            conn = duckdb.connect(str(duckdb_path), read_only=True)
+            duckdb_available = True
+        except Exception as e:
+            logger.warning(f"DuckDB file exists but connection failed: {e}")
+    else:
+        logger.info(
+            "DuckDB file not found for dataset_id=%s, version_id=%s. "
+            "Proceeding with schema-only LLM classification.",
+            dataset_id, version_id,
+        )
+
     try:
         columns = [c["name"] for c in schema]
         schema_dtype = {c["name"]: c.get("dtype", "string") for c in schema}
         column_payloads = []
 
         for col in columns:
-            samples = _fetch_column_samples(conn, table, col, limit=20)
-            stats = _fetch_column_stats(conn, table, col)
+            if duckdb_available and conn:
+                samples = _fetch_column_samples(conn, table, col, limit=20)
+                stats = _fetch_column_stats(conn, table, col)
+            else:
+                # Schema-only fallback: no samples or stats available
+                samples = []
+                stats = {"null_pct": None, "unique_count": None, "min": None, "max": None}
+
             payload = {
                 "name": col,
                 "dtype": schema_dtype.get(col, "string"),
@@ -207,4 +229,5 @@ async def run_semantic_audit(
 
         return flattened
     finally:
-        conn.close()
+        if conn:
+            conn.close()

@@ -1,9 +1,13 @@
 import logging
 import asyncio
 import json
+import datetime
+from decimal import Decimal
 from uuid import UUID
 from typing import AsyncGenerator, List, Dict, Any
 
+import numpy as np
+import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
@@ -12,6 +16,38 @@ from app.models.dataset_version import DatasetVersion
 from app.services.analytics.chart_recommender import generate_chart_configs
 from app.services.analytics.execution_router import execute_dashboard_load
 from app.services.analytics.db_engine import get_db_engine
+
+
+class DashboardJSONEncoder(json.JSONEncoder):
+    """Handles pandas/numpy types that the default encoder can't serialize."""
+
+    def default(self, obj):
+        if isinstance(obj, pd.Timestamp):
+            return obj.isoformat()
+        if isinstance(obj, (datetime.datetime, datetime.date)):
+            return obj.isoformat()
+        if isinstance(obj, (np.integer,)):
+            return int(obj)
+        if isinstance(obj, (np.floating,)):
+            return None if np.isnan(obj) else float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, np.bool_):
+            return bool(obj)
+        if isinstance(obj, Decimal):
+            return float(obj)
+        if isinstance(obj, UUID):
+            return str(obj)
+        if isinstance(obj, pd.NaT.__class__):
+            return None
+        if pd.isna(obj):
+            return None
+        return super().default(obj)
+
+
+def _dumps(obj: Any) -> str:
+    """json.dumps shortcut using our custom encoder."""
+    return json.dumps(obj, cls=DashboardJSONEncoder)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -49,11 +85,11 @@ async def dashboard_event_generator(
     try:
         version = session.get(DatasetVersion, version_id)
         if not version:
-            yield f"data: {json.dumps({'error': 'Version not found'})}\n\n"
+            yield f"data: {_dumps({'error': 'Version not found'})}\n\n"
             return
 
         if not version.semantic_map_json:
-            yield f"data: {json.dumps({'error': 'No approved semantic map found for this version'})}\n\n"
+            yield f"data: {_dumps({'error': 'No approved semantic map found for this version'})}\n\n"
             return
 
         # Get the persistent DuckDB path for this version
@@ -62,7 +98,7 @@ async def dashboard_event_generator(
         
         duckdb_path = get_duckdb_path(version.dataset_id, version.id)
         if not duckdb_path.exists():
-            yield f"data: {json.dumps({'error': 'DuckDB file not found for this version'})}\n\n"
+            yield f"data: {_dumps({'error': 'DuckDB file not found for this version'})}\n\n"
             return
 
         # Create a dedicated engine for this version's file
@@ -82,13 +118,13 @@ async def dashboard_event_generator(
             filters=filters,
             dataset_id=version.dataset_id
         ):
-            yield f"data: {json.dumps(result)}\n\n"
+            yield f"data: {_dumps(result)}\n\n"
             
         yield "data: {\"event\": \"done\"}\n\n"
         
     except Exception as e:
         logger.exception(f"Error streaming dashboard for version {version_id}: {e}")
-        yield f"data: {json.dumps({'error': 'Internal server error during dashboard load'})}\n\n"
+        yield f"data: {_dumps({'error': 'Internal server error during dashboard load'})}\n\n"
 
 @router.get("/load/{version_id}")
 async def load_dashboard(

@@ -29,10 +29,10 @@ RULES:
   - "performs well", "best", "top" => rank entities by a business metric in descending order.
   - If no metric is explicitly given, prefer profit; if profit is unavailable, use sales/revenue/amount.
   - "high profit" => rank by SUM(profit-like metric) DESC.
-16. RETENTION LOGIC:
-  - If retention is requested and a churn-like column exists, compute retention_rate as (1 - AVG(churn_indicator)) * 100.
-  - If churn is binary 0/1 or boolean, treat AVG(churn_indicator) as churn rate.
-  - If a direct retention column exists, use AVG(retention_column) and scale to percentage if values are in 0-1 range.
+16. RETENTION & CHURN LOGIC:
+  - If retention is requested and a churn-like column exists, compute retention_rate as (1 - AVG(CASE WHEN LOWER(CAST(churn_indicator AS VARCHAR)) IN ('yes', 'true', '1') THEN 1.0 ELSE 0.0 END)) * 100.0.
+  - If churn rate is requested, compute it as AVG(CASE WHEN LOWER(CAST(churn_indicator AS VARCHAR)) IN ('yes', 'true', '1') THEN 1.0 ELSE 0.0 END) * 100.0 to properly aggregate VARCHAR, boolean, or binary indicators as a percentage.
+  - "at risk" (e.g., "charges at risk", "revenue at risk", "customers at risk") refers to customers who have churned. You MUST filter the query (using a WHERE clause or FILTER WHERE) to rows where the churn indicator is positive (e.g. LOWER(CAST(churn_indicator AS VARCHAR)) IN ('yes', 'true', '1')).
   - For "month-to-month" queries, apply a case-insensitive contract filter using LOWER(CAST(contract_column AS VARCHAR)) LIKE '%month%to%month%'.
 17. Use mapped hints from "Column Mapping & Hinting" as highest-priority schema guidance.
 18. TIME-SERIES TRENDS & DATES:

@@ -26,8 +26,8 @@ DIRTY_NUMERIC_PATTERNS = [
     (r'^[-+]?£[\d,]+\.?\d*$', 'currency_gbp'),
     (r'^[-+]?€[\d,]+\.?\d*$', 'currency_eur'),
     (r'^[-+]?[\d.]+,?\d*€$',  'euro_format'), # European 1.500,00€ or 1.500,00 
-    (r'^[-+]?[\d.]+,?\d*$',   'euro_format_no_currency'), 
-    (r'^[-+]?[\d,]+\.?\d*$',  'comma_formatted'),
+    (r'^[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?$', 'comma_formatted'),
+    (r'^[-+]?(?:\d{1,3}(?:\.\d{3})+|\d+),\d+$',   'euro_format_no_currency'), 
     (r'^[-+]?[\d,.]+%+$',       'percentage'),
     (r'^(?:\([\d,.]+\)|[-+]?[\d,.]+)$', 'accounting_negative'),
 ]

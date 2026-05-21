@@ -51,7 +51,7 @@ def _build_business_semantic_hints(query: str, available_cols: list[str], column
     def add_hint(keyword: str, column: str, hint_type: str = "TEXT", was_coerced: bool = False):
         if not column:
             return
-        if column in [h["column"] for h in hints]:
+        if any(h["column"] == column and h["keyword"] == keyword for h in hints):
             return
         hints.append({
             "keyword": keyword,
@@ -68,6 +68,8 @@ def _build_business_semantic_hints(query: str, available_cols: list[str], column
     asks_profit = "profit" in q
     asks_retention = "retention" in q
     asks_month_to_month = any(k in q for k in ["month-to-month", "month to month", "monthtomonth", "m2m"])
+    asks_churn = any(k in q for k in ["churn", "churned", "churn rate", "churn percentage"])
+    asks_at_risk = any(k in q for k in ["at risk", "at-risk", "charges at risk", "revenue at risk", "value at risk", "customers at risk"])
 
     # Detect exclusion phrasing, e.g. "excluding furniture category", "without furniture".
     exclusion_match = re.search(
@@ -100,9 +102,15 @@ def _build_business_semantic_hints(query: str, available_cols: list[str], column
         if preferred_metric:
             add_hint("ranking_metric", preferred_metric, "METRIC", bool(column_metadata.get(preferred_metric, {}).get("coerced")))
 
+    churn_col = resolve_metric(["churn", "churned", "attrition", "cancelled", "is churned"])
+    if churn_col:
+        if asks_churn:
+            add_hint("churn_rate_calculation", churn_col, "METRIC", bool(column_metadata.get(churn_col, {}).get("coerced")))
+        if asks_at_risk:
+            add_hint("at_risk_calculation", churn_col, "METRIC", bool(column_metadata.get(churn_col, {}).get("coerced")))
+
     if asks_retention:
         retention_col = resolve_metric(["retention", "retained", "stay", "active rate"])
-        churn_col = resolve_metric(["churn", "churned", "attrition", "cancelled", "is churned"])
         contract_col = find_column(["contract", "contract type", "plan", "subscription"], available_cols, threshold=0.5)
 
         if contract_col:
@@ -164,9 +172,19 @@ def _render_hint_lines(hints: list[dict]) -> list[str]:
         lines.append("- [BUSINESS_RULE] For performance questions, rank by aggregated metric (SUM) descending and return top categories unless user asks otherwise.")
 
     if "retention_from_churn" in mapped_keys:
-        lines.append("- [BUSINESS_RULE] Retention rate should be computed as (1 - AVG(churn_indicator)) * 100. If churn_indicator is already percentage, normalize first.")
+        lines.append("- [BUSINESS_RULE] Retention rate should be computed as (1 - AVG(CASE WHEN LOWER(CAST(\"" + next((h.get("column") for h in hints if h.get("keyword") == "retention_from_churn"), "Churn") + "\" AS VARCHAR)) IN ('yes', 'true', '1') THEN 1.0 ELSE 0.0 END)) * 100.0.")
     elif "retention_metric" in mapped_keys:
         lines.append("- [BUSINESS_RULE] Use the retention metric directly; if values are 0-1 ratios, multiply by 100 for percentage output.")
+
+    if "churn_rate_calculation" in mapped_keys:
+        churn_col = next((h.get("column") for h in hints if h.get("keyword") == "churn_rate_calculation"), None)
+        if churn_col:
+            lines.append(f"- [BUSINESS_RULE] Churn rate should be computed as AVG(CASE WHEN LOWER(CAST(\"{churn_col}\" AS VARCHAR)) IN ('yes', 'true', '1') THEN 1.0 ELSE 0.0 END) * 100.0. Make sure to multiply by 100.0 to represent it as a percentage from 0 to 100.")
+
+    if "at_risk_calculation" in mapped_keys:
+        churn_col = next((h.get("column") for h in hints if h.get("keyword") == "at_risk_calculation"), None)
+        if churn_col:
+            lines.append(f"- [BUSINESS_RULE] \"at risk\" metrics (e.g. \"charges at risk\", \"revenue at risk\", \"customers at risk\") refer to customers who have churned. You must filter the data where the churn indicator is positive: LOWER(CAST(\"{churn_col}\" AS VARCHAR)) IN ('yes', 'true', '1'). For example, \"total charges at risk\" should be calculated as SUM(\"TotalCharges\") FILTER (WHERE LOWER(CAST(\"{churn_col}\" AS VARCHAR)) IN ('yes', 'true', '1')) or by applying a WHERE clause.")
 
     if "month_to_month_scope" in mapped_keys:
         contract_col = next((h.get("column") for h in hints if h.get("keyword") == "month_to_month_scope"), None)
