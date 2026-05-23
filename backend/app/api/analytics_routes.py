@@ -74,6 +74,8 @@ class DashboardAnalyticsResponse(BaseModel):
     raw_data: List[Dict[str, Any]] = []
     chart_configs: Dict[str, Any] = {}
     data_quality: List[Dict[str, Any]] = []
+    dsl_layout: Optional[Dict[str, Any]] = None
+
 
 
 class DashboardStateRequest(BaseModel):
@@ -92,20 +94,41 @@ class DashboardStateRequest(BaseModel):
 
 
 def _find_target_column(df: pd.DataFrame) -> Optional[str]:
-    """Find the most likely target column."""
-    target_keywords = ['churn', 'outcome', 'status', 'default', 'converted', 'target', 'label']
-    categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
+    """Find the most likely target column.
     
-    for col in categorical_cols:
-        col_lower = col.lower()
-        if any(kw in col_lower for kw in target_keywords):
+    Searches ALL column types (categorical AND numeric) for domain-specific
+    target keywords, prioritizing high-confidence churn/outcome indicators.
+    """
+    # Priority 1: Strong target keywords (domain-critical, rarely ambiguous)
+    strong_keywords = ['churn', 'exited', 'attrition', 'attrited', 'churned', 'default', 'defaulted']
+    # Priority 2: Moderate target keywords (could be targets in some domains)
+    moderate_keywords = ['target', 'outcome', 'converted', 'label', 'class', 'left', 'complain']
+    # Priority 3: Weak (only if no better option found)
+    weak_keywords = ['status']
+    
+    all_cols = df.columns.tolist()
+    
+    # Pass 1: Strong keywords across ALL dtypes (catches numeric 0/1 churn columns)
+    for col in all_cols:
+        col_lower = col.lower().replace('_', '').replace('-', '')
+        if any(kw in col_lower for kw in strong_keywords):
             if df[col].nunique() <= 5:
                 return col
     
-    # Fallback: any binary categorical
+    # Pass 2: Moderate keywords across ALL dtypes
+    for col in all_cols:
+        col_lower = col.lower().replace('_', '').replace('-', '')
+        if any(kw in col_lower for kw in moderate_keywords):
+            if df[col].nunique() <= 5:
+                return col
+    
+    # Pass 3: Weak keywords (only categorical to avoid false positives)
+    categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
     for col in categorical_cols:
-        if df[col].nunique() == 2:
-            return col
+        col_lower = col.lower().replace('_', '').replace('-', '')
+        if any(kw in col_lower for kw in weak_keywords):
+            if df[col].nunique() <= 5:
+                return col
     
     return None
 
@@ -603,7 +626,9 @@ def get_dashboard_analytics(  # pyright: ignore
             try:
                 saved_map = json.loads(latest_version.semantic_map_json)
                 if isinstance(saved_map, dict):
-                    effective_overrides.update(saved_map)
+                    # Convert saved_map from {role: column_name} to {column_name: role} to match classification_overrides structure
+                    converted_map = {col: role for role, col in saved_map.items()}
+                    effective_overrides.update(converted_map)
             except Exception as e:
                 logger.error(f"Failed to parse saved semantic map: {e}")
         
@@ -611,9 +636,34 @@ def get_dashboard_analytics(  # pyright: ignore
             effective_overrides.update(state.classification_overrides)
 
         # Apply classification overrides
+        # Protect target columns with strong domain keywords from LLM reclassification.
+        _strong_target_keywords = frozenset([
+            'churn', 'churned', 'exited', 'attrition', 'attrited',
+            'default', 'defaulted', 'target', 'outcome', 'label',
+        ])
+        _protected_targets = set()
+        for t in classification.targets:
+            t_clean = t.lower().replace('_', '').replace('-', '').replace(' ', '')
+            if any(kw in t_clean for kw in _strong_target_keywords):
+                _protected_targets.add(t)
+
         if effective_overrides:
+            from app.services.semantic_audit import ROLE_TAXONOMY
             for col, role in effective_overrides.items():
                 if col in df.columns:
+                    # Guard: Don't let the LLM semantic map override a column
+                    # that column_filter confidently classified as a target.
+                    # Only explicit user overrides (classification_overrides) can do that.
+                    is_user_override = col in (state.classification_overrides or {})
+                    if col in _protected_targets and not is_user_override:
+                        role_lower = role.lower()
+                        if role_lower != 'target':
+                            logger.info(
+                                '[TARGET PROTECT] Ignoring LLM override %r→%r for protected target column',
+                                col, role,
+                            )
+                            continue
+
                     # Remove from current lists
                     if col in classification.metrics: classification.metrics.remove(col)
                     if col in classification.dimensions: classification.dimensions.remove(col)
@@ -623,15 +673,18 @@ def get_dashboard_analytics(  # pyright: ignore
                     
                     # Add to new list based on semantic role mapping
                     role_lower = role.lower()
-                    if role_lower in ['metric', 'revenue', 'cost', 'profit', 'quantity']:
+                    role_info = ROLE_TAXONOMY.get(role_lower, {})
+                    affinity = role_info.get("affinity")
+                    
+                    if affinity == "time_series_x" or role_lower in ('date', 'datetime', 'year_month', 'fiscal_period'):
+                        classification.dates.append(col)
+                    elif affinity in ("measure_y", "gauge_measure") or role_lower in ('metric', 'revenue', 'cost', 'profit', 'quantity', 'amount'):
                         classification.metrics.append(col)
-                    elif role_lower in ['dimension', 'category', 'region']:
+                    elif affinity == "groupby_x" or role_lower in ('dimension', 'category', 'region'):
                         classification.dimensions.append(col)
                     elif role_lower == 'target':
                         classification.targets.append(col)
-                    elif role_lower == 'date':
-                        classification.dates.append(col)
-                    elif role_lower in ['excluded', 'identifier', 'generic']:
+                    elif role_lower in ['excluded', 'identifier', 'generic', 'unclassified'] or affinity == 'filter_only':
                         classification.excluded.append(col)
         
         # Find target column for filtering
@@ -1126,6 +1179,15 @@ def get_dashboard_analytics(  # pyright: ignore
                 print(f"Warning: dashboard generation tracking failed: {track_err}")
 
 
+        # Generate DSL Layout
+        from app.services.analytics.dsl_layout_generator import generate_dsl_layout
+        dsl_layout = generate_dsl_layout(
+            domain=domain.value,
+            classification=classification,
+            kpi_dict=kpis,
+            chart_dict=charts
+        )
+
         return DashboardAnalyticsResponse(
             dataset_name=dataset_name,
             total_rows=len(df),
@@ -1146,6 +1208,7 @@ def get_dashboard_analytics(  # pyright: ignore
             raw_data=raw_data_payload,
             chart_configs=chart_configs,
             data_quality=data_quality,
+            dsl_layout=dsl_layout,
         )
         
     except HTTPException:
@@ -1503,16 +1566,45 @@ Chart Breakdowns:
 
         user_prompt += "\n\nAnalyze all the data above and write an executive insight brief."
 
-        client = get_llm_client()
-        response = await client.complete(
-            system_prompt=NARRATIVE_SYSTEM_PROMPT,
-            user_prompt=user_prompt,
-            temperature=0.3,
-            max_tokens=512,
-            purpose="dashboard_narrative",
-        )
-
-        return {"narrative": response.content.strip()}
+        try:
+            client = get_llm_client()
+            response = await client.complete(
+                system_prompt=NARRATIVE_SYSTEM_PROMPT,
+                user_prompt=user_prompt,
+                temperature=0.3,
+                max_tokens=512,
+                purpose="dashboard_narrative",
+            )
+            return {"narrative": response.content.strip()}
+        except Exception as llm_err:
+            logger.warning(f"LLM narrative generation failed: {llm_err}. Falling back to rule-based summary.")
+            
+            fallback_lines = [
+                "### Executive Insight Brief (Fallback Mode)",
+                "The AI narrative generation service is currently unreachable. Below is a structured summary of your key metrics:",
+                f"**Dataset**: {payload.dataset_name} | **Domain**: {payload.domain.title()}"
+            ]
+            
+            kpi_points = []
+            for key, kpi in payload.kpis.items():
+                title = kpi.get("title", key)
+                value = kpi.get("value", "N/A")
+                fmt = kpi.get("format", "number")
+                is_currency = str(fmt).lower() == "currency" or _is_currency_label(title)
+                value_txt = _format_narrative_value(value, is_currency=is_currency, currency_symbol=currency_symbol)
+                
+                trend = kpi.get("trend")
+                trend_str = ""
+                if trend is not None:
+                    try:
+                        trend_val = float(trend)
+                        trend_str = f" (trend: {trend_val:+.1f}%)"
+                    except (ValueError, TypeError):
+                        pass
+                kpi_points.append(f"- **{title}**: {value_txt}{trend_str}")
+            
+            fallback_lines.append("\n".join(kpi_points))
+            return {"narrative": "\n\n".join(fallback_lines)}
 
     except HTTPException:
         raise

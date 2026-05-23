@@ -8,6 +8,7 @@ export interface ChartOverride {
 export type ClassificationRole = "Dimension" | "Metric" | "Target" | "Date" | "Excluded";
 
 export interface DashboardState {
+    datasetId: string | null;
     rawData: any[] | null;
     chartConfigs: Record<string, any> | null;
     initialChartData: Record<string, any> | null;
@@ -20,7 +21,7 @@ export interface DashboardState {
     target_value: string;
     total_records: number;
 
-    setDashboardData: (rawData: any[], chartConfigs: Record<string, any>, initialChartData: Record<string, any>, totalRows: number, targetCol?: string | null) => void;
+    setDashboardData: (rawData: any[], chartConfigs: Record<string, any>, initialChartData: Record<string, any>, totalRows: number, targetCol?: string | null, datasetId?: string | null) => void;
     syncServerChartData: (charts: Record<string, any>) => void;
     setTargetValue: (value: string) => void;
     setFilter: (column: string, value: string) => void;
@@ -791,7 +792,39 @@ const recomputeCharts = (
     return charts;
 };
 
+const getStorageKey = (datasetId: string | null) => {
+    return datasetId ? `vizzy_dashboard_state_${datasetId}` : 'vizzy_dashboard_state_default';
+};
+
+const saveState = (datasetId: string | null, state: any) => {
+    if (!datasetId) return;
+    try {
+        const payload = {
+            active_filters: state.active_filters,
+            chart_overrides: state.chart_overrides,
+            classification_overrides: state.classification_overrides,
+            target_value: state.target_value,
+            selected_domain: state.selected_domain
+        };
+        sessionStorage.setItem(getStorageKey(datasetId), JSON.stringify(payload));
+    } catch (e) {
+        console.error('Error saving dashboard state to sessionStorage:', e);
+    }
+};
+
+const loadState = (datasetId: string | null) => {
+    if (!datasetId) return null;
+    try {
+        const item = sessionStorage.getItem(getStorageKey(datasetId));
+        return item ? JSON.parse(item) : null;
+    } catch (e) {
+        console.error('Error loading dashboard state from sessionStorage:', e);
+        return null;
+    }
+};
+
 export const useFilterStore = create<DashboardState>((set, get) => ({
+    datasetId: null,
     rawData: null,
     chartConfigs: null,
     chartData: null,
@@ -804,17 +837,45 @@ export const useFilterStore = create<DashboardState>((set, get) => ({
     target_value: 'all',
     total_records: 0,
 
-    setDashboardData: (rawData, chartConfigs, initialChartData, totalRows, targetCol) => {
+    setDashboardData: (rawData, chartConfigs, initialChartData, totalRows, targetCol, datasetId) => {
         const state = get();
+        const activeDatasetId = datasetId || state.datasetId;
         const finalTargetCol = targetCol || state.target_column;
 
+        // Load stored overrides/filters if any exist for this dataset
+        const stored = loadState(activeDatasetId);
+        const finalFilters = stored?.active_filters || {};
+        const finalOverrides = stored?.chart_overrides || {};
+        const finalClassOverrides = stored?.classification_overrides || {};
+        const finalTargetVal = stored?.target_value || 'all';
+        const finalDomain = stored?.selected_domain || null;
+
+        const computedChartData = recomputeCharts(
+            rawData || [],
+            chartConfigs || {},
+            finalFilters,
+            finalOverrides,
+            finalTargetCol,
+            finalTargetVal,
+            initialChartData,
+            undefined,
+            totalRows,
+            initialChartData
+        );
+
         set({
+            datasetId: activeDatasetId,
             rawData,
             chartConfigs,
             initialChartData,
-            chartData: initialChartData || state.chartData,
+            chartData: computedChartData,
             target_column: finalTargetCol,
-            total_records: totalRows
+            total_records: totalRows,
+            active_filters: finalFilters,
+            chart_overrides: finalOverrides,
+            classification_overrides: finalClassOverrides,
+            target_value: finalTargetVal,
+            selected_domain: finalDomain
         });
     },
 
@@ -824,63 +885,72 @@ export const useFilterStore = create<DashboardState>((set, get) => ({
 
     setTargetValue: (value) => {
         const state = get();
-        set({
+        const nextChartData = recomputeCharts(
+            state.rawData || [],
+            state.chartConfigs || {},
+            state.active_filters,
+            state.chart_overrides,
+            state.target_column,
+            value,
+            state.chartData,
+            undefined,
+            state.total_records,
+            state.initialChartData
+        );
+        const nextState = {
             target_value: value,
-            chartData: recomputeCharts(
-                state.rawData || [],
-                state.chartConfigs || {},
-                state.active_filters,
-                state.chart_overrides,
-                state.target_column,
-                value,
-                state.chartData,
-                undefined,
-                state.total_records,
-                state.initialChartData
-            )
-        });
+            chartData: nextChartData
+        };
+        set(nextState);
+        saveState(state.datasetId, { ...state, ...nextState });
     },
 
     setFilter: (column, value) => {
         const state = get();
         if (areStringArraysEqual(state.active_filters[column] || [], [value])) return;
         const newFilters = normalizeFilters({ ...state.active_filters, [column]: [value] });
-        set({
+        const nextChartData = recomputeCharts(
+            state.rawData || [],
+            state.chartConfigs || {},
+            newFilters,
+            state.chart_overrides,
+            state.target_column,
+            state.target_value,
+            state.chartData,
+            undefined,
+            state.total_records,
+            state.initialChartData
+        );
+        const nextState = {
             active_filters: newFilters,
-            chartData: recomputeCharts(
-                state.rawData || [],
-                state.chartConfigs || {},
-                newFilters,
-                state.chart_overrides,
-                state.target_column,
-                state.target_value,
-                state.chartData,
-                undefined,
-                state.total_records,
-                state.initialChartData
-            )
-        });
+            chartData: nextChartData
+        };
+        set(nextState);
+        saveState(state.datasetId, { ...state, ...nextState });
     },
 
     setFilterValues: (column, values) => {
         const state = get();
         if (areStringArraysEqual(state.active_filters[column] || [], values || [])) return;
         const newFilters = normalizeFilters({ ...state.active_filters, [column]: values });
-        set({
+        const nextChartData = recomputeCharts(
+            state.rawData || [],
+            state.chartConfigs || {},
+            newFilters,
+            state.chart_overrides,
+            state.target_column,
+            state.target_value,
+            state.chartData,
+            undefined,
+            state.total_records,
+            state.initialChartData
+        );
+        const nextState = {
             active_filters: newFilters,
-            chartData: recomputeCharts(
-                state.rawData || [],
-                state.chartConfigs || {},
-                newFilters,
-                state.chart_overrides,
-                state.target_column,
-                state.target_value,
-                state.chartData,
-                undefined,
-                state.total_records,
-                state.initialChartData
-            )
-        });
+            chartData: nextChartData
+        };
+        set(nextState);
+        saveState(state.datasetId, { ...state, ...nextState });
     },
 
     toggleFilter: (column, value) => {
@@ -888,87 +958,120 @@ export const useFilterStore = create<DashboardState>((set, get) => ({
         const current = state.active_filters[column] || [];
         const next = current.includes(value) ? current.filter(v => v !== value) : [...current, value];
         const newFilters = normalizeFilters({ ...state.active_filters, [column]: next });
-        set({
+        const nextChartData = recomputeCharts(
+            state.rawData || [],
+            state.chartConfigs || {},
+            newFilters,
+            state.chart_overrides,
+            state.target_column,
+            state.target_value,
+            state.chartData,
+            undefined,
+            state.total_records,
+            state.initialChartData
+        );
+        const nextState = {
             active_filters: newFilters,
-            chartData: recomputeCharts(
-                state.rawData || [],
-                state.chartConfigs || {},
-                newFilters,
-                state.chart_overrides,
-                state.target_column,
-                state.target_value,
-                state.chartData,
-                undefined,
-                state.total_records,
-                state.initialChartData
-            )
-        });
+            chartData: nextChartData
+        };
+        set(nextState);
+        saveState(state.datasetId, { ...state, ...nextState });
     },
 
     removeFilter: (column, value) => {
         const state = get();
         const next = (state.active_filters[column] || []).filter(v => v !== value);
         const newFilters = normalizeFilters({ ...state.active_filters, [column]: next });
-        set({
+        const nextChartData = recomputeCharts(
+            state.rawData || [],
+            state.chartConfigs || {},
+            newFilters,
+            state.chart_overrides,
+            state.target_column,
+            state.target_value,
+            state.chartData,
+            undefined,
+            state.total_records,
+            state.initialChartData
+        );
+        const nextState = {
             active_filters: newFilters,
-            chartData: recomputeCharts(
-                state.rawData || [],
-                state.chartConfigs || {},
-                newFilters,
-                state.chart_overrides,
-                state.target_column,
-                state.target_value,
-                state.chartData,
-                undefined,
-                state.total_records,
-                state.initialChartData
-            )
-        });
+            chartData: nextChartData
+        };
+        set(nextState);
+        saveState(state.datasetId, { ...state, ...nextState });
     },
 
     clearFilters: () => {
         const state = get();
-        set({
+        const nextChartData = recomputeCharts(state.rawData || [], state.chartConfigs || {}, {}, state.chart_overrides, state.target_column, state.target_value, state.chartData, undefined, state.total_records, state.initialChartData);
+        const nextState = {
             active_filters: {},
-            chartData: recomputeCharts(state.rawData || [], state.chartConfigs || {}, {}, state.chart_overrides, state.target_column, state.target_value, state.chartData, undefined, state.total_records, state.initialChartData)
-        });
+            chartData: nextChartData
+        };
+        set(nextState);
+        saveState(state.datasetId, { ...state, ...nextState });
     },
 
     setChartOverride: (chartId, override) => {
         const state = get();
         const newOverrides = { ...state.chart_overrides, [chartId]: { ...state.chart_overrides[chartId], ...override } };
-        set({
+        const nextChartData = recomputeCharts(
+            state.rawData || [],
+            state.chartConfigs || {},
+            state.active_filters,
+            newOverrides,
+            state.target_column,
+            state.target_value,
+            state.chartData,
+            chartId,
+            state.total_records,
+            state.initialChartData
+        );
+        const nextState = {
             chart_overrides: newOverrides,
-            chartData: recomputeCharts(
-                state.rawData || [],
-                state.chartConfigs || {},
-                state.active_filters,
-                newOverrides,
-                state.target_column,
-                state.target_value,
-                state.chartData,
-                chartId,
-                state.total_records,
-                state.initialChartData
-            )
+            chartData: nextChartData
+        };
+        set(nextState);
+        saveState(state.datasetId, { ...state, ...nextState });
+    },
+
+    setClassificationOverride: (column, role) => {
+        set((state) => {
+            const nextClassOverrides = { ...state.classification_overrides, [column]: role };
+            const nextState = { classification_overrides: nextClassOverrides };
+            saveState(state.datasetId, { ...state, ...nextState });
+            return nextState;
         });
     },
 
-    setClassificationOverride: (column, role) => set((state) => ({
-        classification_overrides: { ...state.classification_overrides, [column]: role }
-    })),
+    setDomain: (domain) => {
+        const state = get();
+        const nextState = { selected_domain: domain };
+        set(nextState);
+        saveState(state.datasetId, { ...state, ...nextState });
+    },
 
-    setDomain: (domain) => set({ selected_domain: domain }),
-
-    resetState: () => set({
-        rawData: null,
-        chartConfigs: null,
-        chartData: null,
-        active_filters: {},
-        chart_overrides: {},
-        classification_overrides: {},
-        selected_domain: null,
-        target_column: null,
-        target_value: 'all'
-    })
+    resetState: () => {
+        const state = get();
+        if (state.datasetId) {
+            try {
+                sessionStorage.removeItem(getStorageKey(state.datasetId));
+            } catch (e) {
+                console.error(e);
+            }
+        }
+        set({
+            datasetId: null,
+            rawData: null,
+            chartConfigs: null,
+            chartData: null,
+            active_filters: {},
+            chart_overrides: {},
+            classification_overrides: {},
+            selected_domain: null,
+            target_column: null,
+            target_value: 'all'
+        });
+    }
 }));

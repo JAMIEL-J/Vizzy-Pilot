@@ -93,6 +93,7 @@ export interface DashboardAnalytics {
         aggregation?: string;
     }>;
     data_quality?: { column: string; null_pct: number; null_count: number; dtype: string; action: string }[];
+    dsl_layout?: any;
 }
 
 export const analyticsService = {

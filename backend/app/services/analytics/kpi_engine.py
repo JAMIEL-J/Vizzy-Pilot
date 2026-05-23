@@ -50,7 +50,7 @@ class KPI:
 
 def _find_column(df: pd.DataFrame, keywords: List[str], classification: ColumnClassification, search_excluded: bool = False, semantic_map_json: Optional[str] = None) -> Optional[str]:
     """Find a column matching any of the keywords using fuzzy semantic matching or a confirmed semantic map."""
-    all_cols = classification.metrics + classification.dimensions + classification.targets
+    all_cols = classification.metrics + classification.dimensions + classification.targets + classification.dates
     if search_excluded:
         all_cols = all_cols + classification.excluded
 
@@ -906,7 +906,7 @@ def _generate_churn_kpis(df: pd.DataFrame, classification: ColumnClassification,
     
     # Build numeric candidate pool first, then apply strict semantic gates.
     numeric_candidates: List[str] = []
-    for col in (classification.metrics + classification.dimensions):
+    for col in (classification.metrics + classification.dimensions + classification.dates):
         if col in df.columns and _is_effectively_numeric(df[col]):
             numeric_candidates.append(col)
 

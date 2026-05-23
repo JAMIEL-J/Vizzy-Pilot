@@ -17,6 +17,8 @@ from app.services.analytics.column_filter import filter_columns
 from app.services.analytics.kpi_engine import generate_kpis
 from app.services.analytics.chart_recommender import recommend_charts
 
+from app.services.analytics.dsl_layout_generator import generate_dsl_layout
+
 logger = logging.getLogger(__name__)
 
 
@@ -35,33 +37,74 @@ def generate_overview_dashboard(
     # ── 2. Column Classification ──
     classification = filter_columns(df, domain)
 
-    # SEMANTIC OVERRIDE: If user confirmed a semantic map, force-override the heuristics.
-    # This prevents "EXCLUDED" columns from blocking the dashboard if they have a role.
     if semantic_map_json:
         import json
         try:
             s_map = json.loads(semantic_map_json)
-            for col, role in s_map.items():
+            from app.services.semantic_audit import ROLE_TAXONOMY
+            # The saved semantic map is stored as {role: column_name}
+            for role, col in s_map.items():
                 if col not in df.columns:
                     continue
 
-                # Force removal from excluded list
-                if col in classification.excluded:
-                    classification.excluded.remove(col)
+                # Clean from all lists before overriding to prevent duplicates
+                if col in classification.metrics: classification.metrics.remove(col)
+                if col in classification.dimensions: classification.dimensions.remove(col)
+                if col in classification.dates: classification.dates.remove(col)
+                if col in classification.targets: classification.targets.remove(col)
+                if col in classification.excluded: classification.excluded.remove(col)
 
-                # Assign to correct bucket based on role
-                if role in ('revenue', 'cost', 'amount', 'profit'):
-                    if col not in classification.metrics:
-                        classification.metrics.append(col)
-                elif role == 'date':
+                # Look up role info from taxonomy
+                role_lower = role.lower()
+                role_info = ROLE_TAXONOMY.get(role_lower, {})
+                affinity = role_info.get("affinity")
+
+                if affinity == "time_series_x" or role_lower in ('date', 'datetime', 'year_month', 'fiscal_period'):
                     if col not in classification.dates:
                         classification.dates.append(col)
-                elif role in ('category', 'identifier', 'region'):
+                elif affinity in ("measure_y", "gauge_measure") or role_lower in ('metric', 'revenue', 'cost', 'profit', 'quantity', 'amount'):
+                    if col not in classification.metrics:
+                        classification.metrics.append(col)
+                elif affinity == "groupby_x" or role_lower in ('dimension', 'category', 'region'):
                     if col not in classification.dimensions:
                         classification.dimensions.append(col)
-                elif role == 'target':
+                elif role_lower == 'target':
                     if col not in classification.targets:
                         classification.targets.append(col)
+                elif role_lower in ['excluded', 'identifier', 'generic', 'unclassified'] or affinity == 'filter_only':
+                    if col not in classification.excluded:
+                        classification.excluded.append(col)
+
+                # Sync classification.mappings to keep chart recommender templates aligned
+                ROLE_TO_CANONICAL = {
+                    "date": "dim_date",
+                    "datetime": "dim_date",
+                    "year_month": "dim_date",
+                    "fiscal_period": "dim_date",
+                    "revenue": "metric_revenue",
+                    "sales": "metric_revenue",
+                    "profit": "metric_profit",
+                    "quantity": "metric_qty",
+                    "count": "metric_qty",
+                    "geography": "dim_region",
+                    "target": "attr_status"
+                }
+                canonical_key = ROLE_TO_CANONICAL.get(role_lower)
+                if canonical_key:
+                    classification.mappings[canonical_key] = col
+
+                # Domain-aware mapping fallbacks
+                if role_lower == "revenue":
+                    if domain == DomainType.CHURN:
+                        classification.mappings["metric_mrr"] = col
+                    elif domain == DomainType.FINANCE:
+                        classification.mappings["metric_income"] = col
+                    else:
+                        classification.mappings["metric_revenue"] = col
+                elif role_lower == "target":
+                    classification.mappings["attr_status"] = col
+                elif role_lower in ("date", "datetime", "year_month", "fiscal_period"):
+                    classification.mappings["dim_date"] = col
         except Exception as e:
             logger.error(f"Failed to apply semantic override: {e}")
 
@@ -74,25 +117,32 @@ def generate_overview_dashboard(
 
     # ── 3. Domain-Specific KPIs ──
     kpi_dict = generate_kpis(df, domain, classification, semantic_map_json=semantic_map_json)
-    kpi_widgets = _kpis_to_widgets(kpi_dict)
-    logger.info(f"Generated {len(kpi_widgets)} KPIs")
 
     # ── 4. Smart Chart Recommendations ──
-    chart_dict = recommend_charts(df, domain, classification, semantic_map_json=semantic_map_json)
-    chart_widgets = _charts_to_widgets(chart_dict)
-    logger.info(f"Generated {len(chart_widgets)} charts")
+    import json
+    overrides = None
+    if semantic_map_json:
+        try:
+            overrides = json.loads(semantic_map_json)
+        except Exception:
+            pass
+    chart_dict = recommend_charts(df, domain, classification, overrides=overrides)
 
-    # ── 5. Assemble Dashboard ──
-    widgets = kpi_widgets + chart_widgets
+    # ── 5. Assemble DSL Layout Specification ──
+    dsl_layout = generate_dsl_layout(
+        domain=domain.value,
+        classification=classification,
+        kpi_dict=kpi_dict,
+        chart_dict=chart_dict
+    )
+    # Add metadata and orchestrator expected fields
+    dsl_layout["layout"] = "grid"
+    dsl_layout["total_records"] = len(df)
+
+    logger.info(f"Generated Dashboard DSL spec with {len(dsl_layout.get('widgets', []))} widgets")
 
     return {
-        "dashboard": {
-            "layout": "grid",
-            "columns": 12,
-            "domain": domain.value,
-            "total_records": len(df),
-            "widgets": widgets,
-        }
+        "dashboard": dsl_layout
     }
 
 

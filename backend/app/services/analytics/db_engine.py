@@ -25,6 +25,10 @@ class DBEngine:
             os.makedirs(os.path.dirname(self._db_path) or ".", exist_ok=True)
 
         self._write_con = duckdb.connect(database=self._db_path, read_only=False)
+        try:
+            self._write_con.execute("SET enable_progress_bar = false")
+        except Exception as e:
+            logger.debug(f"Could not disable DuckDB progress bar: {e}")
         self._read_con = None
         self.coercion_results: List[ColumnCoercionResult] = []
 

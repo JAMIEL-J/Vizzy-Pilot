@@ -394,9 +394,9 @@ const KPICard = ({ title, value, icon, trend, trend_label, subtitle, cardColor, 
     const finalValue = formatCompactValue(String(value ?? ''));
 
     // Dynamic Font Sizing for long numbers (remaining cases)
-    const valueSizeClass = finalValue.length >= 13
-        ? 'text-2xl'
-        : 'text-3xl sm:text-4xl';
+    const valueSizeClass = finalValue.length >= 10
+        ? 'text-base sm:text-2xl'
+        : 'text-lg sm:text-3xl md:text-4xl';
 
     // Trend logic
     const isPositive = trend !== undefined && trend > 0;
@@ -415,21 +415,21 @@ const KPICard = ({ title, value, icon, trend, trend_label, subtitle, cardColor, 
     const watermarkColor = isLightCard ? 'rgba(17,24,39,0.15)' : 'rgba(255,255,255,0.15)';
 
     return (
-        <div className="rounded-xl p-6 relative overflow-hidden group shadow-xl" style={{ background: cardColor, color: textColor, boxShadow: `0 20px 25px -5px ${cardColor}33, 0 8px 10px -6px ${cardColor}33` }}>
-            <div className="absolute -right-4 -bottom-4 group-hover:scale-110 transition-transform duration-500" style={{ color: watermarkColor }}>
+        <div className="rounded-xl p-3 sm:p-6 relative overflow-hidden group shadow-xl" style={{ background: cardColor, color: textColor, boxShadow: `0 20px 25px -5px ${cardColor}33, 0 8px 10px -6px ${cardColor}33` }}>
+            <div className="hidden sm:block absolute -right-4 -bottom-4 group-hover:scale-110 transition-transform duration-500" style={{ color: watermarkColor }}>
                 {svgNode}
             </div>
             
-            <p className="text-xs uppercase tracking-widest font-bold opacity-80 mb-2 relative z-10 font-['DM_Sans',sans-serif]">
+            <p className="text-[9px] sm:text-xs uppercase tracking-widest font-bold opacity-80 mb-1 sm:mb-2 relative z-10 font-['DM_Sans',sans-serif] truncate">
                 {title}
             </p>
-            <h2 className={`${valueSizeClass} font-black mb-4 relative z-10 font-['DM_Sans',sans-serif] whitespace-nowrap tracking-tight`}>
+            <h2 className={`${valueSizeClass} font-black mb-2 sm:mb-4 relative z-10 font-['DM_Sans',sans-serif] whitespace-nowrap tracking-tight`}>
                 {finalValue}
             </h2>
             
             { badgeTextCleaned && (
-                <div className="relative z-10 flex items-center gap-2 text-xs backdrop-blur w-fit px-2 py-1 rounded-full font-semibold max-w-full font-['Be_Vietnam_Pro',sans-serif]" style={{ background: badgeBg, color: badgeColor }}>
-                    {trend !== undefined && <span className="material-symbols-outlined text-[14px] shrink-0">{trendIcon}</span>}
+                <div className="relative z-10 flex items-center gap-1 text-[8px] sm:text-xs backdrop-blur w-fit px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-full font-semibold max-w-full font-['Be_Vietnam_Pro',sans-serif]" style={{ background: badgeBg, color: badgeColor }}>
+                    {trend !== undefined && <span className="material-symbols-outlined text-[10px] sm:text-[14px] shrink-0">{trendIcon}</span>}
                     <span className="truncate">{badgeTextCleaned}</span>
                 </div>
             )}
@@ -2495,6 +2495,11 @@ export default function UserDashboard() {
         [serverChartOverrides]
     );
 
+    const classificationOverridesSignature = useMemo(
+        () => stableSerialize(classification_overrides || {}),
+        [classification_overrides]
+    );
+
     const triggerQuickChartReact = () => {
         setQuickReactCharts(true);
         if (quickReactResetRef.current) {
@@ -2696,7 +2701,7 @@ export default function UserDashboard() {
         return () => {
             clearTimeout(timer);
         };
-    }, [selectedDatasetId, classification_overrides, selected_domain]);
+    }, [selectedDatasetId, classificationOverridesSignature, selected_domain]);
 
     const buildDashboardCacheKey = () => {
         return stableSerialize({
@@ -2738,8 +2743,9 @@ export default function UserDashboard() {
                             initial[key] = chart.data;
                         });
                     }
-                    setDashboardData(cachedData.raw_data, cachedData.chart_configs, initial, cachedData.total_rows, cachedData.target_column);
+                    setDashboardData(cachedData.raw_data, cachedData.chart_configs, initial, cachedData.total_rows, cachedData.target_column, selectedDatasetId);
                 }
+
                 return;
             }
 
@@ -2755,8 +2761,9 @@ export default function UserDashboard() {
                                 initial[key] = chart.data;
                             });
                         }
-                        setDashboardData(sessionCached.raw_data, sessionCached.chart_configs, initial, sessionCached.total_rows, sessionCached.target_column);
+                        setDashboardData(sessionCached.raw_data, sessionCached.chart_configs, initial, sessionCached.total_rows, sessionCached.target_column, selectedDatasetId);
                     }
+
                     return;
                 }
             }
@@ -2788,7 +2795,7 @@ export default function UserDashboard() {
                         initial[key] = chart.data;
                     });
                 }
-                setDashboardData(data.raw_data, data.chart_configs, initial, data.total_rows, data.target_column);
+                setDashboardData(data.raw_data, data.chart_configs, initial, data.total_rows, data.target_column, selectedDatasetId);
             } else {
                 console.warn('[Hybrid Engine] Missing raw_data or chart_configs. Local filtering disabled.');
             }
@@ -2876,7 +2883,7 @@ export default function UserDashboard() {
         return () => {
             clearTimeout(timer);
         };
-    }, [selectedDatasetId, selected_domain, classification_overrides, normalizedActiveFiltersSignature, serverChartOverridesSignature, target_value]);
+    }, [selectedDatasetId, selected_domain, classificationOverridesSignature, normalizedActiveFiltersSignature, serverChartOverridesSignature, target_value]);
 
     const handleChartFilterClick = (col: string, val: string) => {
         const rawCol = String(col || '').trim();
@@ -3698,8 +3705,9 @@ export default function UserDashboard() {
                         </section>
 
                         <section>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                            <div className="grid grid-cols-3 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-6">
                                  {kpiEntries.map(([key, kpi], idx) => {
+
                                      const streamedKpi = streamedKpis[key];
                                      const resolvedValue = streamedKpi?.data?.value ?? kpi.value;
                                      const resolvedTrend = streamedKpi?.data?.trend ?? kpi.trend;
@@ -3746,8 +3754,8 @@ export default function UserDashboard() {
                                             </div>
 
                                             {/* Section Charts Grid */}
-                                             <div className="grid grid-cols-[repeat(auto-fit,minmax(340px,1fr))] gap-6">
-                                                 {charts.map((chart) => {
+                                            <div className="grid grid-cols-1 md:grid-cols-[repeat(auto-fit,minmax(340px,1fr))] gap-6">
+                                                {charts.map((chart) => {
                                                      const streamedChart = streamedCharts[chart.id];
                                                      const resolvedData = streamedChart?.data ?? chart.data;
                                                      if (!resolvedData && !isLoading) return <ChartSkeleton key={chart.id} isDark={isDark} />;

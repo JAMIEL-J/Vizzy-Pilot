@@ -4,10 +4,14 @@ Column Filter - Classifies and prioritizes columns for analytics.
 Filters out noise (IDs, binary flags) and prioritizes business-relevant columns.
 """
 
+import logging
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional
 import pandas as pd
 from .domain_detector import DomainType
+from .metadata_profiler import profile_dataset
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -481,14 +485,17 @@ def filter_columns(df: pd.DataFrame, domain: DomainType) -> ColumnClassification
         col_norm = col_name.lower().replace('_', '').replace('-', '').replace(' ', '')
         return any(kw.replace('_', '').replace(' ', '') in col_norm for kw in _domain_attr_kws)
     
+    metadata = profile_dataset(df_typed)
     for col in df_typed.columns:
+        meta = metadata[col]
         # Check exclusions first — but SKIP for domain-protected columns
-        if _is_identifier_column(df_typed, col) and not _is_domain_protected(col):
-            classification.excluded.append(col)
-            continue
+        if not _is_domain_protected(col):
+            if "identity:surrogate" in meta["semantic_tags"] or _is_identifier_column(df_typed, col):
+                classification.excluded.append(col)
+                continue
         
         # Check dates
-        if _is_date_column(df_typed, col):
+        if meta["logical_type"] == "temporal" or "temporal:period" in meta["semantic_tags"] or _is_date_column(df_typed, col):
             classification.dates.append(col)
             continue
         
@@ -498,23 +505,25 @@ def filter_columns(df: pd.DataFrame, domain: DomainType) -> ColumnClassification
             continue
         
         # Classify remaining columns
-        if df_typed[col].dtype in ['int64', 'float64', 'int32', 'float32']:
-            # Numeric column
-            col_norm = col.lower().replace('_', '').replace('-', '').replace(' ', '')
-            is_noise_metric = any(p.replace('_', '') in col_norm for p in NOISE_METRIC_PATTERNS)
-            if _is_binary_flag(df_typed, col):
+        if meta["logical_type"] in ["numeric", "boolean"] or df_typed[col].dtype in ['int64', 'float64', 'int32', 'float32']:
+            if meta["logical_type"] == "boolean" or _is_binary_flag(df_typed, col):
                 classification.excluded.append(col)  # Exclude binary flags from metrics
-            elif is_noise_metric:
-                classification.excluded.append(col)  # Room/Bed numbers are not meaningful metrics
             else:
-                classification.metrics.append(col)
+                col_norm = col.lower().replace('_', '').replace('-', '').replace(' ', '')
+                is_noise_metric = any(p.replace('_', '') in col_norm for p in NOISE_METRIC_PATTERNS)
+                if is_noise_metric:
+                    classification.excluded.append(col)
+                else:
+                    classification.metrics.append(col)
+                    if "financial:monetary" in meta["semantic_tags"]:
+                        classification.currency_columns.append(col)
         else:
             # Categorical column
-            unique_count = df_typed[col].nunique()
+            unique_count = meta["unique_count"]
+            cardinality = meta["cardinality"]
             col_lower = col.lower().replace('_', '').replace('-', '')
             
             # Special handling: Use semantic matching for product/geo/customer detection
-            # This handles fuzzy names like "Prod_Nm", "CustCity", "RegionCode"
             try:
                 from .semantic_resolver import semantic_similarity
 
@@ -529,7 +538,7 @@ def filter_columns(df: pd.DataFrame, domain: DomainType) -> ColumnClassification
             is_important_dim = _semantic_match(product_keywords, col)
 
             geo_keywords = ['country', 'state', 'city', 'region', 'province', 'territory', 'district', 'location', 'market', 'zone']
-            is_geo_col = _semantic_match(geo_keywords, col, threshold=0.8)
+            is_geo_col = _semantic_match(geo_keywords, col, threshold=0.8) or "geo:region" in meta["semantic_tags"] or "geo:city" in meta["semantic_tags"] or "geo:country" in meta["semantic_tags"]
 
             customer_keywords = ['customername', 'customer_name', 'firstname', 'lastname', 'clientname']
             is_customer_name = _semantic_match(customer_keywords, col)
@@ -541,9 +550,6 @@ def filter_columns(df: pd.DataFrame, domain: DomainType) -> ColumnClassification
                 if key.startswith('attr_'):
                     domain_kws.extend(kws)
             is_domain_dim = _semantic_match(domain_kws, col) if domain_kws else False
-            
-            unique_count = df_typed[col].nunique()
-            cardinality = unique_count / len(df_typed) if len(df_typed) > 0 else 0
 
             if (is_important_dim and domain == DomainType.SALES) or is_domain_dim:
                 # Force include important business dimensions for the detected domain

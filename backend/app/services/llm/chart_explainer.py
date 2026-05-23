@@ -362,7 +362,7 @@ def _generate_fallback_explanation(
                 value = chart_data.get("data", {}).get("value", 0)
                 
             label = chart_data.get("label", chart_data.get("title", "Metric"))
-            summary = f"KPI for {label}"
+            summary = f"KPI for {label}: {_format_number_value(value, currency_symbol)}"
             explanation = f"The {label} is currently **{_format_number_value(value, currency_symbol)}**."
             key_insight = f"Current status: {_format_number_value(value, currency_symbol)}"
             

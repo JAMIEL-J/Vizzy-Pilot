@@ -1711,6 +1711,22 @@ def _generate_churn_charts(df, classification):
     """
     charts = []
     target_col = classification.targets[0] if classification.targets else None
+
+    # Fallback: discover churn target from data when classification missed it.
+    # This catches numeric 0/1 churn columns that column_filter may have
+    # classified as metrics or binary flags instead of targets.
+    if not target_col:
+        churn_target_keywords = [
+            'churn', 'churned', 'exited', 'attrition', 'attrited',
+            'left', 'default', 'defaulted', 'complain',
+        ]
+        for col in df.columns:
+            col_clean = col.lower().replace('_', '').replace('-', '').replace(' ', '')
+            if any(kw in col_clean for kw in churn_target_keywords):
+                if df[col].nunique() <= 5:
+                    target_col = col
+                    logger.info('[CHURN TARGET FALLBACK] Using %r as target (discovered from data)', col)
+                    break
     if not target_col:
         return charts
 
@@ -2147,7 +2163,14 @@ def _generate_churn_charts(df, classification):
             ))
 
     # 14. Time trend OR Value at Risk by another dimension
-    if classification.dates and primary_value_metric:
+    # Guard: Only generate trend charts when we have a TRUE financial metric,
+    # not lifecycle columns like tenure/age which produce misleading trend lines.
+    _has_valid_trend_metric = (
+        classification.dates
+        and primary_value_metric
+        and not _is_lifecycle(primary_value_metric)
+    )
+    if _has_valid_trend_metric:
         date_col = classification.dates[0]
         data = _get_time_trend(
             df,
@@ -4549,9 +4572,32 @@ def _generate_templated_charts(df: pd.DataFrame, classification: ColumnClassific
 
     # --- 2. TEMPORAL TREND ---
     date_col = maps.get('dim_date')
+    # Guard: Only generate trend charts if dim_date is a TRUE temporal column.
+    # Prevents lifecycle metrics (tenure, age, duration) from being misused as time axes.
     if date_col:
+        _non_temporal_keywords = (
+            'tenure', 'age', 'duration', 'months', 'years', 'days', 'experience',
+            'vintage', 'seniority', 'totalworkingyears', 'yearsatcompany', 'accountage',
+        )
+        date_col_clean = date_col.lower().replace('_', '').replace('-', '').replace(' ', '')
+        is_true_date = not any(kw in date_col_clean for kw in _non_temporal_keywords)
+        if not is_true_date:
+            logger.debug('[TEMPLATE GUARD] Skipping trend: dim_date=%r looks like a lifecycle metric', date_col)
+            date_col = None
+
+    if date_col:
+        # Only trend metrics that represent meaningful time-series values,
+        # not lifecycle/tenure columns that produce flat/misleading trend lines.
         metrics = [v for k, v in maps.items() if k.startswith('metric_')][:2]
-        for metric in metrics:
+        trend_eligible = []
+        for m in metrics:
+            m_clean = m.lower().replace('_', '').replace('-', '').replace(' ', '')
+            if any(kw in m_clean for kw in _non_temporal_keywords):
+                logger.debug('[TEMPLATE GUARD] Skipping trend metric %r (lifecycle/tenure)', m)
+                continue
+            trend_eligible.append(m)
+
+        for metric in trend_eligible:
             if any(metric == c.metric and c.chart_type == "area_bounds" for c in charts): continue
             data = _get_time_trend(
                 df,
