@@ -1,4 +1,5 @@
 import { apiClient as api } from '../lib/api/client';
+import { AxiosError } from 'axios';
 
 export type RiskLevel = 'low' | 'medium' | 'high';
 
@@ -48,11 +49,36 @@ export interface CleaningPlan {
     is_active: boolean;
 }
 
+const getErrorDetail = (error: unknown): string => {
+    if (!(error instanceof AxiosError)) return '';
+    const detail = error.response?.data?.detail;
+    if (typeof detail === 'string') return detail;
+    if (detail && typeof detail === 'object') return JSON.stringify(detail);
+    return '';
+};
+
+const isExistingInspectionConflict = (error: unknown): boolean => {
+    const detail = getErrorDetail(error).toLowerCase();
+    return (
+        error instanceof AxiosError &&
+        error.response?.status === 409 &&
+        detail.includes('active inspection report already exists')
+    );
+};
+
 export const cleaningService = {
     // Run a new inspection (re-scan)
     runInspection: async (versionId: string): Promise<InspectionReport> => {
-        const response = await api.post<InspectionReport>(`/versions/${versionId}/inspection`);
-        return response.data;
+        try {
+            const response = await api.post<InspectionReport>(`/versions/${versionId}/inspection`);
+            return response.data;
+        } catch (error) {
+            if (isExistingInspectionConflict(error)) {
+                const response = await api.get<InspectionReport>(`/versions/${versionId}/inspection`);
+                return response.data;
+            }
+            throw error;
+        }
     },
 
     // Get existing inspection report

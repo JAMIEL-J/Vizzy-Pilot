@@ -1,9 +1,9 @@
-from typing import Optional, Dict, Any
+from typing import Optional
 from uuid import UUID
-import pandas as pd
 
 from app.services.inspection_execution.inspector import run_inspection as execute_inspection
 from app.services.cleaning_execution.recommendations import generate_recommendations
+from app.services.ingestion_execution.file_loader import load_from_path
 from app.models.inspection_report import RiskLevel
 
 from sqlmodel import Session, select
@@ -62,10 +62,7 @@ def create_inspection_report(
     ).first()
 
     if existing:
-        raise InvalidOperation(
-            operation="create_inspection_report",
-            reason="An active inspection report already exists for this dataset version",
-        )
+        return existing
 
     report = InspectionReport(
         dataset_version_id=dataset_version_id,
@@ -140,10 +137,14 @@ def run_inspection(
 
     # 3. Load Data
     try:
-        # TODO: Handle remote storage references if needed. Assuming local path.
-        df = pd.read_csv(version.source_reference)
+        df = load_from_path(
+            file_path=version.source_reference,
+            filename=version.source_reference,
+        )
     except Exception as e:
-        raise InvalidOperation("run_inspection", f"Failed to load dataset file: {str(e)}")
+        details = getattr(e, "details", None)
+        message = getattr(e, "message", str(e))
+        raise InvalidOperation("run_inspection", f"Failed to load dataset file: {message}", details=details)
 
     # 4. Run Inspector
     try:

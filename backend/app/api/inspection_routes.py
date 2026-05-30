@@ -70,7 +70,10 @@ def run_inspection(
         raise HTTPException(status_code=403, detail=e.message)
 
     except InvalidOperation as e:
-        raise HTTPException(status_code=409, detail=e.message)
+        detail = e.message
+        if e.details:
+            detail = f"{detail}: {e.details}"
+        raise HTTPException(status_code=409, detail=detail)
 
 
 @router.get(

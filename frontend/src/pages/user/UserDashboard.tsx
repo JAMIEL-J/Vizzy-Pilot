@@ -18,6 +18,9 @@ import {
 import { TreemapController, TreemapElement } from 'chartjs-chart-treemap';
 import { Bar, Line, Pie, Scatter, Radar, Bubble, PolarArea, Chart as ReactChart } from 'react-chartjs-2';
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/layout/TopNav';
+import { Panel, PanelHeader, Pill, BtnSecondary, BtnPrimary, BtnGhost } from '@/components/ui/primitive';
+import { GitCompare, RefreshCw, Wand2 } from 'lucide-react';
 import { VIZZY_THEME } from '../../theme/tokens';
 import { toast } from 'react-hot-toast';
 
@@ -414,25 +417,27 @@ const KPICard = ({ title, value, icon, trend, trend_label, subtitle, cardColor, 
     // Set explicit watermark color to ensure contrast
     const watermarkColor = isLightCard ? 'rgba(17,24,39,0.15)' : 'rgba(255,255,255,0.15)';
 
+    const trendTone = isPositive ? 'success' : isNegative ? 'danger' : 'default';
+    const caption = trend_label || subtitle || (trend !== undefined ? 'vs last month' : '');
+
     return (
-        <div className="rounded-xl p-3 sm:p-6 relative overflow-hidden group shadow-xl" style={{ background: cardColor, color: textColor, boxShadow: `0 20px 25px -5px ${cardColor}33, 0 8px 10px -6px ${cardColor}33` }}>
-            <div className="hidden sm:block absolute -right-4 -bottom-4 group-hover:scale-110 transition-transform duration-500" style={{ color: watermarkColor }}>
-                {svgNode}
+        <div className="panel group relative overflow-hidden p-4 transition hover:bg-surface">
+            <div className="absolute inset-x-0 top-0 h-0.5" style={{ background: cardColor }} />
+            <div className="flex items-center justify-between">
+                <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                    {title}
+                </span>
+                {trend !== undefined && (
+                    <Pill tone={trendTone}>
+                        <span className="material-symbols-outlined text-[12px]">{trendIcon}</span>
+                        {trendText || '0%'}
+                    </Pill>
+                )}
             </div>
-            
-            <p className="text-[9px] sm:text-xs uppercase tracking-widest font-bold opacity-80 mb-1 sm:mb-2 relative z-10 font-['DM_Sans',sans-serif] truncate">
-                {title}
-            </p>
-            <h2 className={`${valueSizeClass} font-black mb-2 sm:mb-4 relative z-10 font-['DM_Sans',sans-serif] whitespace-nowrap tracking-tight`}>
-                {finalValue}
-            </h2>
-            
-            { badgeTextCleaned && (
-                <div className="relative z-10 flex items-center gap-1 text-[8px] sm:text-xs backdrop-blur w-fit px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-full font-semibold max-w-full font-['Be_Vietnam_Pro',sans-serif]" style={{ background: badgeBg, color: badgeColor }}>
-                    {trend !== undefined && <span className="material-symbols-outlined text-[10px] sm:text-[14px] shrink-0">{trendIcon}</span>}
-                    <span className="truncate">{badgeTextCleaned}</span>
-                </div>
-            )}
+            <div className="mt-2 flex items-end justify-between gap-3">
+                <span className="num text-display text-[26px] font-semibold">{finalValue}</span>
+                {caption && <span className="text-[10.5px] text-muted-foreground">{caption}</span>}
+            </div>
         </div>
     );
 };
