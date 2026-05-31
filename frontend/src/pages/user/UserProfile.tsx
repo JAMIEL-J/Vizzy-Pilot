@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { userApi, type UserProfileStats } from '../../lib/api/user';
 import { X, Sparkles, Trophy, MessageSquare, Database, HardDrive, Zap } from "lucide-react";
 import { PageHeader } from '../../components/layout/TopNav';
-import { Panel, PanelHeader, Pill, BtnSecondary } from '../../components/ui/primitive';
+import { Panel, PanelHeader, Pill, BtnSecondary, BtnPrimary } from '../../components/ui/primitive';
 import {
   Chart as ChartJS,
   CategoryScale,

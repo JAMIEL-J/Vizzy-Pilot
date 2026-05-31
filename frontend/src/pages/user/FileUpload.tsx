@@ -16,9 +16,11 @@ export default function FileUpload() {
     const [progress, setProgress] = useState(0);
     const [showSchema, setShowSchema] = useState(false);
     const [isDragging, setIsDragging] = useState(false);
+    const [isUploading, setIsUploading] = useState(false);
     const [uploadPhase, setUploadPhase] = useState<UploadPhase>("idle");
     const [statusMessage, setStatusMessage] = useState("");
     const [failureMessage, setFailureMessage] = useState("");
+    const [pollCount, setPollCount] = useState(0);
     const [uploadedDatasetId, setUploadedDatasetId] = useState<string | null>(null);
     const [latestVersionId, setLatestVersionId] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -41,6 +43,7 @@ export default function FileUpload() {
         setUploadPhase("idle");
         setStatusMessage("");
         setFailureMessage("");
+        setPollCount(0);
         setUploadedDatasetId(null);
         setLatestVersionId(null);
         if (fileInputRef.current) {
@@ -85,9 +88,11 @@ export default function FileUpload() {
     const pollDuckdbReadiness = async (datasetId: string) => {
         setUploadPhase("building");
         setStatusMessage("Preparing dataset for analytics...");
+        setPollCount(0);
 
         for (let attempt = 1; attempt <= DUCKDB_MAX_POLLS; attempt++) {
             if (!isMountedRef.current) return;
+            setPollCount(attempt);
 
             try {
                 const status = await datasetService.getDuckdbStatus(datasetId);
@@ -161,6 +166,8 @@ export default function FileUpload() {
         setFailureMessage("");
         setShowSchema(false);
         setUploadedDatasetId(null);
+        setPollCount(0);
+        setIsUploading(true);
         setProgress(10);
         let progressInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -179,6 +186,7 @@ export default function FileUpload() {
             if (progressInterval) {
                 clearInterval(progressInterval);
             }
+            setIsUploading(false);
             setProgress(92);
             await pollDuckdbReadiness(dataset.id);
         } catch (error) {
@@ -195,6 +203,7 @@ export default function FileUpload() {
                     : "Upload failed. Please retry the upload. If this persists, check file format or size."
             );
             setStatusMessage("Upload failed.");
+            setIsUploading(false);
             setProgress(0);
         }
     };
