@@ -1,3 +1,4 @@
+import React from "react";
 // @ts-nocheck
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useTheme } from '../../context/ThemeContext';
@@ -7,7 +8,6 @@ import { useDashboardStream } from '../../hooks/useDashboardStream';
 import { HeaderSkeleton, KPISkeleton, ChartSkeleton } from '../../components/dashboard/DashboardSkeletons';
 import VersionDiffModal from '../../components/dashboard/VersionDiffModal';
 import GeoMapCard from './GeoMapCard';
-import SettingsDropdown from '../../components/common/SettingsDropdown';
 import { useFilterStore } from '../../store/useFilterStore';
 import RemapModal from '../../components/dashboard/RemapModal';
 import { ColumnClassificationPanel } from '../../components/dashboard/ColumnClassificationPanel';
@@ -17,10 +17,9 @@ import {
 } from 'chart.js';
 import { TreemapController, TreemapElement } from 'chartjs-chart-treemap';
 import { Bar, Line, Pie, Scatter, Radar, Bubble, PolarArea, Chart as ReactChart } from 'react-chartjs-2';
-import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/layout/TopNav';
-import { Panel, PanelHeader, Pill, BtnSecondary, BtnPrimary, BtnGhost } from '@/components/ui/primitive';
-import { GitCompare, RefreshCw, Wand2 } from 'lucide-react';
+import { Panel, PanelHeader, Pill, BtnSecondary, BtnPrimary, BtnGhost, BtnAccent } from '@/components/ui/primitive';
+import { GitCompare, RefreshCw, Wand2, Sparkles, Eye, Download, TrendingUp, TrendingDown, AlertCircle, X } from 'lucide-react';
 import { VIZZY_THEME } from '../../theme/tokens';
 import { toast } from 'react-hot-toast';
 
@@ -177,7 +176,7 @@ const setSessionCachedAnalytics = (cacheKey: string, value: DashboardAnalytics) 
     }
 };
 
-// ─── Color Palettes ──────────────────────────────────────────────────────────
+// â”€â”€â”€ Color Palettes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const CHART_COLORS = ['#f59e0b', '#6366f1', '#10b981', '#f43f5e', '#14b8a6', '#8b5cf6', '#0ea5e9', '#ea580c'];
 const KPI_CARD_COLORS = [
@@ -195,50 +194,53 @@ const KPI_CARD_COLORS = [
 
 // Legacy SVG watermarks removed. Using Material Symbols instead.
 
-// ─── Dark Tooltip ─────────────────────────────────────────────────────────────
+// â”€â”€â”€ Dark Tooltip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const ThemedTooltip = ({ active, payload, label, formatter, chartTitle, valueLabel, formatType }: any) => {
     if (!active || !payload?.length) return null;
 
     const fp = payload[0]?.payload;
+
+    const isCurrencyLabel = (text: string) => {
+        const lower = String(text || '').toLowerCase();
+        if (lower.startsWith('usd')) return true;
+        if (formatType === 'currency') return true;
+        return ['revenue', 'cost', 'costs', 'spend', 'budget', 'income', 'sales', 'profit', 'payment',
+                'charge', 'charges', 'price', 'amount', 'roi', 'roas',
+                'salary', 'wage', 'compensation', 'payroll',
+                'daily rate', 'hourly rate', 'monthly rate', 'monthly income',
+        ].some((kw) => lower.includes(kw));
+    };
+
+    const isPercentLabel = (text: string) => {
+        const lower = String(text || '').toLowerCase();
+        if (formatType === 'currency' || lower.startsWith('usd')) return false;
+        return ['percent', 'percentage', 'pct', 'ctr', 'cvr', 'ratio', 'margin'].some((kw) => lower.includes(kw))
+            || (lower.includes('rate') && !['daily', 'hourly', 'monthly', 'annual'].some(p => lower.includes(p)));
+    };
+
+    const isCountLabel = (text: string) => {
+        const lower = String(text || '').toLowerCase();
+        return ['click', 'count', 'record', 'records', 'orders', 'order', 'customers', 'employees',
+                'units', 'qty', 'quantity', 'volume', 'visits', 'sessions', 'impressions', 'views',
+            ].some((kw) => lower.includes(kw));
+    };
+
+    const fmtS = (v: number, lbl: string) => {
+        if (formatter) return formatter(v, lbl);
+        const lblLower = String(lbl || '').toLowerCase();
+        const isTimeVariant = ['tenure', 'age', 'duration', 'months', 'years', 'days', 'miles', 'sessions', 'rating', 'hours'].some(k => lblLower.includes(k));
+        const isPct = isPercentLabel(lbl) || String(lbl).includes('%') || (formatType === 'percentage' && !isCountLabel(lbl));
+        const isCur = !isPct && (isCurrencyLabel(lbl) || (formatType === 'currency' && !isCountLabel(lbl) && !isTimeVariant));
+
+        if (isCur) return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }).format(v);
+        if (isPct) return `${v.toLocaleString(undefined, { maximumFractionDigits: 1 })}%`;
+        if (isTimeVariant) return Math.round(v).toLocaleString();
+        return Number.isInteger(v) ? v.toLocaleString() : v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    };
+
+    // Paired x/y tooltip (scatter-like)
     if (fp?.xLabel && fp?.yLabel) {
-        const isCurrencyLabel = (text: string) => {
-            const lower = String(text || '').toLowerCase();
-            if (lower.startsWith('usd')) return true;
-            if (formatType === 'currency') return true;
-            return ['revenue', 'cost', 'costs', 'spend', 'budget', 'income', 'sales', 'profit', 'payment',
-                    'charge', 'charges', 'price', 'amount', 'roi', 'roas',
-                    'salary', 'wage', 'compensation', 'payroll',
-                    'daily rate', 'hourly rate', 'monthly rate', 'monthly income',
-            ].some((kw) => lower.includes(kw));
-        };
-
-        const isPercentLabel = (text: string) => {
-            const lower = String(text || '').toLowerCase();
-            if (formatType === 'currency' || lower.startsWith('usd')) return false;
-            return ['percent', 'percentage', 'pct', 'ctr', 'cvr', 'ratio', 'margin'].some((kw) => lower.includes(kw))
-                || (lower.includes('rate') && !['daily', 'hourly', 'monthly', 'annual'].some(p => lower.includes(p)));
-        };
-
-        const isCountLabel = (text: string) => {
-            const lower = String(text || '').toLowerCase();
-            return ['click', 'count', 'record', 'records', 'orders', 'order', 'customers', 'employees',
-                    'units', 'qty', 'quantity', 'volume', 'visits', 'sessions', 'impressions', 'views',
-            ].some((kw) => lower.includes(kw));
-        };
-
-        const fmtS = (v: number, lbl: string) => {
-            if (formatter) return formatter(v, lbl);
-            const lblLower = lbl.toLowerCase();
-            const isTimeVariant = ['tenure', 'age', 'duration', 'months', 'years', 'days', 'miles', 'sessions', 'rating', 'hours'].some(k => lblLower.includes(k));
-            const isPct = isPercentLabel(lbl) || lbl.includes('%') || (formatType === 'percentage' && !isCountLabel(lbl));
-            const isCur = !isPct && (isCurrencyLabel(lbl) || (formatType === 'currency' && !isCountLabel(lbl) && !isTimeVariant));
-
-            if (isCur) return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }).format(v);
-            if (isPct) return `${v.toLocaleString(undefined, { maximumFractionDigits: 1 })}%`;
-            if (isTimeVariant) return Math.round(v).toLocaleString();
-            return Number.isInteger(v) ? v.toLocaleString() : v.toLocaleString(undefined, { maximumFractionDigits: 2 });
-        };
         return (
             <div className="rounded-sm px-4 py-3 border border-border-main backdrop-blur-md min-w-[160px] bg-bg-card/95 dark:bg-black/95 shadow-xl text-themed-main font-serif tracking-wide z-[9999]">
                 {chartTitle && <p className="text-[10px] uppercase font-bold tracking-widest mb-2 pb-2 border-b border-border-main opacity-70 leading-tight">{chartTitle}</p>}
@@ -246,63 +248,58 @@ const ThemedTooltip = ({ active, payload, label, formatter, chartTitle, valueLab
                 <div className="space-y-1.5">
                     <p className="text-sm flex items-center justify-between gap-4">
                         <span className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-sm inline-block" style={{ backgroundColor: VIZZY_THEME.primary }} /><span className="opacity-70 text-[10px] tracking-widest uppercase">{fp.xLabel}:</span></span>
-                        <span className="font-bold text-primary">{fmtS(fp.x, fp.xLabel)}</span>
+                        <span className="font-bold text-primary">{fmtS(Number(fp.x), fp.xLabel)}</span>
                     </p>
                     <p className="text-sm flex items-center justify-between gap-4">
                         <span className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-sm inline-block" style={{ backgroundColor: VIZZY_THEME.secondary }} /><span className="opacity-70 text-[10px] tracking-widest uppercase">{fp.yLabel}:</span></span>
-                        <span className="font-bold text-primary">{fmtS(fp.y, fp.yLabel)}</span>
+                        <span className="font-bold text-primary">{fmtS(Number(fp.y), fp.yLabel)}</span>
                     </p>
                 </div>
             </div>
         );
     }
 
-    let metricName = "Value";
-    let dimensionName = "Category";
+    // Generic payload
+    let metricName = 'Value';
+    let dimensionName = 'Category';
 
-    // If backend provided an explicit value_label (e.g. "Orders", "Customers"), use it
+    const firstRow = payload?.[0]?.payload || {};
+    const hasOrderId = 'order_id' in firstRow || 'orderid' in firstRow || 'order_no' in firstRow;
+    const hasCustomerId = 'customer_id' in firstRow || 'customerid' in firstRow;
+
     if (valueLabel) {
         const lowerValueLabel = String(valueLabel).toLowerCase().trim();
         const lowerTitle = String(chartTitle || '').toLowerCase();
         metricName = lowerValueLabel === 'days' && lowerTitle.includes('age') ? 'Age' : valueLabel;
+        if (String(metricName).toLowerCase().includes('count')) {
+            if (hasOrderId) metricName = 'Order Count';
+            else if (hasCustomerId) metricName = 'Customer Count';
+        }
     }
 
     if (chartTitle) {
-        const parts = chartTitle.split(/ by | per /i);
+        const parts = String(chartTitle).split(/ by | per /i);
         if (parts.length === 2) {
             if (!valueLabel) metricName = parts[0].trim();
             dimensionName = parts[1].trim();
         } else {
-            const titleLower = chartTitle.toLowerCase();
-            // Extract dimension from title patterns like "State Breakdown", "City Distribution"
-            const extractDim = (suffix: RegExp) => chartTitle.replace(suffix, '').trim() || dimensionName;
-
-            if (titleLower.includes('breakdown')) {
-                dimensionName = extractDim(/ breakdown/i);
-            } else if (titleLower.includes('distribution')) {
-                dimensionName = extractDim(/ distribution/i);
-            } else if (titleLower.includes('overview')) {
-                dimensionName = extractDim(/ overview/i);
-            } else {
-                if (!valueLabel) metricName = chartTitle;
-            }
+            const titleLower = String(chartTitle).toLowerCase();
+            const extractDim = (suffix: RegExp) => String(chartTitle).replace(suffix, '').trim() || dimensionName;
+            if (titleLower.includes('breakdown')) dimensionName = extractDim(/ breakdown/i);
+            else if (titleLower.includes('distribution')) dimensionName = extractDim(/ distribution/i);
+            else if (titleLower.includes('overview')) dimensionName = extractDim(/ overview/i);
+            else if (!valueLabel) metricName = chartTitle;
         }
     }
 
-    // Pie/Donut charts do not pass `label` to Tooltip, and they set payload[0].name to the slice name (e.g. "California")
     let displayLabel = label;
     let displayPayload = payload;
-
     if (!displayLabel && payload && payload.length === 1 && typeof payload[0].name === 'string' && payload[0].name !== 'value') {
         displayLabel = payload[0].name;
         displayPayload = [{ ...payload[0], name: metricName }];
     } else if (payload) {
-        displayPayload = payload.map((p: any) => ({
-            ...p,
-            name: (p.name === 'value' || !p.name) ? metricName : p.name
-        }));
+        displayPayload = payload.map((p: any) => ({ ...p, name: (p.name === 'value' || !p.name) ? metricName : p.name }));
     }
-
 
     return (
         <div className="rounded-sm px-4 py-3 border border-border-main backdrop-blur-md min-w-[160px] bg-bg-card/95 dark:bg-black/95 shadow-xl text-themed-main z-[9999]" style={{ fontFamily: '"Be Vietnam Pro", sans-serif' }}>
@@ -316,31 +313,24 @@ const ThemedTooltip = ({ active, payload, label, formatter, chartTitle, valueLab
             )}
 
             <div className="flex flex-col gap-2">
-                {displayPayload.map((p: any, i: number) => {
-                    return (
-                        <div key={i} className="flex items-center justify-between gap-6">
-                            <div className="flex items-center gap-2">
-                                <span className="w-1.5 h-1.5 rounded-sm inline-block shadow-[0_0_5px_currentColor]" style={{ background: p.color || p.fill || CHART_COLORS[0] }} />
-                                <span className="text-[10px] tracking-widest uppercase opacity-70 whitespace-nowrap">{p.name}:</span>
-                            </div>
-                            <span className="text-sm font-bold tabular-nums text-themed-main group-hover:text-primary transition-colors">
-                                {formatter
-                                    ? formatter(p.value, p.name)
-                                    : typeof p.value === 'number'
-                                        ? p.value.toLocaleString(undefined, { maximumFractionDigits: 2 })
-                                        : p.value}
-                            </span>
+                {displayPayload.map((p: any, i: number) => (
+                    <div key={i} className="flex items-center justify-between gap-6">
+                        <div className="flex items-center gap-2">
+                            <span className="w-1.5 h-1.5 rounded-sm inline-block shadow-[0_0_5px_currentColor]" style={{ background: p.color || p.fill || CHART_COLORS[0] }} />
+                            <span className="text-[10px] tracking-widest uppercase opacity-70 whitespace-nowrap">{p.name}:</span>
                         </div>
-                    );
-                })}
+                        <span className="text-sm font-bold tabular-nums text-themed-main group-hover:text-primary transition-colors">
+                            {formatter ? formatter(p.value, p.name) : (typeof p.value === 'number' ? p.value.toLocaleString(undefined, { maximumFractionDigits: 2 }) : p.value)}
+                        </span>
+                    </div>
+                ))}
             </div>
         </div>
     );
 };
 
-// ─── KPI Card ─────────────────────────────────────────────────────────────────
 
-const KPICard = ({ title, value, icon, trend, trend_label, subtitle, cardColor, index = 0 }: { title: string; value: string; icon?: string; trend?: number; trend_label?: string; subtitle?: string; cardColor: string, index?: number }) => {
+const KPICard = ({ title, value, icon, trend, trend_label, subtitle, cardColor, index = 0, history }: { title: string; value: string; icon?: string; trend?: number; trend_label?: string; subtitle?: string; cardColor?: string, index?: number, history?: number[] }) => {
     // Map backend icons instantly to SVG nodes to guarantee rendering rather than relying on Web Fonts
     const getSvgIcon = (i?: string, idx = 0) => {
         const icons = [
@@ -359,6 +349,7 @@ const KPICard = ({ title, value, icon, trend, trend_label, subtitle, cardColor, 
     };
     
     const svgNode = getSvgIcon(icon, index);
+
 
     // Compact KPI values by magnitude so cards stay readable on any dataset.
     const formatCompactValue = (valStr: string) => {
@@ -410,7 +401,8 @@ const KPICard = ({ title, value, icon, trend, trend_label, subtitle, cardColor, 
     // Remove the unicode arrows if backend sends them since we have our own Material Symbol font icon now
     const badgeTextCleaned = (trendText ? `${trendText} ${trendCaption}` : trendCaption).replace(/^[⤵⤴]\s*/, '').trim();
 
-    const isLightCard = cardColor.toLowerCase() === '#f8a010';
+    const safeCardColor = cardColor || '#6366f1';
+    const isLightCard = safeCardColor.toLowerCase() === '#f8a010';
     const textColor = isLightCard ? '#111827' : '#ffffff';
     const badgeBg = isLightCard ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)';
     const badgeColor = isLightCard ? '#111827' : '#ffffff';
@@ -422,7 +414,7 @@ const KPICard = ({ title, value, icon, trend, trend_label, subtitle, cardColor, 
 
     return (
         <div className="panel group relative overflow-hidden p-4 transition hover:bg-surface">
-            <div className="absolute inset-x-0 top-0 h-0.5" style={{ background: cardColor }} />
+            <div className="absolute inset-x-0 top-0 h-0.5" style={{ background: safeCardColor }} />
             <div className="flex items-center justify-between">
                 <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
                     {title}
@@ -435,11 +427,17 @@ const KPICard = ({ title, value, icon, trend, trend_label, subtitle, cardColor, 
                 )}
             </div>
             <div className="mt-2 flex items-end justify-between gap-3">
-                <span className="num text-display text-[26px] font-semibold">{finalValue}</span>
-                {caption && <span className="text-[10.5px] text-muted-foreground">{caption}</span>}
+                <div className="flex flex-col">
+                    <span className={`num text-display font-semibold leading-none ${valueSizeClass}`}>{finalValue}</span>
+                    {caption && <span className="text-[10px] text-muted-foreground mt-1">{caption}</span>}
+                </div>
+                <div className="opacity-80 group-hover:opacity-100 transition-opacity">
+                    <Sparkline data={history || []} color={safeCardColor} />
+                </div>
             </div>
         </div>
     );
+
 };
 
 // ─── Chart Card Wrapper ───────────────────────────────────────────────────────
@@ -617,8 +615,8 @@ const ChartRenderer = ({
     const axisProps = { stroke: chartColors.axis, fontSize: 10, tickLine: false, axisLine: false };
     const textStyle = { fill: chartColors.text };
     const polishedPalette = isDark
-        ? ['#f59e0b', '#6366f1', '#10b981', '#f43f5e', '#14b8a6', '#8b5cf6']
-        : ['#f59e0b', '#6366f1', '#22c55e', '#f43f5e', '#14b8a6', '#8b5cf6'];
+        ? ['#6366f1', '#3b82f6', '#0d9488', '#64748b', '#f59e0b', '#ef4444', '#8b5cf6', '#0ea5e9', '#10b981', '#f43f5e', '#475569', '#94a3b8', '#c084fc', '#fbbf24', '#2dd4bf', '#fb7185']
+        : ['#4f46e5', '#2563eb', '#0f766e', '#475569', '#b45309', '#dc2626', '#7c3aed', '#0284c7', '#047857', '#e11d48', '#334155', '#64748b', '#a855f7', '#d97706', '#0d9488', '#f43f5e'];
     const chartColorSeed = String(chart?.id ?? chart?.chart_id ?? chart?.title ?? chart?.metric ?? chart?.dimension ?? chart?.type ?? 'chart');
     const safeChartId = chartColorSeed.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'chart';
     const baseColorIndex = Array.from(chartColorSeed).reduce((hash, char) => ((hash * 31) + char.charCodeAt(0)) >>> 0, 0) % polishedPalette.length;
@@ -973,14 +971,27 @@ const ChartRenderer = ({
     const axisTitleFont = { size: 10, weight: '700', family: '"Be Vietnam Pro", sans-serif' };
     const dimensionAxisLabel = toHumanLabel(chart.x_axis || chart.dimension || nameKey || 'Category', chart.title);
 
-    // Build Y-axis label: use metric name + unit suffix from value_label
-    const rawMetricLabel = toHumanLabel(chart.y_axis || chart.metric || 'Value', chart.title);
-    const rawValueLabel = String(chart.value_label || '').trim();
-    const unitSuffixes = ['usd', 'rating', 'miles', 'km', 'years', 'sessions', 'hours', 'count', '%'];
-    const hasUnitSuffix = rawValueLabel && unitSuffixes.some(u => rawValueLabel.toLowerCase().startsWith(u) || rawValueLabel.toLowerCase().includes('('));
-    const valueAxisLabel = hasUnitSuffix && rawValueLabel.toLowerCase() !== rawMetricLabel.toLowerCase()
-        ? `${rawMetricLabel} (${toHumanLabel(rawValueLabel, chart.title)})`
-        : rawMetricLabel;
+    const valueAxisLabel = (function() {
+        const rawMetricLabel = toHumanLabel(chart.y_axis || chart.metric || 'Value', chart.title);
+        const rawValueLabel = String(chart.value_label || '').trim();
+        
+        // 1. Check for explicit count-like indicators in the data or config
+        const firstRow = rawChartData[0] || {};
+        const hasOrderId = 'order_id' in firstRow || 'orderid' in firstRow || 'order_no' in firstRow;
+        const hasCustomerId = 'customer_id' in firstRow || 'customerid' in firstRow;
+        
+        if (rawMetricLabel.toLowerCase().includes('count') || rawValueLabel.toLowerCase().includes('count')) {
+            if (hasOrderId) return 'Order Count';
+            if (hasCustomerId) return 'Customer Count';
+        }
+
+        const unitSuffixes = ['usd', 'rating', 'miles', 'km', 'years', 'sessions', 'hours', 'count', '%'];
+        const hasUnitSuffix = rawValueLabel && unitSuffixes.some(u => rawValueLabel.toLowerCase().startsWith(u) || rawValueLabel.toLowerCase().includes('('));
+        
+        return hasUnitSuffix && rawValueLabel.toLowerCase() !== rawMetricLabel.toLowerCase()
+            ? `${rawMetricLabel} (${toHumanLabel(rawValueLabel, chart.title)})`
+            : rawMetricLabel;
+    })();
 
     const scatterXAxisLabel = toHumanLabel(chart.x_axis || chart.dimension || nameKey || 'X', chart.title);
     const scatterYAxisLabel = toHumanLabel(chart.y_axis || chart.metric || chart.value_label || 'Y', chart.title);
@@ -1046,7 +1057,7 @@ const ChartRenderer = ({
         if (!chart.outliers?.count) return null;
         return (
             <div className="flex justify-end mb-2 relative z-10 w-full">
-                <Button
+                <button
                     type="button"
                     onClick={() => setShowOutliers(!showOutliers)}
                     className={`text-[10px] font-medium px-2 py-1 rounded border transition-colors flex items-center gap-1 ${isDark
@@ -1054,13 +1065,12 @@ const ChartRenderer = ({
                         : (showOutliers ? 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100' : 'bg-gray-50 border-gray-200 text-themed-muted hover:bg-gray-100')
                         }`}
                     title={showOutliers ? "Click to exclude extreme outliers" : "Click to include extreme outliers"}
-                    variant="ghost"
                 >
                     <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                     </svg>
                     {chart.outliers.count} {showOutliers ? 'outliers included' : 'outliers excluded'}
-                </Button>
+                </button>
             </div>
         );
     };
@@ -1729,11 +1739,10 @@ const FilterDropdown = ({
 
     return (
         <div className="relative" ref={ref}>
-            <Button
+            <button
                 type="button"
                 onClick={() => setOpen(o => !o)}
-                className="flex items-center gap-2 bg-white border border-[#d8dada] rounded-2xl px-4 py-2.5 shadow-sm text-[14px] text-[#2d2f2f] hover:bg-[#f8f9f9] transition-colors"
-                variant="ghost"
+                className="flex items-center gap-2 bg-surface border border-border rounded-md px-3 py-2 text-[12px] text-foreground hover:bg-surface-2 transition-colors"
             >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z" />
@@ -1742,7 +1751,7 @@ const FilterDropdown = ({
                 <svg className={`w-4 h-4 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
                 </svg>
-            </Button>
+            </button>
 
             {open && (
                 <div className="absolute right-0 top-full mt-2 w-56 bg-white border border-[#e5e7e7] rounded-2xl shadow-2xl z-50 overflow-hidden">
@@ -1751,20 +1760,19 @@ const FilterDropdown = ({
                             <p className="px-4 py-3 text-sm text-[#7a7c7c]">No datasets available</p>
                         ) : (
                             datasets.map(ds => (
-                                <Button
+                                <button
                                     type="button"
                                     key={ds.id}
                                     onClick={() => { onDatasetChange(ds.id); setOpen(false); }}
                                     className={`w-full text-left px-4 py-2.5 text-xs uppercase tracking-widest transition-colors flex items-center gap-2 ${ds.id === selectedDatasetId
-                                        ? 'bg-[#efedff] text-[#6c63ff] font-bold'
-                                        : 'text-[#5a5c5c] hover:bg-[#f6f7f7] hover:text-[#2d2f2f]'}`}
-                                    variant="ghost"
+                                        ? 'bg-surface-2 text-primary font-bold'
+                                        : 'text-muted-foreground hover:bg-surface-2 hover:text-foreground'}`}
                                 >
                                     <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
                                     </svg>
                                     <span className="truncate">{ds.name}</span>
-                                </Button>
+                                </button>
                             ))
                         )}
                     </div>
@@ -1877,14 +1885,13 @@ const MultiFilterPanel = ({
                 <div className="flex items-center justify-between mb-3">
                     <span className="text-[10px] uppercase tracking-[0.08em] text-[#5a5c5c] dark:text-[#a3a8b3] font-semibold">Filters</span>
                     {totalActive > 0 && (
-                        <Button
+                        <button
                             type="button"
                             onClick={onClearAll}
-                            className="text-[11px] text-[#6c63ff] hover:text-[#3525cd] transition-colors"
-                            variant="ghost"
+                            className="text-[11px] text-primary hover:text-primary/80 transition-colors"
                         >
                             Clear all
-                        </Button>
+                        </button>
                     )}
                 </div>
 
@@ -1910,17 +1917,16 @@ const MultiFilterPanel = ({
                                     <div className="text-[10px] uppercase tracking-[0.08em] text-[#5a5c5c] dark:text-[#a3a8b3] font-semibold mb-1.5" style={{ fontFamily: '"Be Vietnam Pro", sans-serif' }}>
                                         {selectedCol ? toLabel(selectedCol) : `Filter ${slotIdx + 1}`}
                                     </div>
-                                    <Button
+                                    <button
                                         type="button"
                                         onClick={() => {
                                             setOpenValues(null);
                                             setOpenPicker(isPickerOpen ? null : slotIdx);
                                         }}
-                                        className={`w-full h-9 flex items-center justify-between gap-2 px-3 rounded-[16px] text-[14px] border border-transparent transition-all ${selectedCol
-                                            ? 'bg-[#e8e5ff] text-[#6c63ff]'
-                                            : 'bg-[#f0f1f1] text-[#2d2f2f] dark:bg-[#23262d] dark:text-[#eceff4]'
+                                        className={`w-full h-9 flex items-center justify-between gap-2 px-3 rounded-md text-[12px] border border-border transition-all ${selectedCol
+                                            ? 'bg-surface-2 text-primary'
+                                            : 'bg-surface text-foreground'
                                             }`}
-                                        variant="ghost"
                                     >
                                         <span className="truncate" style={{ fontFamily: '"Be Vietnam Pro", sans-serif', fontWeight: 500 }}>
                                             {selectedCol ? toLabel(selectedCol) : 'Select Filter'}
@@ -1951,27 +1957,26 @@ const MultiFilterPanel = ({
                                                 </svg>
                                             </span>
                                         </div>
-                                    </Button>
+                                    </button>
 
-                                    {isPickerOpen && (
-                                        <div className="absolute top-full left-0 mt-1 w-full min-w-[180px] bg-white dark:bg-[#17181b] rounded-[16px] border border-[#e5e7e7] dark:border-[#2f333b] shadow-2xl z-50 overflow-hidden">
+                                        {isPickerOpen && (
+                                            <div className="absolute top-full left-0 mt-1 w-full min-w-[180px] bg-white dark:bg-[#17181b] rounded-[16px] border border-[#e5e7e7] dark:border-[#2f333b] shadow-2xl z-50 overflow-hidden">
                                             {selectedCol && (
-                                                <Button
+                                                <button
                                                     type="button"
                                                     onClick={() => {
                                                         onFilterChange(selectedCol, []);
                                                         onSlotChange(slotIdx, null);
                                                         setOpenPicker(null);
                                                     }}
-                                                    className="w-full text-left px-3 py-2 text-[13px] text-[#7a7c7c] hover:text-red-500 hover:bg-[#f8f9f9] dark:hover:bg-[#1f2127] transition-colors border-b border-[#eceeee] dark:border-[#2f333b]"
-                                                    variant="ghost"
+                                                    className="w-full text-left px-3 py-2 text-[12px] text-muted-foreground hover:text-destructive hover:bg-surface-2 transition-colors border-b border-border"
                                                 >
                                                     — No filter (clear slot)
-                                                </Button>
+                                                </button>
                                             )}
                                             <div className="max-h-48 overflow-y-auto py-1">
                                                 {availableCols.map(col => (
-                                                    <Button
+                                                    <button
                                                         type="button"
                                                         key={col}
                                                         onClick={() => {
@@ -1982,14 +1987,13 @@ const MultiFilterPanel = ({
                                                             onSlotChange(slotIdx, col);
                                                             setOpenPicker(null);
                                                         }}
-                                                        className={`w-full text-left px-3 py-2 text-[14px] transition-colors ${col === selectedCol
-                                                            ? 'bg-[#efedff] text-[#6c63ff] font-medium'
-                                                            : 'text-[#2d2f2f] dark:text-[#eceff4] hover:bg-[#f8f9f9] dark:hover:bg-[#1f2127]'
+                                                        className={`w-full text-left px-3 py-2 text-[12px] transition-colors ${col === selectedCol
+                                                            ? 'bg-surface-2 text-primary font-medium'
+                                                            : 'text-foreground hover:bg-surface-2'
                                                             }`}
-                                                        variant="ghost"
                                                     >
                                                         {toLabel(col)}
-                                                    </Button>
+                                                    </button>
                                                 ))}
                                             </div>
                                         </div>
@@ -1998,18 +2002,17 @@ const MultiFilterPanel = ({
 
                                 {selectedCol && (
                                     <div className="relative">
-                                        <Button
-                                            type="button"
-                                            onClick={() => {
-                                                setOpenPicker(null);
-                                                setOpenValues(isValuesOpen ? null : slotIdx);
-                                            }}
-                                            className={`w-full h-9 flex items-center justify-between gap-2 px-3 rounded-[16px] text-[14px] border border-transparent transition-all ${slotValues.length > 0
-                                                ? 'bg-[#e8e5ff] text-[#6c63ff] font-medium'
-                                                : 'bg-[#f0f1f1] text-[#2d2f2f] dark:bg-[#23262d] dark:text-[#eceff4]'
-                                                }`}
-                                            variant="ghost"
-                                        >
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setOpenPicker(null);
+                                            setOpenValues(isValuesOpen ? null : slotIdx);
+                                        }}
+                                        className={`w-full h-9 flex items-center justify-between gap-2 px-3 rounded-md text-[12px] border border-border transition-all ${slotValues.length > 0
+                                            ? 'bg-surface-2 text-primary font-medium'
+                                            : 'bg-surface text-foreground'
+                                            }`}
+                                    >
                                             <span className="truncate">
                                                 {slotValues.length === 0
                                                     ? 'All values'
@@ -2027,23 +2030,21 @@ const MultiFilterPanel = ({
                                                     </svg>
                                                 </span>
                                             </div>
-                                        </Button>
+                                    </button>
 
                                         {isValuesOpen && (
                                             <div className="absolute top-full left-0 mt-1 w-full min-w-[200px] bg-white dark:bg-[#17181b] border border-[#e5e7e7] dark:border-[#2f333b] rounded-[16px] shadow-2xl z-50 overflow-hidden">
-                                                <div className="flex items-center justify-between px-3 py-2.5 border-b border-[#eceeee] dark:border-[#2f333b] bg-[#f8f9f9] dark:bg-[#1f2127]">
-                                                    <Button
+                                                <div className="flex items-center justify-between px-3 py-2.5 border-b border-border bg-surface-2">
+                                                    <button
                                                         type="button"
                                                         onClick={() => onFilterChange(selectedCol, selectedColOptions.map(v => toRawTargetValue(selectedCol, v)))}
-                                                        className="text-[11px] uppercase tracking-wider text-[#6c63ff] hover:text-[#3525cd] font-bold transition-colors"
-                                                        variant="ghost"
-                                                    >Select all</Button>
-                                                    <Button
+                                                        className="text-[11px] uppercase tracking-wider text-primary hover:text-primary/80 font-bold transition-colors"
+                                                    >Select all</button>
+                                                    <button
                                                         type="button"
                                                         onClick={() => onFilterChange(selectedCol, [])}
-                                                        className="text-[11px] uppercase tracking-wider text-[#7a7c7c] hover:text-red-500 font-bold transition-colors"
-                                                        variant="ghost"
-                                                    >Clear</Button>
+                                                        className="text-[11px] uppercase tracking-wider text-muted-foreground hover:text-destructive font-bold transition-colors"
+                                                    >Clear</button>
                                                 </div>
                                                 <div className="max-h-52 overflow-y-auto py-1">
                                                     {selectedColOptions.map(val => (
@@ -2416,6 +2417,8 @@ export default function UserDashboard() {
     const isDark = theme === 'dark';
 
     const { charts: streamedCharts, kpis: streamedKpis, done: streamDone, error: streamError } = useDashboardStream(versionId || '');
+    // inline column display removed — use side panel classifier instead
+    const totalColumnsCount = analytics?.columns ? (Object.values(analytics.columns).reduce((s:any, arr:any) => s + (Array.isArray(arr) ? arr.length : 0), 0)) : 0;
 
     // Dynamic Chart Colors
     const chartColors = {
@@ -2438,6 +2441,8 @@ export default function UserDashboard() {
     const [dataQualityOpen, setDataQualityOpen] = useState(false);
     const [quickReactCharts, setQuickReactCharts] = useState(false);
     const quickReactResetRef = useRef<number | null>(null);
+
+    const [classifierOpen, setClassifierOpen] = useState(false);
 
     const [isRemapModalOpen, setIsRemapModalOpen] = useState(false);
     const [isDiffModalOpen, setIsDiffModalOpen] = useState(false);
@@ -3010,16 +3015,49 @@ export default function UserDashboard() {
         || Object.keys(serverChartOverrides || {}).length > 0;
     const isChurnDashboard = String(analytics?.domain || '').toLowerCase() === 'churn';
 
+    const detectTimeSeries = (data: any) => {
+        try {
+            if (!Array.isArray(data) || data.length < 3) return false;
+            const sample = data[0];
+            const candidateKeys = ['x', 'date', 'timestamp', 'ts', 'time', 'created_at', 'dt', 'day', 'month', 'year'];
+            if (sample && typeof sample === 'object') {
+                const keys = Object.keys(sample).map(k => k.toLowerCase());
+                if (keys.some(k => candidateKeys.includes(k))) return true;
+
+                // If any column looks like a date across the sample rows, treat as time-series
+                for (const k of Object.keys(sample)) {
+                    let parsedCount = 0;
+                    for (let i = 0; i < Math.min(6, data.length); i++) {
+                        const v = data[i]?.[k];
+                        if (v == null) break;
+                        if (typeof v === 'number') parsedCount++;
+                        else if (!isNaN(Date.parse(String(v)))) parsedCount++;
+                    }
+                    if (parsedCount >= 3) return true;
+                }
+            }
+
+            // Array of primitive numbers - long series can be treated as a trend
+            if (typeof sample === 'number' && data.length >= 20) return true;
+        } catch (e) {
+            // best-effort detection only
+        }
+        return false;
+    };
+
     const chartArrayRaw: ChartItem[] = analytics?.charts ? Object.entries(analytics.charts).map(([id, val]) => {
         const resolvedType = chart_overrides[id]?.type || val.type;
         const chartConfig = analytics?.chart_configs?.[id];
-        const isDateTrend = ['line', 'area', 'area_bounds', 'area-bounds'].includes(String(resolvedType || '').toLowerCase())
-            && !!(val.is_date ?? chartConfig?.is_date);
+        const resolvedTypeLower = String(resolvedType || '').toLowerCase();
+        const explicitIsDate = !!(((val as any).is_date) ?? (chartConfig as any)?.is_date);
+        const inferredIsDate = detectTimeSeries((val as any).data || (chartConfig as any)?.data);
+        const isDateTrend = ['line', 'area', 'area_bounds', 'area-bounds'].includes(resolvedTypeLower)
+            && (explicitIsDate || inferredIsDate);
         const shouldUseServerData = isDateTrend || isChurnDashboard;
 
         const resolvedData = shouldUseServerData
-            ? val.data
-            : ((hasInteractiveScope ? chartData?.[id] : undefined) || val.data);
+            ? (val as any).data
+            : ((hasInteractiveScope ? chartData?.[id] : undefined) || (val as any).data);
 
         return {
             id,
@@ -3399,6 +3437,21 @@ export default function UserDashboard() {
     };
 
     const renderChartActions = (chart: ChartItem) => {
+        const isClassificationMismatch = (c: ChartItem) => {
+            try {
+                const cols = analytics?.columns;
+                if (!cols) return false;
+                const dims = new Set(cols.dimensions || []);
+                const mets = new Set(cols.metrics || []);
+                const exc = new Set(cols.excluded || []);
+                if (c.metric && dims.has(c.metric)) return true; // metric classified as dimension
+                if (c.dimension && mets.has(c.dimension)) return true; // dimension classified as metric
+                if (c.metric && exc.has(c.metric)) return true; // metric classified as excluded
+            } catch (e) {
+                return false;
+            }
+            return false;
+        };
         const currentType = chart_overrides[chart.id]?.type || chart.type;
         const currentAgg = (chart_overrides[chart.id]?.aggregation || chart.aggregation || 'sum').toLowerCase();
 
@@ -3442,9 +3495,15 @@ export default function UserDashboard() {
             ? currentType
             : (chartTypeOptions[0]?.value || 'bar');
 
+        const mismatch = isClassificationMismatch(chart);
         return (
             <div className="flex flex-col items-center gap-1 w-full">
                 <div className="flex items-center gap-1.5">
+                    {mismatch && (
+                        <button title="Column classification may be incorrect for this chart. Review columns." onClick={() => setClassifierOpen(true)} className="p-1.5 rounded-md bg-yellow-600/10 text-yellow-400 hover:bg-yellow-600/15">
+                            <span className="material-symbols-outlined text-sm">warning</span>
+                        </button>
+                    )}
                     {isNumericMetric && (
                         <select
                             value={currentAgg === 'avg' ? 'mean' : currentAgg}
@@ -3495,192 +3554,149 @@ export default function UserDashboard() {
     };
 
     return (
-        <div className="min-h-screen bg-[#f6f6f6] dark:bg-[#111216] text-[#2d2f2f] dark:text-[#eceff4] transition-colors">
-            <style>{`@import url('https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;700;800&family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap');`}</style>
-            <header className="bg-white dark:bg-[#15161a] h-16 sticky top-0 z-50 border-b border-[#eceeee] dark:border-[#272a31] px-6 flex items-center justify-between">
-                <div className="flex-1" />
-                <h1 className="text-[20px] leading-7 font-extrabold text-[#203044] dark:text-[#eceff4] tracking-tight">{getDashboardTitle(analytics?.domain)}</h1>
-                                 <div className="flex-1 flex justify-end items-center gap-2">
-                                     <button className="w-8 h-8 rounded-full hover:bg-[#f3f4f4] dark:hover:bg-[#242730] flex items-center justify-center text-[#5a5c5c] dark:text-[#b9bec9]">
-                                         <span className="material-symbols-outlined text-[18px]">notifications</span>
-                                     </button>
-                                     <button 
-                                         onClick={handleOpenDiff}
-                                         className="px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-widest bg-white dark:bg-[#1c1e24] border border-[#d8dada] dark:border-[#3a3f49] text-[#5a5c5c] dark:text-[#b9bec9] hover:bg-[#f8f9f9] dark:hover:bg-[#242730] transition-all"
-                                     >
-                                         History
-                                     </button>
-                                     <button 
-                                         onClick={handleOpenRemap}
-                                         className="px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-widest bg-white dark:bg-[#1c1e24] border border-[#d8dada] dark:border-[#3a3f49] text-[#5a5c5c] dark:text-[#b9bec9] hover:bg-[#f8f9f9] dark:hover:bg-[#242730] transition-all"
-                                     >
-                                         Remap
-                                     </button>
-                                     <SettingsDropdown />
-                                     <div className="w-8 h-8 rounded-full border border-[#d8dada] bg-gradient-to-br from-[#e7e8e8] to-[#c8c9c9] flex items-center justify-center text-[11px] font-bold text-[#5a5c5c]">
-                                         VX
-                                     </div>
-                                 </div>
+        <div className="bg-noise min-h-screen">
+            <PageHeader
+                breadcrumb={["Workspaces", "Vizzy", analytics?.dataset_name || "Dashboard"]}
+                title={getDashboardTitle(analytics?.domain)}
+                description={analytics ? `${analytics.total_rows.toLocaleString()} rows · ${analytics.domain} domain` : "Select a dataset to start analytics"}
+                actions={(
+                        <div className="flex items-center gap-3">
+                            <BtnSecondary onClick={handleOpenDiff}><GitCompare className="h-3 w-3" />Diff versions</BtnSecondary>
+                            <BtnSecondary onClick={handleOpenRemap}><Wand2 className="h-3 w-3" />Remap</BtnSecondary>
+                            <BtnSecondary onClick={() => loadAnalytics(undefined, true)}><RefreshCw className="h-3 w-3" />Refresh</BtnSecondary>
+                            <BtnPrimary><Sparkles className="h-3 w-3" />Ask Vizzy</BtnPrimary>
+                        </div>
 
+                )}
+            />
 
-            </header>
-
-            <main className="w-full px-4 md:px-6 xl:px-10 2xl:px-14 py-8 md:py-10">
+            <div className="px-5 py-4">
                 {!selectedDatasetId && !isLoading && (
-                    <div className="rounded-3xl border border-[#eceeee] dark:border-[#2a2d33] bg-white dark:bg-[#17181b] p-10 text-center text-[#7a7c7c] dark:text-[#a3a8b3]">
+                    <div className="rounded-lg border border-border bg-surface p-6 text-center text-muted-foreground">
                         Select a dataset to start analytics.
                     </div>
                 )}
-                
+
                 {(isLoading || (!analytics && !!selectedDatasetId && !error)) && (
                     <HeaderSkeleton isDark={isDark} />
                 )}
-                
+
                 {!isLoading && error && (
-                    <div className="bg-red-50 border border-red-200 rounded-2xl p-6">
-                        <h3 className="font-semibold text-red-800">Error Loading Analytics</h3>
-                        <p className="text-sm text-red-600 mt-1">{error}</p>
+                    <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+                        <AlertCircle className="h-5 w-5 text-destructive flex-shrink-0 mt-0.5" />
+                        <div>
+                            <h4 className="text-sm font-semibold text-destructive">Error Loading Analytics</h4>
+                            <p className="text-sm text-muted-foreground mt-1">{error}</p>
+                        </div>
                     </div>
                 )}
-                
+
                 {!isLoading && !error && analytics && (
-
-                    <div className="flex flex-col gap-8">
-                        <section className="flex flex-col gap-6">
-                            <div className="flex flex-wrap items-end justify-between gap-4">
-                                <div className="flex flex-col gap-3">
-                                    <div>
-                                        <div className="text-[10px] uppercase tracking-[0.08em] text-[#5a5c5c] dark:text-[#a3a8b3] font-semibold mb-2">Select Dataset</div>
-                                        <FilterDropdown
-                                            datasets={datasets}
-                                            selectedDatasetId={selectedDatasetId}
-                                            onDatasetChange={setSelectedDatasetId}
-                                        />
-                                    </div>
-
-                                    <div>
-                                        <h2 className="text-[34px] md:text-[48px] leading-[1] font-extrabold tracking-[-0.02em] text-[#2d2f2f] dark:text-[#eceff4]">
-                                            {analytics.dataset_name}
-                                        </h2>
-                                        <div className="flex flex-wrap items-center gap-4 mt-3 text-sm text-[#5a5c5c] dark:text-[#a3a8b3]">
-                                            <span>{analytics.total_rows.toLocaleString()} Rows</span>
-                                            <div className="flex items-center gap-2">
-                                                <span>Domain:</span>
-                                                <select
-                                                    value={selected_domain || 'auto'}
-                                                    onChange={(e) => setDomain(e.target.value === 'auto' ? null : e.target.value)}
-                                                    className="bg-transparent text-[#2d2f2f] dark:text-[#eceff4] font-semibold outline-none border border-[#d8dada] dark:border-[#3a3f49] rounded-xl px-2 py-1"
-                                                >
-                                                    <option value="auto">Auto ({analytics.domain})</option>
-                                                    <option value="sales">Sales</option>
-                                                    <option value="churn">Churn</option>
-                                                    <option value="marketing">Marketing</option>
-                                                    <option value="finance">Finance</option>
-                                                    <option value="healthcare">Healthcare</option>
-                                                    <option value="generic">Generic</option>
-                                                </select>
-                                            </div>
-                                            <span className={`px-2 py-1 rounded-lg text-[10px] uppercase font-bold tracking-wider ${analytics.domain_confidence === 'HIGH' ? 'bg-green-100 text-green-700' : analytics.domain_confidence === 'MEDIUM' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
-                                                {analytics.domain_confidence} Confidence
-                                            </span>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <Button
-                                    type="button"
-                                    onClick={() => loadAnalytics(undefined, true)}
-                                    disabled={isLoading}
-                                    className="h-10 px-5 rounded-2xl border-0 bg-[#cb5ae875] text-[#100f0f] font-semibold shadow-[0_10px_15px_-3px_rgba(108,99,255,0.25),0_4px_6px_-4px_rgba(108,99,255,0.25)]"
-                                    variant="ghost"
-                                >
-                                    <span className={`material-symbols-outlined text-[16px] ${isLoading ? 'animate-spin' : ''}`}>refresh</span>
-                                    Reload
-                                </Button>
+                    <div className="space-y-6">
+                        {/* Dataset Selector */}
+                        <div className="flex flex-wrap items-end justify-between gap-4">
+                            <div>
+                                <div className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground font-semibold mb-2">Select Dataset</div>
+                                <FilterDropdown datasets={datasets} selectedDatasetId={selectedDatasetId} onDatasetChange={setSelectedDatasetId} />
                             </div>
+                            <div className="flex items-center gap-3">
+                                <div className="text-[11px] text-muted-foreground">Domain:</div>
+                                <select
+                                    value={selected_domain || 'auto'}
+                                    onChange={(e) => setDomain(e.target.value === 'auto' ? null : e.target.value)}
+                                    className="bg-surface text-foreground font-medium outline-none border border-border rounded-md px-2 py-1"
+                                >
+                                    <option value="auto">Auto ({analytics.domain})</option>
+                                    <option value="sales">Sales</option>
+                                    <option value="churn">Churn</option>
+                                    <option value="marketing">Marketing</option>
+                                    <option value="finance">Finance</option>
+                                    <option value="healthcare">Healthcare</option>
+                                    <option value="generic">Generic</option>
+                                </select>
+                                <Pill tone={analytics.domain_confidence === 'HIGH' ? 'success' : analytics.domain_confidence === 'MEDIUM' ? 'warning' : 'danger'}>
+                                    {analytics.domain_confidence} Confidence
+                                </Pill>
+                            </div>
+                        </div>
 
-                            {analytics.columns && (
-                                <ColumnClassificationPanel columns={analytics.columns} isDark={isDark} />
-                            )}
-
-                            {analytics?.geo_filters && Object.keys(analytics.geo_filters).length > 0 && (
-                                <MultiFilterPanel
-                                    geoFilters={analytics.geo_filters}
-                                    targetColumn={analytics.target_column}
-                                    targetValues={analytics.target_values?.map(v => String(v)) || []}
-                                    filterSlots={filterSlots}
-                                    activeFilters={active_filters}
-                                    onSlotChange={(slotIdx, col) =>
-                                        setFilterSlots(prev => prev.map((s, i) => i === slotIdx ? col : s))
-                                    }
-                                    onFilterChange={(col, values) => {
-                                        triggerQuickChartReact();
-                                        setFilterValues(col, values);
-                                    }}
-                                    onClearAll={() => {
-                                        triggerQuickChartReact();
-                                        clearFilters();
-                                    }}
-                                />
-                            )}
-
-                            {analytics.data_quality && analytics.data_quality.length > 0 && (
-                                <div className="px-2">
-                                    <div className="flex items-center gap-3 mb-2">
-                                        <span className="text-[10px] uppercase tracking-[0.08em] font-semibold text-[#5a5c5c] dark:text-[#a3a8b3]">
-                                            Data Quality Report ({analytics.data_quality.filter(d => d.null_pct > 0).length} columns with nulls)
-                                        </span>
-                                        <div className="h-px flex-1 bg-[#eceeee] dark:bg-[#2a2d33]" />
-                                        <Button
-                                            type="button"
-                                            onClick={() => setDataQualityOpen(!dataQualityOpen)}
-                                            className="text-xs text-[#6c63ff]"
-                                            variant="ghost"
-                                        >
-                                            {dataQualityOpen ? 'Hide' : 'Show'}
-                                        </Button>
+                        {/* Column Classification quick-check banner */}
+                        {analytics?.columns && (
+                            <div className="flex flex-col gap-3">
+                                <div className="flex items-center justify-between rounded-md border border-border bg-surface p-3">
+                                    <div className="flex items-center gap-3">
+                                        <span className="text-sm font-semibold">Columns detected: {analytics.columns?.dimensions?.length + analytics.columns?.metrics?.length + analytics.columns?.dates?.length + analytics.columns?.targets?.length + analytics.columns?.excluded?.length}</span>
+                                        <p className="text-sm text-muted-foreground">If charts look incorrect, please review column classification — Vizzy can misclassify columns. Override roles if necessary.</p>
                                     </div>
-                                    {dataQualityOpen && (
-                                        <div className="bg-white dark:bg-[#17181b] border border-[#eceeee] dark:border-[#2a2d33] rounded-2xl p-4 overflow-x-auto">
-                                            <table className="w-full text-xs">
-                                                <thead>
-                                                    <tr className="text-[#7a7c7c] dark:text-[#a3a8b3] border-b border-[#eceeee] dark:border-[#2a2d33]">
-                                                        <th className="text-left py-2 pr-4">Column</th>
-                                                        <th className="text-right py-2 pr-4">Null %</th>
-                                                        <th className="text-right py-2 pr-4">Null Count</th>
-                                                        <th className="text-left py-2 pr-4">Type</th>
-                                                        <th className="text-left py-2">Action</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {analytics.data_quality.map((dq: any) => (
-                                                        <tr key={dq.column} className="border-b border-[#f2f3f3] dark:border-[#262931]">
-                                                            <td className="py-1.5 pr-4 text-[#2d2f2f] dark:text-[#eceff4]">{dq.column}</td>
-                                                            <td className="py-1.5 pr-4 text-right font-semibold">{dq.null_pct}%</td>
-                                                            <td className="py-1.5 pr-4 text-right text-[#5a5c5c] dark:text-[#a3a8b3]">{dq.null_count.toLocaleString()}</td>
-                                                            <td className="py-1.5 pr-4 text-[#5a5c5c] dark:text-[#a3a8b3]">{dq.dtype}</td>
-                                                            <td className="py-1.5 text-[#5a5c5c] dark:text-[#a3a8b3]">{dq.action}</td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
+                                    <div className="flex items-center gap-2">
+                                        <button className="px-3 py-1 rounded-md border border-border text-[13px]" onClick={() => setClassifierOpen(true)}>Open Classifier</button>
+                                    </div>
+                                </div>
+
+                            </div>
+                        )}
+
+
+                        {/* KPI Banner */}
+                        <div className="grid grid-cols-2 gap-px border-b border-border bg-border md:grid-cols-5">
+                            {kpiEntries.map(([key, kpi], idx) => {
+                                const streamedKpi = streamedKpis[key];
+                                const resolvedValue = streamedKpi?.data?.value ?? kpi.value;
+                                const resolvedTrend = streamedKpi?.data?.trend ?? kpi.trend;
+                                
+                                const hasTrend = typeof resolvedTrend === 'number';
+                                const up = hasTrend ? resolvedTrend >= 0 : false;
+                                const delta = hasTrend ? `${resolvedTrend >= 0 ? '+' : ''}${resolvedTrend.toFixed(1)}%` : null;
+
+                                return (
+                                    <div key={key} className="group relative bg-background p-4 transition hover:bg-surface">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{kpi.title}</span>
+                                            {delta && (
+                                                <Pill tone={up ? 'success' : 'danger'}>
+                                                    {up ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
+                                                    {delta}
+                                                </Pill>
+                                            )}
                                         </div>
-                                    )}
-                                </div>
-                            )}
-
-                            <div className="border border-[#ddd9ff] dark:border-[#2b2763] rounded-2xl p-8 bg-[linear-gradient(155deg,rgba(74,64,224,0.05)_0%,rgba(74,64,224,0)_100%)] dark:bg-[linear-gradient(155deg,rgba(108,99,255,0.12)_0%,rgba(108,99,255,0.03)_100%)]">
-                                <div className="flex items-center gap-3 mb-5">
-                                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#3525cd] to-[#9f99ff] flex items-center justify-center shadow-[0_10px_15px_-3px_rgba(108,99,255,0.35)]">
-                                        <span className="material-symbols-outlined text-white text-[18px]">auto_awesome</span>
+                                        <div className="mt-2 flex items-end justify-between gap-3">
+                                            <span className="num text-display text-[26px] font-semibold leading-none">{isKPILoading && !streamedKpi ? '...' : formatValue(resolvedValue, kpi.format)}</span>
+                                        </div>
                                     </div>
-                                    <span className="text-xl font-extrabold tracking-tight text-[#2d2f2f] dark:text-[#eceff4]">VIZZY INSIGHT</span>
-                                </div>
+                                );
+                            })}
+                        </div>
+
+
+                        {/* Filters */}
+                        {analytics?.geo_filters && Object.keys(analytics.geo_filters).length > 0 && (
+                            <MultiFilterPanel
+                                geoFilters={analytics.geo_filters}
+                                targetColumn={analytics.target_column}
+                                targetValues={analytics.target_values?.map(v => String(v)) || []}
+                                filterSlots={filterSlots}
+                                activeFilters={active_filters}
+                                onSlotChange={(slotIdx, col) => setFilterSlots(prev => prev.map((s, i) => i === slotIdx ? col : s))}
+                                onFilterChange={(col, values) => {
+                                    triggerQuickChartReact();
+                                    setFilterValues(col, values);
+                                }}
+                                onClearAll={() => {
+                                    triggerQuickChartReact();
+                                    clearFilters();
+                                }}
+                            />
+                        )}
+
+                        {/* Narrative Insights */}
+                        <Panel className="ai-glow">
+                            <PanelHeader title="Vizzy insights" subtitle="Live narrative" icon={<Sparkles className="h-3.5 w-3.5 text-primary" />} actions={<Pill tone="accent">AI</Pill>} />
+                            <div className="p-4">
                                 {narrativeLoading ? (
                                     <div className="space-y-2">
-                                        <div className="h-3 bg-[#f1f2f2] rounded w-full animate-pulse" />
-                                        <div className="h-3 bg-[#f1f2f2] rounded w-5/6 animate-pulse" />
-                                        <div className="h-3 bg-[#f1f2f2] rounded w-4/6 animate-pulse" />
+                                        <div className="h-3 bg-surface-2 rounded w-full animate-pulse" />
+                                        <div className="h-3 bg-surface-2 rounded w-5/6 animate-pulse" />
+                                        <div className="h-3 bg-surface-2 rounded w-4/6 animate-pulse" />
                                     </div>
                                 ) : narrative ? (
                                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-8 gap-y-5">
@@ -3689,110 +3705,82 @@ export default function UserDashboard() {
                                             const colonIndex = cleaned.indexOf(':');
                                             const rawHeading = colonIndex > 0 ? cleaned.slice(0, colonIndex).trim() : '';
                                             const description = colonIndex > 0 ? cleaned.slice(colonIndex + 1).trim() : cleaned;
-                                            const heading = rawHeading && !/^insight\b/i.test(rawHeading)
-                                                ? rawHeading
-                                                : 'Key Insight';
+                                            const heading = rawHeading && !/^insight\b/i.test(rawHeading) ? rawHeading : 'Key Insight';
                                             return (
-                                            <div key={i} className="flex gap-3 items-start">
-                                                <span className="text-3xl leading-8 font-extrabold text-[#6c63ff33]">{String(i + 1).padStart(2, '0')}</span>
-                                                <div className="text-sm leading-6 text-[#5a5c5c] dark:text-[#c8cdd7]">
-                                                    <p className="font-semibold text-[#2d2f2f] dark:text-[#f3f6fb]">{heading}:</p>
-                                                    <p>{description}</p>
+                                                <div key={i} className="flex gap-3 items-start">
+                                                    <span className="text-2xl leading-8 font-extrabold text-primary/30">{String(i + 1).padStart(2, '0')}</span>
+                                                    <div className="text-sm leading-6 text-muted-foreground">
+                                                        <p className="font-semibold text-foreground">{heading}:</p>
+                                                        <p>{description}</p>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        );
+                                            );
                                         })}
                                     </div>
                                 ) : (
-                                    <p className="text-sm text-[#7a7c7c] dark:text-[#a3a8b3]">Generating insights...</p>
+                                    <p className="text-sm text-muted-foreground">Generating insights...</p>
                                 )}
                             </div>
-                        </section>
+                        </Panel>
 
-                        <section>
-                            <div className="grid grid-cols-3 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-6">
-                                 {kpiEntries.map(([key, kpi], idx) => {
-
-                                     const streamedKpi = streamedKpis[key];
-                                     const resolvedValue = streamedKpi?.data?.value ?? kpi.value;
-                                     const resolvedTrend = streamedKpi?.data?.trend ?? kpi.trend;
-                                     const resolvedTrendLabel = streamedKpi?.data?.trend_label ?? kpi.trend_label;
-                                     return (
-                                         <KPICard
-                                             key={key}
-                                             index={idx}
-                                             title={kpi.title}
-                                             value={isKPILoading && !streamedKpi ? '...' : formatValue(resolvedValue, kpi.format)}
-                                             icon={kpi.icon || 'default'}
-                                             trend={resolvedTrend}
-                                             trend_label={resolvedTrendLabel}
-                                             subtitle={Object.values(active_filters).some(f => f.length > 0) ? 'Filtered View' : kpi.subtitle}
-                                             cardColor={KPI_CARD_COLORS[idx % KPI_CARD_COLORS.length]}
-                                         />
-                                     );
-                                 })}
-
-                            </div>
-                        </section>
-
-                        <section>
-                            {isKPILoading && (
-                                <div className="mb-3 flex items-center gap-2 text-xs text-[#5a5c5c] dark:text-[#a3a8b3]">
-                                    <div className="w-3.5 h-3.5 rounded-full border-2 border-primary/20 border-t-primary animate-spin" />
-                                    Updating filtered results...
-                                </div>
-                            )}
-
-                            {chartSections.length > 0 && (
-                                <div className="space-y-10">
-                                    {chartSections.map(({ title, charts }) => (
-                                        <div key={title} className="space-y-4">
-                                            {/* Section Header */}
-                                            <div className="flex items-center gap-3 px-1">
-                                                <h3 className="text-lg font-bold tracking-tight text-[#2d2f2f] dark:text-[#eceff4]">
-                                                    {title}
-                                                </h3>
-                                                <div className="h-px flex-1 bg-[#e4e4e7] dark:bg-[#2a2d33]" />
-                                                <span className="text-[10px] uppercase tracking-widest text-[#7a7c7c] dark:text-[#a3a8b3] font-semibold">
-                                                    {charts.length} {charts.length === 1 ? 'chart' : 'charts'}
-                                                </span>
-                                            </div>
-
-                                            {/* Section Charts Grid */}
-                                            <div className="grid grid-cols-1 md:grid-cols-[repeat(auto-fit,minmax(340px,1fr))] gap-6">
-                                                {charts.map((chart) => {
-                                                     const streamedChart = streamedCharts[chart.id];
-                                                     const resolvedData = streamedChart?.data ?? chart.data;
-                                                     if (!resolvedData && !isLoading) return <ChartSkeleton key={chart.id} isDark={isDark} />;
-                                                     return (
-                                                         <ChartCard
-                                                             key={chart.id}
-                                                             title={chart.title || `Insight ${chart.id}`}
-                                                             actions={renderChartActions(chart)}
-                                                         >
-                                                             <div data-chart-id={chart.id} className="relative">
-                                                                 <ChartRenderer
-                                                                     chart={{ ...chart, data: resolvedData, type: chart_overrides[chart.id]?.type || chart.type }}
-                                                                     chartColors={chartColors}
-                                                                     isDark={isDark}
-                                                                     onFilterClick={handleChartFilterClick}
-                                                                     targetColumn={analytics?.target_column}
-                                                                     quickReact={quickReactCharts}
-                                                                 />
-                                                             </div>
-                                                         </ChartCard>
-                                                     );
-                                                 })}
-                                             </div>
-
+                        {/* Charts */}
+                        {chartSections.length > 0 && (
+                            <div className="space-y-10">
+                                {chartSections.map(({ title, charts }) => (
+                                    <div key={title} className="space-y-4">
+                                        <div className="flex items-center gap-3 px-1">
+                                            <h3 className="text-lg font-bold tracking-tight text-foreground">{title}</h3>
+                                            <div className="h-px flex-1 bg-border" />
+                                            <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">{charts.length} {charts.length === 1 ? 'chart' : 'charts'}</span>
                                         </div>
-                                    ))}
-                                </div>
-                            )}
-                        </section>
+                                        <div className="grid grid-cols-1 md:grid-cols-[repeat(auto-fit,minmax(340px,1fr))] gap-6">
+                                            {charts.map((chart) => {
+                                                const streamedChart = streamedCharts[chart.id];
+                                                const resolvedData = streamedChart?.data ?? chart.data;
+                                                if (!resolvedData && !isLoading) return <ChartSkeleton key={chart.id} isDark={isDark} />;
+                                                return (
+                                                    <Panel key={chart.id}>
+                                                        <PanelHeader title={chart.title || `Insight ${chart.id}`} actions={renderChartActions(chart)} />
+                                                        <div className="p-4">
+                                                            <ChartRenderer
+                                                                chart={{ ...chart, data: resolvedData, type: chart_overrides[chart.id]?.type || chart.type }}
+                                                                chartColors={chartColors}
+                                                                isDark={isDark}
+                                                                onFilterClick={handleChartFilterClick}
+                                                                targetColumn={analytics?.target_column}
+                                                                quickReact={quickReactCharts}
+                                                            />
+                                                        </div>
+                                                    </Panel>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 )}
-            </main>
+            </div>
+
+            {analytics && (
+                <div className="sticky bottom-0 z-30 border-t border-border bg-background/85 backdrop-blur-xl">
+                    <div className="flex items-center justify-between px-5 py-2.5">
+                        <div className="flex items-center gap-2 text-[11.5px] text-muted-foreground">
+                            <span className="flex items-center gap-1.5">
+                                <span className="h-2 w-2 rounded-full bg-success" />Schema valid · {totalColumnsCount || 0} columns typed
+                            </span>
+                            <span className="text-border">·</span>
+                            <span>3 inferences pending review</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                            <BtnGhost onClick={handleOpenRemap}><Wand2 className="h-3 w-3" />Remap values</BtnGhost>
+                            <BtnSecondary onClick={() => setClassifierOpen(true)}>Column classifier</BtnSecondary>
+                            <BtnAccent><Sparkles className="h-3 w-3" />Generate insight</BtnAccent>
+                        </div>
+                    </div>
+                </div>
+            )}
 
                     {isRemapModalOpen && (
                         <RemapModal
@@ -3810,6 +3798,24 @@ export default function UserDashboard() {
                             previousMap={versionDiffData.prev}
                             currentMap={versionDiffData.curr}
                         />
+                    )}
+
+                    {classifierOpen && analytics?.columns && (
+                        <div className="fixed inset-0 z-50 flex">
+                            <div className="flex-1 bg-background/60 backdrop-blur-sm" onClick={() => setClassifierOpen(false)} />
+                            <aside className="flex w-[520px] flex-col border-l border-border bg-surface shadow-2xl">
+                                <div className="flex items-start justify-between border-b border-border px-5 py-4">
+                                    <div>
+                                        <h3 className="text-[14px] font-semibold">Column classifier</h3>
+                                        <p className="mt-0.5 text-[11.5px] text-muted-foreground">Auto-typed by Vizzy · review & override</p>
+                                    </div>
+                                    <button onClick={() => setClassifierOpen(false)} className="rounded p-1 hover:bg-surface-2"><X className="h-3.5 w-3.5" /></button>
+                                </div>
+                                <div className="flex-1 overflow-auto">
+                                    <ColumnClassificationPanel columns={analytics.columns} isDark={isDark} />
+                                </div>
+                            </aside>
+                        </div>
                     )}
 
         </div>

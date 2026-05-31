@@ -1,12 +1,11 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
-  Search,
+
   Bell,
   Sparkles,
   Settings,
   ChevronDown,
-  Database,
-  Command,
+
   LogOut,
   Layers,
 } from "lucide-react";
@@ -51,16 +50,7 @@ export function TopNav() {
 
         <div className="mx-2 h-4 w-px bg-border" />
 
-        <DatasetSwitcher />
-
         <div className="ml-auto flex items-center gap-1.5">
-          <button className="group flex h-8 w-72 items-center gap-2 rounded-md border border-border bg-surface px-2.5 text-left text-[12px] text-muted-foreground transition hover:border-border-strong hover:bg-surface-2">
-            <Search className="h-3.5 w-3.5" />
-            <span>Search datasets, queries, insights...</span>
-            <span className="ml-auto flex items-center gap-0.5 rounded border border-border bg-surface-2 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-              <Command className="h-2.5 w-2.5" /> K
-            </span>
-          </button>
           <IconButton ariaLabel="AI Assistant">
             <Sparkles className="h-3.5 w-3.5" />
           </IconButton>
@@ -141,19 +131,6 @@ function IconButton({
       {badge && (
         <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-primary ring-2 ring-background" />
       )}
-    </button>
-  );
-}
-
-function DatasetSwitcher() {
-  return (
-    <button className="flex h-7 items-center gap-2 rounded-md border border-border bg-surface px-2 text-[12px] transition hover:border-border-strong hover:bg-surface-2">
-      <Database className="h-3 w-3 text-muted-foreground" />
-      <span className="font-medium">orders_q4_2026</span>
-      <span className="rounded bg-surface-3 px-1 text-[10px] text-muted-foreground">
-        1.2M rows
-      </span>
-      <ChevronDown className="h-3 w-3 text-muted-foreground" />
     </button>
   );
 }
