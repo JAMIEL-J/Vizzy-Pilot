@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { Panel, PanelHeader, Pill, BtnGhost, BtnSecondary, BtnAccent } from '@/components/ui/primitive';
 import RuixenMoonChat from '../../components/ui/ruixen-moon-chat';
-import { AIInput } from '../../components/ui/ai-input';
+import { PromptInputBox } from '@/components/ui/ai-prompt-box';
 
 // --- Helpers ---
 const isInsightMessage = (msg: ChatMessage) => {
@@ -762,19 +762,15 @@ export default function ChatInterface() {
                 {messages.length > 0 && (
                 <div className="border-t border-border bg-background p-4">
                     <div className="mx-auto max-w-[680px]">
-                        <div className="ai-glow flex items-end gap-2 rounded-xl border border-border p-2 shadow-elev-2">
-                            <AIInput 
-                                onSubmit={handleSendMessage} 
-                                placeholder={`Ask anything about ${activeDatasetName || 'your data'}...`}
-                                onStop={handleStop}
-                                isLoading={isTyping}
-                                contextBadge={{ label: 'Context', value: activeDatasetName || 'None selected' }}
-                            />
-                        </div>
+                        <PromptInputBox 
+                            onSend={(msg) => handleSendMessage(msg)}
+                            placeholder={`Ask anything about ${activeDatasetName || 'your data'}...`}
+                            isLoading={isTyping}
+                        />
                         <div className="mt-2 flex items-center gap-2 px-1 text-[10.5px] text-muted-foreground">
                             <span className="flex items-center gap-1"><Database className="h-2.5 w-2.5" />Context: {activeDatasetName || 'None selected'}</span>
                             <span className="text-border">·</span>
-                            <span>Press ⌘+↵ to send · Shift+↵ for newline</span>
+                            <span>Press Enter to send · Shift+Enter for newline</span>
                         </div>
                     </div>
                 </div>

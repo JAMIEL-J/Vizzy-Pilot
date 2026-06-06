@@ -1,52 +1,18 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
-import { Textarea } from "@/components/ui/textarea";
+import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
   MonitorIcon,
-  ArrowUpIcon,
   Code2,
   Layers,
   Rocket,
   ChevronDown,
+  Database,
 } from "lucide-react";
+import { PromptInputBox } from "@/components/ui/ai-prompt-box";
 
-interface AutoResizeProps {
-  minHeight: number;
-  maxHeight?: number;
-}
-
-function useAutoResizeTextarea({ minHeight, maxHeight }: AutoResizeProps) {
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const adjustHeight = useCallback(
-    (reset?: boolean) => {
-      const textarea = textareaRef.current;
-      if (!textarea) return;
-
-      if (reset) {
-        textarea.style.height = `${minHeight}px`;
-        return;
-      }
-
-      textarea.style.height = `${minHeight}px`; // reset first
-      const newHeight = Math.max(
-        minHeight,
-        Math.min(textarea.scrollHeight, maxHeight ?? Infinity)
-      );
-      textarea.style.height = `${newHeight}px`;
-    },
-    [minHeight, maxHeight]
-  );
-
-  useEffect(() => {
-    if (textareaRef.current) textareaRef.current.style.height = `${minHeight}px`;
-  }, [minHeight]);
-
-  return { textareaRef, adjustHeight };
-}
 
 interface RuixenMoonChatProps {
   onSendMessage?: (msg: string) => void;
@@ -61,14 +27,8 @@ export default function RuixenMoonChat({
   selectedDatasetId = "",
   onDatasetChange,
 }: RuixenMoonChatProps) {
-  const [message, setMessage] = useState("");
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  
-  const { textareaRef, adjustHeight } = useAutoResizeTextarea({
-    minHeight: 48,
-    maxHeight: 150,
-  });
 
   // Close dropdown on click outside
   useEffect(() => {
@@ -85,34 +45,8 @@ export default function RuixenMoonChat({
     };
   }, [isDropdownOpen]);
 
-  const handleSend = () => {
-    if (message.trim() && onSendMessage) {
-      onSendMessage(message.trim());
-      setMessage("");
-      adjustHeight(true);
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
-
   return (
-    <div className="relative w-full h-full flex flex-col items-center justify-center rounded-xl overflow-hidden bg-white dark:bg-black">
-      {/* Dynamic Theme Background Image */}
-      <div
-        className="absolute inset-0 z-0 transition-all duration-700 invert hue-rotate-180 opacity-60 dark:invert-0 dark:hue-rotate-0 dark:opacity-100"
-        style={{
-          backgroundImage: "url('https://pub-940ccf6255b54fa799a9b01050e6c227.r2.dev/ruixen_moon_2.png')",
-          backgroundSize: "cover",
-          backgroundPosition: "center",
-          backgroundAttachment: "fixed",
-        }}
-      />
-      <div className="absolute inset-0 bg-white/20 dark:bg-black/40 z-0"></div>
+    <div className="relative w-full h-full flex flex-col items-center justify-center rounded-xl overflow-hidden bg-[radial-gradient(125%_125%_at_50%_101%,rgba(255,140,60,0.65)_10.5%,rgba(255,180,100,0.5)_20%,rgba(250,210,225,0.7)_40%,rgba(225,235,250,0.9)_70%,rgba(255,255,255,1)_100%)] dark:bg-[radial-gradient(125%_125%_at_50%_101%,rgba(245,87,2,1)_10.5%,rgba(245,120,2,1)_16%,rgba(245,140,2,1)_17.5%,rgba(245,170,100,1)_25%,rgba(238,174,202,1)_40%,rgba(202,179,214,1)_65%,rgba(148,201,233,1)_100%)]">
       
       {/* Centered AI Title */}
       <div className="flex flex-col items-center justify-center z-10 mb-8 mt-[-10vh]">
@@ -130,14 +64,15 @@ export default function RuixenMoonChat({
       <div className="w-full max-w-3xl z-10 px-4">
         {datasets.length > 0 && onDatasetChange && (
           <div className="mb-6 flex items-center justify-center">
-            <div className="flex items-center bg-white/40 dark:bg-black/40 backdrop-blur-xl border border-white/40 dark:border-white/10 rounded-full p-1 shadow-lg relative z-50" ref={dropdownRef}>
-              <span className="text-xs uppercase tracking-widest text-neutral-700 dark:text-neutral-300 font-bold bg-white/50 dark:bg-white/10 px-4 py-2 rounded-full mr-2">
+            <div className="flex items-center bg-black/10 dark:bg-black/25 backdrop-blur-md border border-white/20 dark:border-white/10 rounded-2xl p-1.5 shadow-lg relative z-50 transition-all hover:border-white/30 dark:hover:border-white/20" ref={dropdownRef}>
+              <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-neutral-700 dark:text-white/70 font-semibold bg-white/30 dark:bg-white/10 px-3.5 py-1.5 rounded-xl mr-2">
+                <Database className="w-3.5 h-3.5 text-neutral-800 dark:text-white/80" />
                 Dataset
               </span>
               <button
                 type="button"
                 onClick={() => setIsDropdownOpen((prev) => !prev)}
-                className="flex items-center justify-between gap-3 px-4 py-2 bg-white/80 dark:bg-[#111116] border border-transparent dark:border-white/5 rounded-full text-sm font-medium text-neutral-800 dark:text-gray-200 focus:outline-none min-w-[260px] transition-all hover:bg-white/100 dark:hover:bg-[#1a1a21]"
+                className="flex items-center justify-between gap-3 px-4 py-1.5 bg-black/5 dark:bg-black/45 border border-white/15 dark:border-white/10 rounded-xl text-sm font-medium text-neutral-900 dark:text-white focus:outline-none min-w-[240px] transition-all hover:bg-black/10 dark:hover:bg-black/60 hover:scale-[1.01] hover:border-white/25 dark:hover:border-white/20 active:scale-[0.99]"
               >
                 <span className="truncate max-w-[200px] text-left">
                   {selectedDatasetId
@@ -148,7 +83,7 @@ export default function RuixenMoonChat({
               </button>
 
               {isDropdownOpen && (
-                <div className="absolute top-[calc(100%+8px)] left-0 mt-0 w-full min-w-[300px] max-h-[300px] overflow-y-auto bg-white dark:bg-[#18181b] border border-neutral-200 dark:border-neutral-800 rounded-xl shadow-2xl z-50 flex flex-col py-1.5 animate-in fade-in zoom-in-95 duration-150">
+                <div className="absolute top-[calc(100%+8px)] left-0 mt-0 w-full min-w-[300px] max-h-[300px] overflow-y-auto bg-white/95 dark:bg-[#1C1C1F]/95 backdrop-blur-xl border border-neutral-200 dark:border-white/10 rounded-xl shadow-2xl z-50 flex flex-col py-1.5 animate-in fade-in zoom-in-95 duration-150">
                   <button
                     type="button"
                     onClick={() => {
@@ -156,10 +91,10 @@ export default function RuixenMoonChat({
                       setIsDropdownOpen(false);
                     }}
                     className={cn(
-                      "px-4 py-2.5 text-left text-sm transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800/80 mx-1.5 rounded-md",
+                      "px-4 py-2.5 text-left text-sm transition-colors hover:bg-black/5 dark:hover:bg-white/10 mx-1.5 rounded-lg",
                       selectedDatasetId === ""
-                        ? "bg-neutral-100 dark:bg-white/10 text-neutral-900 dark:text-white font-semibold"
-                        : "text-neutral-700 dark:text-neutral-300"
+                        ? "bg-black/5 dark:bg-white/10 text-neutral-900 dark:text-white font-semibold border-l-2 border-primary"
+                        : "text-neutral-700 dark:text-white/60"
                     )}
                   >
                     Select a dataset...
@@ -173,10 +108,10 @@ export default function RuixenMoonChat({
                         setIsDropdownOpen(false);
                       }}
                       className={cn(
-                        "px-4 py-2.5 text-left text-sm transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800/80 mx-1.5 rounded-md truncate",
+                        "px-4 py-2.5 text-left text-sm transition-all hover:bg-black/5 dark:hover:bg-white/10 mx-1.5 rounded-lg truncate",
                         selectedDatasetId === ds.id
-                          ? "bg-neutral-100 dark:bg-white/10 text-neutral-900 dark:text-white font-semibold"
-                          : "text-neutral-700 dark:text-neutral-300"
+                          ? "bg-black/5 dark:bg-white/10 text-neutral-900 dark:text-white font-semibold border-l-2 border-primary"
+                          : "text-neutral-700 dark:text-white/60"
                       )}
                     >
                       {ds.name}
@@ -188,38 +123,12 @@ export default function RuixenMoonChat({
           </div>
         )}
 
-        <div className="relative bg-white/60 dark:bg-black/60 backdrop-blur-xl rounded-2xl border border-neutral-200 dark:border-neutral-700/60 shadow-2xl flex items-center p-2 gap-2">
-          <Textarea
-            ref={textareaRef}
-            value={message}
-            onChange={(e) => {
-              setMessage(e.target.value);
-              adjustHeight();
-            }}
-            onKeyDown={handleKeyDown}
+        <div className="w-full">
+          <PromptInputBox 
+            onSend={(msg) => onSendMessage?.(msg)}
             placeholder="Ask about revenue, trends, or specific metrics..."
-            className={cn(
-              "flex-1 px-4 py-3 resize-none border-none",
-              "bg-transparent text-black dark:text-white text-base",
-              "focus-visible:ring-0 focus-visible:ring-offset-0",
-              "placeholder:text-neutral-500 dark:placeholder:text-neutral-400 min-h-[48px]"
-            )}
-            style={{ overflow: "hidden" }}
+            disabled={!selectedDatasetId}
           />
-
-          <Button
-            onClick={handleSend}
-            disabled={!message.trim() || !selectedDatasetId}
-            className={cn(
-              "flex-shrink-0 flex items-center justify-center p-3 h-10 w-10 sm:h-12 sm:w-12 rounded-xl transition-all font-medium",
-              message.trim() && selectedDatasetId
-                ? "bg-primary text-white hover:bg-primary/90" 
-                : "bg-neutral-200 dark:bg-neutral-700/50 text-neutral-400 cursor-not-allowed border-none shadow-none"
-            )}
-            variant="ghost"
-          >
-            <ArrowUpIcon className="w-5 h-5" />
-          </Button>
         </div>
 
         {/* Quick Actions */}

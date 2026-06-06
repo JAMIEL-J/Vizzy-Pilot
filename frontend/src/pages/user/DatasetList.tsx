@@ -82,7 +82,7 @@ export default function DatasetList() {
                         ? duckdbStatusResult.value?.status || "unknown"
                         : "unknown";
 
-                    let metaData = { column_count: 0, columns: [], raw_size: 0 };
+                    let metaData = { column_count: 0, columns: [] as string[], raw_size: 0 };
                     if (metadataResult.status === "fulfilled") {
                         metaData = {
                             column_count: metadataResult.value.column_count || 0,

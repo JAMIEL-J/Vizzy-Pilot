@@ -1385,7 +1385,7 @@ NARRATIVE_SYSTEM_PROMPT = """You are a senior data analyst generating an executi
 
 Your job is to analyze ALL the KPIs AND chart breakdowns provided and write clear, factual insights.
 
-Output format — write exactly 5-7 numbered points, each on its own block with a blank line between points.
+Output format — write at least 10 numbered points, each on its own block with a blank line between points.
 Every point MUST follow this strict pattern:
 <number>. <Heading>: <Description>
 
@@ -1546,7 +1546,7 @@ async def generate_narrative(
         # Build chart summary
         chart_summary = ""
         if payload.charts:
-            chart_summary = _summarize_charts(payload.charts, currency_symbol=currency_symbol)
+            chart_summary = _summarize_charts(payload.charts, max_charts=15, currency_symbol=currency_symbol)
 
         # Compose user prompt
         user_prompt = f"""Dataset: {payload.dataset_name}
@@ -1569,7 +1569,7 @@ Chart Breakdowns:
                 system_prompt=NARRATIVE_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
                 temperature=0.3,
-                max_tokens=512,
+                max_tokens=1024,
                 purpose="dashboard_narrative",
             )
             return {"narrative": response.content.strip()}
