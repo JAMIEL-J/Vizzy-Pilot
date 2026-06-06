@@ -17,7 +17,15 @@ from .business_questions import (
 )
 from .data_profiler import DataProfiler, ColumnProfile
 from .semantic_mapper import SemanticMapper, SemanticMap
-from .role_resolver import resolve_column_by_role, get_all_resolved_roles
+from .role_resolver import (
+    resolve_column_by_role,
+    resolve_columns_by_role,
+    get_all_resolved_roles,
+    normalize_to_col_role,
+    normalize_to_role_columns,
+    invert_to_role_map,
+    detect_map_format,
+)
 from .pattern_engine import PatternEngine, AnalysisPattern
 
 __all__ = [
@@ -37,7 +45,12 @@ __all__ = [
     "SemanticMapper",
     "SemanticMap",
     "resolve_column_by_role",
+    "resolve_columns_by_role",
     "get_all_resolved_roles",
+    "normalize_to_col_role",
+    "normalize_to_role_columns",
+    "invert_to_role_map",
+    "detect_map_format",
     "PatternEngine",
     "AnalysisPattern",
 ]

@@ -22,7 +22,10 @@ _RESOLUTION_STOPWORDS = {
     "what", "which", "show", "list", "give", "with", "from", "that", "this", "have", "has",
     "where", "when", "then", "than", "into", "onto", "about", "like", "these", "those", "there",
     "across", "over", "under", "between", "performs", "perform", "well", "high", "higher", "highest",
-    "rate", "query", "data", "dataset", "table", "month", "months",
+    "rate", "query", "data", "dataset", "table", "month", "months", "for", "by", "of", "and", "or",
+    "in", "on", "at", "to", "a", "an", "the", "count", "total", "sum", "avg", "average", "min", "max",
+    "chart", "plot", "bar", "line", "pie", "scatter", "details", "metric", "metrics", "column", "columns",
+    "value", "values",
 }
 
 

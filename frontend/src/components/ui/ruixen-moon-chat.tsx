@@ -158,7 +158,7 @@ export default function RuixenMoonChat({
                     className={cn(
                       "px-4 py-2.5 text-left text-sm transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800/80 mx-1.5 rounded-md",
                       selectedDatasetId === ""
-                        ? "bg-blue-100 dark:bg-[#9ec8ff] text-blue-800 dark:text-black font-semibold"
+                        ? "bg-neutral-100 dark:bg-white/10 text-neutral-900 dark:text-white font-semibold"
                         : "text-neutral-700 dark:text-neutral-300"
                     )}
                   >
@@ -175,7 +175,7 @@ export default function RuixenMoonChat({
                       className={cn(
                         "px-4 py-2.5 text-left text-sm transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800/80 mx-1.5 rounded-md truncate",
                         selectedDatasetId === ds.id
-                          ? "bg-blue-100 dark:bg-[#9ec8ff] text-blue-800 dark:text-black font-semibold"
+                          ? "bg-neutral-100 dark:bg-white/10 text-neutral-900 dark:text-white font-semibold"
                           : "text-neutral-700 dark:text-neutral-300"
                       )}
                     >

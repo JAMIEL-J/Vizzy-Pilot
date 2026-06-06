@@ -6,20 +6,69 @@ Responsibility: File downloads and data exports
 Restrictions: Thin controller - delegates to services
 """
 
+from datetime import datetime
 from pathlib import Path
+from typing import List
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import FileResponse, StreamingResponse
 import pandas as pd
+from pydantic import BaseModel
 
 from app.api.deps import DBSession, AuthenticatedUser
 from app.core.storage import get_cleaned_data_path, get_raw_data_path
 from app.core.exceptions import ResourceNotFound, AuthorizationError
 from app.services import dataset_version_service, dataset_service
+from app.core.audit import record_audit_event
+from app.services.audit_service import get_user_audit_events
 
 
 router = APIRouter()
+
+
+class DownloadHistoryItem(BaseModel):
+    """Schema for download history logs."""
+    dataset_id: str
+    dataset_name: str
+    version_id: str
+    version_number: int
+    download_type: str
+    timestamp: datetime
+
+
+@router.get(
+    "/datasets/downloads/history",
+    response_model=List[DownloadHistoryItem],
+    summary="Get user's download history",
+)
+def get_download_history(
+    current_user: AuthenticatedUser,
+) -> List[DownloadHistoryItem]:
+    """
+    Get the audit event log of dataset downloads for the current user.
+    """
+    events = get_user_audit_events(UUID(current_user.user_id))
+    download_events = [
+        e for e in events
+        if e.get("event_type") == "DATASET_DOWNLOADED"
+    ]
+    
+    history = []
+    for e in download_events:
+        metadata = e.get("metadata") or {}
+        history.append(
+            DownloadHistoryItem(
+                dataset_id=e.get("resource_id") or "",
+                dataset_name=metadata.get("dataset_name", "Unknown Dataset"),
+                version_id=metadata.get("version_id", ""),
+                version_number=metadata.get("version_number", 1),
+                download_type=metadata.get("download_type", "raw"),
+                timestamp=e.get("timestamp"),
+            )
+        )
+    return history
+
 
 
 @router.get(
@@ -62,11 +111,25 @@ def download_raw_dataset(
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Raw data file not found")
 
+    record_audit_event(
+        event_type="DATASET_DOWNLOADED",
+        user_id=str(current_user.user_id),
+        resource_type="Dataset",
+        resource_id=str(dataset.id),
+        metadata={
+            "dataset_name": dataset.name,
+            "version_id": str(version.id),
+            "version_number": version.version_number,
+            "download_type": "raw",
+        },
+    )
+
     return FileResponse(
         path=str(file_path),
         filename=f"raw_data_{version_id}.csv",
         media_type="text/csv",
     )
+
 
 
 @router.get(
@@ -110,6 +173,19 @@ def download_cleaned_dataset(
 
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Cleaned data file not found")
+
+    record_audit_event(
+        event_type="DATASET_DOWNLOADED",
+        user_id=str(current_user.user_id),
+        resource_type="Dataset",
+        resource_id=str(dataset.id),
+        metadata={
+            "dataset_name": dataset.name,
+            "version_id": str(version.id),
+            "version_number": version.version_number,
+            "download_type": "cleaned",
+        },
+    )
 
     return FileResponse(
         path=str(file_path),
@@ -155,6 +231,19 @@ def download_latest_raw_dataset(
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Raw data file not found")
 
+    record_audit_event(
+        event_type="DATASET_DOWNLOADED",
+        user_id=str(current_user.user_id),
+        resource_type="Dataset",
+        resource_id=str(dataset.id),
+        metadata={
+            "dataset_name": dataset.name,
+            "version_id": str(version.id),
+            "version_number": version.version_number,
+            "download_type": "raw",
+        },
+    )
+
     return FileResponse(
         path=str(file_path),
         filename=f"raw_data_latest.csv",
@@ -198,6 +287,19 @@ def download_latest_cleaned_dataset(
 
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Cleaned data file not found")
+
+    record_audit_event(
+        event_type="DATASET_DOWNLOADED",
+        user_id=str(current_user.user_id),
+        resource_type="Dataset",
+        resource_id=str(dataset.id),
+        metadata={
+            "dataset_name": dataset.name,
+            "version_id": str(version.id),
+            "version_number": version.version_number,
+            "download_type": "cleaned",
+        },
+    )
 
     return FileResponse(
         path=str(file_path),

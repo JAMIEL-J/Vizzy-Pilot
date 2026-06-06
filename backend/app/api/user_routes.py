@@ -8,6 +8,7 @@ Restrictions: Thin controller - all logic delegated to services
 
 from typing import List, Optional
 from uuid import UUID
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
@@ -63,6 +64,7 @@ class UserResponse(BaseModel):
     name: Optional[str] = None
     role: UserRole
     is_active: bool
+    created_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -104,9 +106,28 @@ class UserProfileStatsResponse(BaseModel):
     dataset_sources: dict
 
 
+class LLMSettingResponse(BaseModel):
+    """Masked user settings response."""
+    provider: str
+    has_openai_key: bool
+    has_gemini_key: bool
+    ollama_url: Optional[str] = "http://localhost:11434"
+    ollama_model: Optional[str] = "llama3"
+
+
+class LLMSettingUpdateRequest(BaseModel):
+    """Settings update request."""
+    provider: str
+    openai_api_key: Optional[str] = None
+    gemini_api_key: Optional[str] = None
+    ollama_url: Optional[str] = "http://localhost:11434"
+    ollama_model: Optional[str] = "llama3"
+
+
 # =============================================================================
 # Routes
 # =============================================================================
+
 
 
 @router.post(
@@ -232,6 +253,108 @@ def get_current_user_profile_stats(
 
 
 @router.get(
+    "/me/llm-settings",
+    response_model=LLMSettingResponse,
+    summary="Get user's custom LLM settings",
+)
+def get_user_llm_settings(
+    session: DBSession,
+    current_user: AuthenticatedUser,
+) -> LLMSettingResponse:
+    import json
+    
+    user = user_services.get_user_by_id(
+        session=session,
+        user_id=UUID(current_user.user_id),
+    )
+    
+    settings_dict = {}
+    if user.llm_settings:
+        try:
+            settings_dict = json.loads(user.llm_settings)
+        except Exception:
+            pass
+            
+    openai_key_encrypted = settings_dict.get("openai_api_key")
+    gemini_key_encrypted = settings_dict.get("gemini_api_key")
+    
+    has_openai = bool(openai_key_encrypted)
+    has_gemini = bool(gemini_key_encrypted)
+    
+    return LLMSettingResponse(
+        provider=settings_dict.get("provider", "default"),
+        has_openai_key=has_openai,
+        has_gemini_key=has_gemini,
+        ollama_url=settings_dict.get("ollama_url", "http://localhost:11434"),
+        ollama_model=settings_dict.get("ollama_model", "llama3"),
+    )
+
+
+@router.put(
+    "/me/llm-settings",
+    response_model=LLMSettingResponse,
+    summary="Update user's custom LLM settings",
+)
+def update_user_llm_settings(
+    request: LLMSettingUpdateRequest,
+    session: DBSession,
+    current_user: AuthenticatedUser,
+) -> LLMSettingResponse:
+    import json
+    from app.core.crypto import encrypt_val
+    
+    user = user_services.get_user_by_id(
+        session=session,
+        user_id=UUID(current_user.user_id),
+    )
+    
+    existing_settings = {}
+    if user.llm_settings:
+        try:
+            existing_settings = json.loads(user.llm_settings)
+        except Exception:
+            pass
+
+    openai_key = request.openai_api_key
+    if openai_key == "********":
+        encrypted_openai_key = existing_settings.get("openai_api_key") or ""
+    elif openai_key:
+        encrypted_openai_key = encrypt_val(openai_key)
+    else:
+        encrypted_openai_key = ""
+
+    gemini_key = request.gemini_api_key
+    if gemini_key == "********":
+        encrypted_gemini_key = existing_settings.get("gemini_api_key") or ""
+    elif gemini_key:
+        encrypted_gemini_key = encrypt_val(gemini_key)
+    else:
+        encrypted_gemini_key = ""
+
+    new_settings = {
+        "provider": request.provider,
+        "openai_api_key": encrypted_openai_key,
+        "gemini_api_key": encrypted_gemini_key,
+        "ollama_url": request.ollama_url or "http://localhost:11434",
+        "ollama_model": request.ollama_model or "llama3",
+    }
+    
+    user.llm_settings = json.dumps(new_settings)
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    
+    return LLMSettingResponse(
+        provider=new_settings["provider"],
+        has_openai_key=bool(encrypted_openai_key),
+        has_gemini_key=bool(encrypted_gemini_key),
+        ollama_url=new_settings["ollama_url"],
+        ollama_model=new_settings["ollama_model"],
+    )
+
+
+@router.get(
+
     "",
     response_model=UserListResponse,
     summary="List all users (Admin only)",

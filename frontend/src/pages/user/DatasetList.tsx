@@ -26,6 +26,7 @@ export default function DatasetList() {
     const [error, setError] = useState<string | null>(null);
     const [rowCountByDataset, setRowCountByDataset] = useState<Record<string, number>>({});
     const [syncStatusByDataset, setSyncStatusByDataset] = useState<Record<string, DuckDBStatus["status"]>>({});
+    const [metadataByDataset, setMetadataByDataset] = useState<Record<string, { column_count: number; columns: string[]; raw_size: number }>>({});
     
     // Pagination
     const [currentPage, setCurrentPage] = useState(1);
@@ -54,18 +55,21 @@ export default function DatasetList() {
         if (datasetList.length === 0) {
             setRowCountByDataset({});
             setSyncStatusByDataset({});
+            setMetadataByDataset({});
             return;
         }
 
         try {
             const rowsMap: Record<string, number> = {};
             const statusMap: Record<string, DuckDBStatus["status"]> = {};
+            const metadataMap: Record<string, { column_count: number; columns: string[]; raw_size: number }> = {};
 
             const results = await Promise.all(
                 datasetList.map(async (dataset) => {
-                    const [latestVersionResult, duckdbStatusResult] = await Promise.allSettled([
+                    const [latestVersionResult, duckdbStatusResult, metadataResult] = await Promise.allSettled([
                         datasetService.getLatestVersion(dataset.id),
                         datasetService.getDuckdbStatus(dataset.id),
+                        datasetService.getDatasetMetadata(dataset.id),
                     ]);
 
                     let rowCount = 0;
@@ -78,10 +82,20 @@ export default function DatasetList() {
                         ? duckdbStatusResult.value?.status || "unknown"
                         : "unknown";
 
+                    let metaData = { column_count: 0, columns: [], raw_size: 0 };
+                    if (metadataResult.status === "fulfilled") {
+                        metaData = {
+                            column_count: metadataResult.value.column_count || 0,
+                            columns: metadataResult.value.columns || [],
+                            raw_size: metadataResult.value.raw_size || 0,
+                        };
+                    }
+
                     return {
                         datasetId: dataset.id,
                         rowCount,
                         syncStatus,
+                        metaData,
                     };
                 })
             );
@@ -89,13 +103,24 @@ export default function DatasetList() {
             for (const item of results) {
                 rowsMap[item.datasetId] = item.rowCount;
                 statusMap[item.datasetId] = item.syncStatus;
+                metadataMap[item.datasetId] = item.metaData;
             }
 
             setRowCountByDataset(rowsMap);
             setSyncStatusByDataset(statusMap);
+            setMetadataByDataset(metadataMap);
         } catch (error) {
             console.error("Failed to load dataset metrics:", error);
         }
+    };
+
+    const formatFileSize = (bytes: number | undefined) => {
+        if (!bytes) return "-";
+        const kb = bytes / 1024;
+        if (kb < 1024) return `${kb.toFixed(1)} KB`;
+        const mb = kb / 1024;
+        if (mb < 1024) return `${mb.toFixed(1)} MB`;
+        return `${(mb / 1024).toFixed(2)} GB`;
     };
 
     const handleDelete = async (id: string) => {
@@ -272,8 +297,12 @@ export default function DatasetList() {
                                             </td>
                                             <td className="px-4 py-3"><Pill><Database className="h-2.5 w-2.5" />DuckDB</Pill></td>
                                             <td className="num px-4 py-3 text-right">{(rowCountByDataset[d.id] || 0).toLocaleString()}</td>
-                                            <td className="num px-4 py-3 text-right text-muted-foreground">-</td>
-                                            <td className="num px-4 py-3 text-right text-muted-foreground">-</td>
+                                            <td className="num px-4 py-3 text-right cursor-help text-foreground font-medium" title={metadataByDataset[d.id]?.columns?.join(", ") || "No columns loaded"}>
+                                                {metadataByDataset[d.id]?.column_count ?? "-"}
+                                            </td>
+                                            <td className="num px-4 py-3 text-right text-muted-foreground">
+                                                {formatFileSize(metadataByDataset[d.id]?.raw_size)}
+                                            </td>
                                             <td className="px-4 py-3">{renderSyncPill(d.id)}</td>
                                             <td className="px-4 py-3 text-muted-foreground">{formatUpdatedAt(d.updated_at || d.created_at)}</td>
                                             <td className="px-4 py-3">

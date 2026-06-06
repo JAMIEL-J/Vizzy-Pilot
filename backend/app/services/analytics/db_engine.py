@@ -14,7 +14,7 @@ _write_lock = asyncio.Lock()
 class DBEngine:
     """DuckDB interface with sandboxed execution and pre-flight coercion."""
     
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: Optional[str] = None, read_only: bool = False):
         from app.core.config import get_settings
         settings = get_settings()
         self._db_path = db_path or settings.storage.duckdb_path
@@ -24,7 +24,7 @@ class DBEngine:
             import os
             os.makedirs(os.path.dirname(self._db_path) or ".", exist_ok=True)
 
-        self._write_con = duckdb.connect(database=self._db_path, read_only=False)
+        self._write_con = duckdb.connect(database=self._db_path, read_only=read_only)
         try:
             self._write_con.execute("SET enable_progress_bar = false")
         except Exception as e:

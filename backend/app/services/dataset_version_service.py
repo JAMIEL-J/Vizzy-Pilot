@@ -254,21 +254,22 @@ def confirm_semantic_mapping(
 ) -> DatasetVersion:
     """
     Save the user-confirmed semantic map to the dataset version.
+    Format: {column_name: role}  e.g. {"Sales": "revenue", "Order_Date": "date"}
     """
     version = get_version_by_id(session, version_id)
 
     # Validation: Reject if any column is mapped to "unclassified"
-    if any(col == "unclassified" for col in confirmed_map.values()):
+    # In {column: role} format, values are roles
+    if any(role == "unclassified" for role in confirmed_map.values()):
         raise ValidationError(
             message="Invalid semantic mapping",
             details="All columns must be assigned a valid role. 'unclassified' is not allowed."
         )
 
-    # Store confirmed map as {role: column}
-    role_map = dict(confirmed_map)
+    # Store confirmed map as {column: role}
     if not approved_by:
         approved_by = version.created_by
-    version.semantic_map_json = json.dumps(role_map)
+    version.semantic_map_json = json.dumps(dict(confirmed_map))
     version.approved_by = approved_by
     version.approved_at = datetime.now(timezone.utc)
     version.change_type = version.change_type or "initial_approval"
@@ -334,17 +335,25 @@ def preview_remap_impact(
     """
     Compare proposed map to current confirmed map and return affected charts.
     ImpactSeverity = Literal["x_axis_changes", "y_axis_changes", "groupby_changes"]
+    Handles both {column: role} and legacy {role: column} formats.
     """
+    from app.services.analytics.role_resolver import normalize_to_col_role
+
     current = get_version_by_id(session, version_id)
 
-    # Current semantic map (role -> column)
-    current_map = json.loads(current.semantic_map_json or "{}")
-    new_map = dict(proposed_map)
+    # Normalize both maps to {column: role} format
+    current_col_role = normalize_to_col_role(current.semantic_map_json or "{}")
+    new_col_role = dict(proposed_map)
 
-    # Identify changed roles
-    changed_roles = {
-        role for role, col in new_map.items()
-        if current_map.get(role) != col
+    # Detect format of proposed_map and normalize if legacy
+    from app.services.analytics.role_resolver import detect_map_format
+    if detect_map_format(new_col_role) == "role_to_col":
+        new_col_role = {col: role for role, col in new_col_role.items()}
+
+    # Identify columns whose role has changed
+    changed_columns = {
+        col for col, role in new_col_role.items()
+        if current_col_role.get(col) != role
     }
 
     # Resolve affected chart configs
@@ -357,10 +366,7 @@ def preview_remap_impact(
 
         impact: Optional[Literal["x_axis_changes", "y_axis_changes", "groupby_changes"]] = None
 
-        for role in changed_roles:
-            col = new_map.get(role)
-            if not col:
-                continue
+        for col in changed_columns:
             if x_col == col:
                 impact = "x_axis_changes"
             elif y_col == col:

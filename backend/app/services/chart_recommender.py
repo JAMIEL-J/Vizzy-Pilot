@@ -17,6 +17,7 @@ class ChartConfig(BaseModel):
 def generate_chart_configs(semantic_map_json: str) -> List[ChartConfig]:
     """
     Pure function that takes a confirmed semantic map and recommends a set of charts.
+    Handles both {role: column} (legacy) and {column: role} (new) formats.
     Rules:
     - date x measure -> time series (line)
     - category x measure -> bar chart
@@ -27,19 +28,22 @@ def generate_chart_configs(semantic_map_json: str) -> List[ChartConfig]:
         return []
 
     try:
-        # semantic_map_json is {role: column}
-        semantic_map = json.loads(semantic_map_json)
-    except json.JSONDecodeError:
+        from app.services.analytics.role_resolver import normalize_to_col_role
+        col_role_map = normalize_to_col_role(semantic_map_json)
+    except Exception:
+        return []
+
+    if not col_role_map:
         return []
 
     configs = []
     
-    # Extract columns by role group
-    dates = [col for role, col in semantic_map.items() if ROLE_TAXONOMY.get(role, {}).get("affinity") == "time_series_x"]
-    categories = [col for role, col in semantic_map.items() if ROLE_TAXONOMY.get(role, {}).get("affinity") == "groupby_x"]
-    measures = [col for role, col in semantic_map.items() if ROLE_TAXONOMY.get(role, {}).get("affinity") == "measure_y"]
-    gauges = [col for role, col in semantic_map.items() if ROLE_TAXONOMY.get(role, {}).get("affinity") == "gauge_measure"]
-    kpis = [col for role, col in semantic_map.items() if role in ["count", "score"]]
+    # Extract columns by role group — iterating (col, role) so ALL columns are included
+    dates = [col for col, role in col_role_map.items() if ROLE_TAXONOMY.get(role, {}).get("affinity") == "time_series_x"]
+    categories = [col for col, role in col_role_map.items() if ROLE_TAXONOMY.get(role, {}).get("affinity") == "groupby_x"]
+    measures = [col for col, role in col_role_map.items() if ROLE_TAXONOMY.get(role, {}).get("affinity") == "measure_y"]
+    gauges = [col for col, role in col_role_map.items() if ROLE_TAXONOMY.get(role, {}).get("affinity") == "gauge_measure"]
+    kpis = [col for col, role in col_role_map.items() if role in ["count", "score"]]
 
     # 1. Time Series: date x measure (cap 3)
     if dates and measures:

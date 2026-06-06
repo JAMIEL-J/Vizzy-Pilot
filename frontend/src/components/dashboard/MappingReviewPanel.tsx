@@ -93,9 +93,10 @@ export default function MappingReviewPanel({ datasetId, versionId, onConfirm }: 
 
     const handleConfirm = async () => {
         try {
+            // Use column as key (unique) → no data loss for duplicate roles
             const finalMap: Record<string, string> = {};
             proposals.forEach(p => {
-                finalMap[p.role] = p.column;
+                finalMap[p.column] = p.role;
             });
             await semanticMappingService.confirmMapping(datasetId, versionId, finalMap);
             onConfirm();
@@ -110,10 +111,13 @@ export default function MappingReviewPanel({ datasetId, versionId, onConfirm }: 
 
     if (isLoading) {
         return (
-            <div className="fixed inset-0 bg-background/80 backdrop-blur-md flex items-center justify-center z-50 p-4">
+            <div className="fixed inset-0 bg-[#FDFBF7]/40 dark:bg-black/60 backdrop-blur-[4px] flex items-center justify-center z-50 p-4">
                 <div className="flex flex-col items-center gap-4">
-                    <span className="material-symbols-outlined text-4xl animate-spin text-primary">sync</span>
-                    <p className="font-sans text-sm font-medium text-on-surface-variant">Analyzing dataset semantics...</p>
+                    <svg className="w-8 h-8 animate-spin text-black dark:text-white" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <p className="font-['Inter'] text-sm font-medium text-[#5E5E5C] dark:text-[#A3A3A3]">Analyzing dataset semantics...</p>
                 </div>
             </div>
         );
@@ -121,124 +125,247 @@ export default function MappingReviewPanel({ datasetId, versionId, onConfirm }: 
 
     if (error) {
         return (
-            <div className="fixed inset-0 bg-background/80 backdrop-blur-md flex items-center justify-center z-50 p-4">
-                <div className="bg-surface-container-lowest dark:bg-surface p-8 rounded-xl border border-red-200 dark:border-red-900/30 text-center max-w-md">
-                    <span className="material-symbols-outlined text-red-500 text-4xl mb-4">error</span>
-                    <h3 className="text-lg font-bold mb-2">Analysis Failed</h3>
-                    <p className="text-sm text-gray-500 mb-6">{error}</p>
-                    <button onClick={() => window.location.reload()} className="px-6 py-2 bg-primary text-white rounded-lg text-xs font-bold uppercase">Retry</button>
+            <div className="fixed inset-0 bg-[#FDFBF7]/40 dark:bg-black/60 backdrop-blur-[4px] flex items-center justify-center z-50 p-4">
+                <div className="bg-white dark:bg-black p-8 rounded-xl border border-red-200 dark:border-red-900/30 text-center max-w-md shadow-xl">
+                    <svg className="w-12 h-12 text-[#BA1A1A] dark:text-[#EF4444] mx-auto mb-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="12" y1="8" x2="12" y2="12"></line>
+                        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                    </svg>
+                    <h3 className="text-lg font-bold mb-2 font-['Manrope'] text-[#1B1C1C] dark:text-white">Analysis Failed</h3>
+                    <p className="text-sm text-[#5E5E5C] dark:text-[#A3A3A3] mb-6 font-['Inter']">{error}</p>
+                    <button onClick={() => window.location.reload()} className="px-6 py-2 bg-black dark:bg-white text-white dark:text-black rounded-lg text-xs font-bold uppercase font-['Inter']">Retry</button>
                 </div>
             </div>
         );
     }
 
     return (
-        <div className="fixed inset-0 bg-background/90 backdrop-blur-xl flex items-center justify-center z-50 p-6">
-            <div className="bg-surface-container-lowest dark:bg-surface p-8 rounded-3xl shadow-2xl max-w-5xl w-full border border-outline-variant/20 dark:border-outline-variant/50 flex flex-col max-h-[90vh]">
-                <div className="mb-8 flex items-start justify-between">
-                    <div>
-                        <h2 className="text-3xl font-bold text-on-surface mb-2">Dataset Intelligence Audit</h2>
-                        <p className="text-sm text-on-surface-variant font-body leading-relaxed max-w-2xl">
-                            Our AI has analyzed your data distribution and proposed a semantic map.
-                            Please review these business roles to unlock professional-grade dashboards.
-                        </p>
-                        <div className="mt-3 text-xs text-on-surface-variant">
-                            <span className="font-semibold text-on-surface">{proposals.length - unresolvedCount}</span> auto-classified •
-                            <span className="font-semibold text-on-surface"> {unresolvedCount}</span> require review
+        <div className="fixed inset-0 bg-white/40 dark:bg-black/60 backdrop-blur-[2px] dark:backdrop-blur-sm flex items-center justify-center z-50 p-6" style={{ borderColor: 'transparent' }}>
+            {/* Reset helix-scope border-color override for the entire modal */}
+            <div className="bg-white dark:bg-[#000000] rounded-[16px] flex flex-col max-w-6xl w-full max-h-[90vh] overflow-hidden" style={{ border: '1px solid', borderColor: 'var(--mapping-modal-border)', boxShadow: 'var(--mapping-modal-shadow)', ['--mapping-modal-border' as any]: '', ['--mapping-modal-shadow' as any]: '' }}>
+            <style>{`
+                .mapping-review-modal,
+                .mapping-review-modal * {
+                    border-color: transparent;
+                }
+                .mapping-review-modal {
+                    --mapping-border: #E5E2DE;
+                    --mapping-border-soft: #E5E2DE;
+                    border: 1px solid #E5E2DE !important;
+                    box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05), 0 25px 50px -12px rgba(0,0,0,0.1) !important;
+                }
+                :is(.dark) .mapping-review-modal {
+                    --mapping-border: #262626;
+                    --mapping-border-soft: rgba(255,255,255,0.05);
+                    border: 1px solid #262626 !important;
+                    box-shadow: 0 0 0 1px rgba(255,255,255,0.05), 0 25px 50px -12px rgba(0,0,0,0.9) !important;
+                }
+                .mapping-review-modal .mr-divider {
+                    border-bottom: 1px solid #E5E2DE;
+                }
+                :is(.dark) .mapping-review-modal .mr-divider {
+                    border-bottom: 1px solid rgba(255,255,255,0.05);
+                }
+                .mapping-review-modal .mr-divider-strong {
+                    border-bottom: 1px solid #E5E2DE;
+                }
+                :is(.dark) .mapping-review-modal .mr-divider-strong {
+                    border-bottom: 1px solid #262626;
+                }
+                .mapping-review-modal .mr-footer {
+                    border-top: 1px solid #E5E2DE;
+                }
+                :is(.dark) .mapping-review-modal .mr-footer {
+                    border-top: 1px solid rgba(255,255,255,0.05);
+                }
+                .mapping-review-modal .mr-select {
+                    border: 1px solid #E5E2DE;
+                    outline: none;
+                    box-shadow: none;
+                }
+                .mapping-review-modal .mr-select:focus {
+                    border-color: #bbb;
+                    outline: none;
+                    box-shadow: none;
+                    ring: none;
+                }
+                :is(.dark) .mapping-review-modal .mr-select {
+                    border: 1px solid rgba(255,255,255,0.2);
+                }
+                :is(.dark) .mapping-review-modal .mr-select:focus {
+                    border-color: rgba(255,255,255,0.4);
+                    outline: none;
+                    box-shadow: none;
+                }
+                :is(.dark) .mapping-review-modal .mr-select-muted {
+                    border: 1px solid rgba(255,255,255,0.1);
+                }
+                :is(.dark) .mapping-review-modal .mr-select-muted:focus {
+                    border-color: rgba(255,255,255,0.2);
+                    outline: none;
+                    box-shadow: none;
+                }
+                .mapping-review-modal .mr-pill {
+                    background: #EFEDED;
+                }
+                :is(.dark) .mapping-review-modal .mr-pill {
+                    background: rgba(255,255,255,0.05);
+                }
+                .mapping-review-modal .mr-confirm {
+                    border: none;
+                }
+            `}</style>
+            <div className="mapping-review-modal bg-white dark:bg-[#000000] rounded-[16px] flex flex-col overflow-hidden">
+                {/* Modal Header */}
+                <div className="px-8 py-7 dark:py-6 mr-divider-strong bg-neutral-50/50 dark:bg-white/[0.01]">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h2 className="text-xl font-bold dark:font-semibold text-[#1B1C1C] dark:text-white tracking-tight font-['Manrope'] dark:font-sans">
+                                Review Smart Classifications
+                            </h2>
+                            <p className="text-sm text-[#5E5E5C] dark:text-[#A3A3A3] mt-1 font-['Inter']">
+                                Our AI analyst has proposed business roles for your dataset columns.
+                            </p>
                         </div>
-                    </div>
-                    <div className="hidden lg:block p-3 bg-primary/10 rounded-2xl border border-primary/20">
-                        <span className="material-symbols-outlined text-primary text-3xl">psychology</span>
+                        <div className="px-3 py-1 bg-black dark:bg-white/10 text-[10px] dark:text-[11px] font-bold text-white dark:text-white uppercase tracking-widest rounded-md dark:rounded-full font-['Inter']" style={{ border: 'none', borderColor: 'transparent' }}>
+                            <span className="hidden dark:inline" style={{ border: '1px solid rgba(255,255,255,0.2)', borderRadius: '9999px', padding: '4px 12px' }}>AI Insight Active</span>
+                            <span className="dark:hidden">AI Insight Active</span>
+                        </div>
                     </div>
                 </div>
 
-                <div className="flex items-center justify-between mb-4">
-                    <div className="text-xs text-on-surface-variant">
-                        Showing {showAll ? 'all columns' : 'flagged + unclassified only'}
+                {/* Column Filter Toggle */}
+                <div className="px-8 py-3.5 flex items-center justify-between mr-divider bg-white dark:bg-[#000000]">
+                    <div className="text-xs text-[#5E5E5C] dark:text-[#A3A3A3] font-['Inter']">
+                        Showing {showAll ? 'all columns' : 'uncertain or flagged columns only'}
                     </div>
                     <button
-                        type="button"
                         onClick={() => setShowAll(!showAll)}
-                        className="text-xs font-bold uppercase tracking-widest text-primary hover:underline"
+                        className="text-[11px] font-bold uppercase tracking-widest text-[#1B1C1C] dark:text-white hover:text-opacity-80 transition-colors font-['Inter']"
                     >
-                        {showAll ? 'Show Uncertain Only' : 'Show All Columns'}
+                        {showAll ? 'SHOW UNCERTAIN ONLY' : 'SHOW ALL COLUMNS'}
                     </button>
                 </div>
 
-                <div className="flex-1 overflow-auto rounded-2xl border border-outline-variant/30 dark:border-outline-variant/20 bg-surface-container-highest/30 dark:bg-surface-container-lowest/30">
-                    <table className="w-full text-left border-collapse">
-                        <thead className="sticky top-0 bg-surface-container-lowest dark:bg-surface z-10">
-                            <tr className="text-xs font-bold uppercase tracking-wider text-on-surface-variant border-b border-outline-variant/30">
-                                <th className="p-4">Column Name</th>
-                                <th className="p-4">Proposed Business Role</th>
-                                <th className="p-4">Analyst Reasoning</th>
-                                <th className="p-4 text-right">Confidence</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-outline-variant/10">
-                            {visibleProposals.map((p, idx) => {
-                                const roleInfo = ROLE_LABELS[p.role] || ROLE_LABELS.unclassified;
-                                const confidenceColor = p.confidence > 0.8 ? 'text-green-500' : p.confidence > 0.5 ? 'text-amber-500' : 'text-red-400';
-                                const rowHighlight = p.status === 'unclassified' ? 'bg-red-50/40 dark:bg-red-900/10' : p.status === 'flagged' ? 'bg-amber-50/40 dark:bg-amber-900/10' : '';
-
-                                return (
-                                    <tr key={`${p.column}-${idx}`} className={`hover:bg-surface-container-lowest dark:hover:bg-surface-container transition-colors group ${rowHighlight}`}>
-                                        <td className="p-4 font-mono text-xs font-medium text-on-surface">
-                                            {p.column}
-                                        </td>
-                                        <td className="p-4">
-                                            <div className="flex flex-col gap-1">
-                                                <select
-                                                    value={p.role}
-                                                    onChange={(e) => {
-                                                        const newProposals = [...proposals];
-                                                        const targetIndex = newProposals.findIndex(item => item.column === p.column);
-                                                        if (targetIndex !== -1) {
-                                                            newProposals[targetIndex].role = e.target.value;
-                                                            newProposals[targetIndex].status = e.target.value === 'unclassified' ? 'unclassified' : 'flagged';
-                                                            setProposals(newProposals);
-                                                        }
-                                                    }}
-                                                    className="bg-transparent border border-outline-variant/30 rounded-lg px-2 py-1 text-sm font-bold text-primary focus:ring-2 focus:ring-primary outline-none cursor-pointer"
-                                                >
-                                                    {ROLE_OPTIONS.map(opt => (
-                                                        <option key={opt} value={opt}>{ROLE_LABELS[opt].label}</option>
-                                                    ))}
-                                                </select>
-                                                <span className="text-[10px] text-on-surface-variant opacity-60">{roleInfo.description}</span>
-                                            </div>
-                                        </td>
-                                        <td className="p-4 text-xs text-on-surface-variant italic leading-relaxed max-w-md">
-                                            "{p.evidence}"
-                                        </td>
-                                        <td className="p-4 text-right">
-                                            <span className={`text-xs font-bold ${confidenceColor}`}>
-                                                {Math.round(p.confidence * 100)}%
-                                            </span>
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
+                {/* Table Header */}
+                <div className="grid grid-cols-[1.2fr_260px_1.5fr_120px] gap-6 px-8 py-4 bg-[#FDFBF7] dark:bg-white/[0.02] text-[10px] font-bold text-[#5E5E5C] dark:text-[#A3A3A3] uppercase tracking-[0.15em] mr-divider font-['JetBrains_Mono']">
+                    <div>Column Name</div>
+                    <div>Proposed Business Role</div>
+                    <div>Analyst Reasoning</div>
+                    <div className="text-right">Confidence</div>
                 </div>
 
-                <div className="mt-8 flex items-center justify-between">
-                    <p className="text-xs text-on-surface-variant italic opacity-70">
-                        Tip: Roles marked as "Unclassified" may result in fewer charts.
-                    </p>
+                {/* Table Body */}
+                <div className="flex-1 overflow-y-auto scrollbar-hide max-h-[500px]">
+                    {visibleProposals.map((p, idx) => {
+                        const roleInfo = ROLE_LABELS[p.role] || ROLE_LABELS.unclassified;
+                        const isUnclassified = p.role === 'unclassified';
+                        
+                        const selectExtraClass = isUnclassified ? 'mr-select-muted' : '';
+                        const selectColorClass = isUnclassified
+                            ? 'bg-white text-neutral-400 dark:bg-[#000000] dark:text-neutral-500'
+                            : 'bg-white text-[#1B1C1C] dark:bg-[#000000] dark:text-white';
+
+                        const isGreen = p.confidence >= 0.7;
+                        const confidenceColor = isGreen
+                            ? 'text-[#469446] dark:text-white'
+                            : 'text-[#BA1A1A] dark:text-[#EF4444]';
+
+                        const progressBarColor = isGreen
+                            ? 'bg-[#469446] dark:bg-[#10B981]'
+                            : 'bg-[#BA1A1A] dark:bg-[#EF4444]';
+
+                        const progressBgColor = 'bg-[#EFEDED] dark:bg-white/10';
+
+                        const rowHighlight = p.status === 'unclassified'
+                            ? 'bg-[#BA1A1A]/[0.02] dark:bg-[#EF4444]/[0.02]'
+                            : p.status === 'flagged'
+                            ? 'bg-amber-500/[0.02] dark:bg-amber-500/[0.02]'
+                            : '';
+
+                        return (
+                            <div
+                                key={`${p.column}-${idx}`}
+                                className={`grid grid-cols-[1.2fr_260px_1.5fr_120px] gap-6 px-8 py-5 mr-divider items-center hover:bg-[#F9F9F9] dark:hover:bg-white/[0.03] transition-all duration-200 group ${rowHighlight}`}
+                            >
+                                <div className="mr-pill font-mono text-xs font-semibold text-[#1B1C1C] dark:text-white/90 w-fit px-2 py-1 rounded font-['JetBrains_Mono']">
+                                    {p.column}
+                                </div>
+                                <div>
+                                    <div className="relative">
+                                        <select
+                                            value={p.role}
+                                            onChange={(e) => {
+                                                const newProposals = [...proposals];
+                                                const targetIndex = newProposals.findIndex(item => item.column === p.column);
+                                                if (targetIndex !== -1) {
+                                                    newProposals[targetIndex].role = e.target.value;
+                                                    newProposals[targetIndex].status = e.target.value === 'unclassified' ? 'unclassified' : 'flagged';
+                                                    setProposals(newProposals);
+                                                }
+                                            }}
+                                            className={`mr-select ${selectExtraClass} w-full text-xs font-semibold rounded-lg pl-3 pr-8 py-2.5 appearance-none transition-all duration-200 cursor-pointer font-['Inter'] ${selectColorClass}`}
+                                        >
+                                            {ROLE_OPTIONS.map(opt => (
+                                                <option key={opt} value={opt} className="bg-white dark:bg-[#121212] text-[#1B1C1C] dark:text-white font-medium">
+                                                    {ROLE_LABELS[opt].label}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
+                                            <svg className={`w-3.5 h-3.5 ${isUnclassified ? 'text-neutral-300 dark:text-neutral-500' : 'text-[#5E5E5C] dark:text-white/60'}`} fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                                                <path d="M19 9l-7 7-7-7"></path>
+                                            </svg>
+                                        </div>
+                                    </div>
+                                    <p className={`text-[10px] text-[#5E5E5C] dark:text-[#A3A3A3] mt-1.5 pl-1 font-['Inter'] ${isUnclassified ? 'italic font-normal' : 'font-medium'}`}>
+                                        {roleInfo.description}
+                                    </p>
+                                </div>
+                                <div className="text-[13px] text-[#5E5E5C] dark:text-neutral-400 leading-relaxed font-normal font-['Inter']">
+                                    "{p.evidence}"
+                                </div>
+                                <div className="flex items-center justify-end gap-3">
+                                    <div className={`w-12 ${progressBgColor} h-1 rounded-full overflow-hidden hidden sm:block`} style={{ borderColor: 'transparent' }}>
+                                        <div
+                                            className={`h-full transition-all duration-500 ${progressBarColor}`}
+                                            style={{ width: `${Math.round(p.confidence * 100)}%` }}
+                                        ></div>
+                                    </div>
+                                    <span className={`text-xs font-bold tabular-nums ${confidenceColor} font-['JetBrains_Mono']`} style={{ borderColor: 'transparent' }}>
+                                        {Math.round(p.confidence * 100)}%
+                                    </span>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+
+                {/* Modal Footer */}
+                {/* eslint-disable-next-line */}
+                <div className="px-8 py-6 bg-neutral-50/50 dark:bg-white/[0.01] mr-footer flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-[#5E5E5C] dark:text-[#A3A3A3]">
+                        <svg className="w-4 h-4 text-[#5E5E5C] dark:text-white/50" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <path d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        <p className="text-xs font-medium dark:font-normal italic dark:tracking-wide text-[#5E5E5C] dark:text-[#A3A3A3] font-['Inter']">
+                            Tip: Roles marked as "Unclassified" may result in fewer charts.
+                        </p>
+                    </div>
                     <button
                         onClick={() => handleConfirm()}
                         disabled={unresolvedCount > 0}
-                        className={`px-10 py-4 font-label text-sm font-bold uppercase tracking-widest rounded-2xl shadow-xl transition-all active:scale-95 ${
+                        className={`mr-confirm px-8 py-3 rounded-xl font-bold text-sm tracking-tight transition-all duration-200 font-['Inter'] ${
                             unresolvedCount > 0
-                                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                                : 'bg-primary text-on-primary shadow-primary/30 hover:brightness-110 hover:scale-[1.02]'
+                                ? 'bg-[#EFEDED] dark:bg-[#171717] text-neutral-400 dark:text-neutral-600 cursor-not-allowed'
+                                : 'bg-black dark:bg-white text-white dark:text-black hover:bg-neutral-800 dark:hover:bg-neutral-200 shadow-xl dark:shadow-[0_8px_30px_rgba(255,255,255,0.1)] hover:scale-[1.01] active:scale-[0.98]'
                         }`}
                     >
                         Confirm & Generate Dashboard
                     </button>
                 </div>
+            </div>
             </div>
         </div>
     );

@@ -495,7 +495,7 @@ def filter_columns(df: pd.DataFrame, domain: DomainType) -> ColumnClassification
                 continue
         
         # Check dates
-        if meta["logical_type"] == "temporal" or "temporal:period" in meta["semantic_tags"] or _is_date_column(df_typed, col):
+        if meta["logical_type"] == "temporal" or _is_date_column(df_typed, col):
             classification.dates.append(col)
             continue
         

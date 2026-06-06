@@ -48,6 +48,7 @@ def init_db() -> None:
     """
     SQLModel.metadata.create_all(engine)
     _ensure_users_name_column()
+    _ensure_users_llm_settings_column()
     _ensure_dataset_versions_semantic_map_json_column()
     _ensure_dataset_versions_status_column()
     _ensure_dataset_versions_schema_json_column()
@@ -56,6 +57,20 @@ def init_db() -> None:
     _ensure_dataset_versions_approved_by_column()
     _ensure_dataset_versions_approved_at_column()
     _ensure_dataset_versions_chart_configs_json_column()
+
+
+def _ensure_users_llm_settings_column() -> None:
+    """Best-effort schema patch for users.llm_settings."""
+    inspector = inspect(engine)
+    if "users" not in inspector.get_table_names():
+        return
+
+    columns = {col["name"] for col in inspector.get_columns("users")}
+    if "llm_settings" in columns:
+        return
+
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE users ADD COLUMN llm_settings TEXT"))
 
 
 def _ensure_users_name_column() -> None:
@@ -97,6 +112,7 @@ def _ensure_users_name_column() -> None:
                     """
                 )
             )
+
 
 
 def _ensure_dataset_versions_semantic_map_json_column() -> None:

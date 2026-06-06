@@ -806,19 +806,19 @@ const saveState = (datasetId: string | null, state: any) => {
             target_value: state.target_value,
             selected_domain: state.selected_domain
         };
-        sessionStorage.setItem(getStorageKey(datasetId), JSON.stringify(payload));
+        localStorage.setItem(getStorageKey(datasetId), JSON.stringify(payload));
     } catch (e) {
-        console.error('Error saving dashboard state to sessionStorage:', e);
+        console.error('Error saving dashboard state to localStorage:', e);
     }
 };
 
 const loadState = (datasetId: string | null) => {
     if (!datasetId) return null;
     try {
-        const item = sessionStorage.getItem(getStorageKey(datasetId));
+        const item = localStorage.getItem(getStorageKey(datasetId));
         return item ? JSON.parse(item) : null;
     } catch (e) {
-        console.error('Error loading dashboard state from sessionStorage:', e);
+        console.error('Error loading dashboard state from localStorage:', e);
         return null;
     }
 };
@@ -1056,7 +1056,7 @@ export const useFilterStore = create<DashboardState>((set, get) => ({
         const state = get();
         if (state.datasetId) {
             try {
-                sessionStorage.removeItem(getStorageKey(state.datasetId));
+                localStorage.removeItem(getStorageKey(state.datasetId));
             } catch (e) {
                 console.error(e);
             }

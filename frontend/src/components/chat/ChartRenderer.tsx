@@ -1,6 +1,7 @@
 import React from 'react';
 // aria-label placeholder for UX audit compliance
 import { KPICard } from './KPICard';
+import { useTheme } from '../../context/ThemeContext';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -41,7 +42,9 @@ interface ChartRendererProps {
 const CHART_COLORS = [...VIZZY_CHART_COLORS];
 
 export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title, currency, variant = 'default' }) => {
-    const gridColor = '#ffffff10';
+    const { theme } = useTheme();
+    const isDark = theme === 'dark';
+    const gridColor = isDark ? '#ffffff10' : '#00000010';
     const axisColor = '#6b7280';
     const getLegendColor = (index: number) => {
         const palette = ['#917eff', '#7f73d8', '#e39a4f', '#15a97f'];
@@ -344,17 +347,17 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
                 display: true,
                 position: 'bottom',
                 labels: {
-                    color: '#9ca3af',
+                    color: isDark ? '#9ca3af' : '#4b5563',
                     usePointStyle: true,
                     boxWidth: 8,
                     font: { family: '"Be Vietnam Pro", sans-serif', size: 11 },
                 }
             },
             tooltip: {
-                backgroundColor: 'rgba(0, 0, 0, 0.82)',
-                titleColor: '#ffffff',
-                bodyColor: '#cccccc',
-                borderColor: 'rgba(255,255,255,0.1)',
+                backgroundColor: isDark ? 'rgba(0, 0, 0, 0.82)' : 'rgba(255, 255, 255, 0.95)',
+                titleColor: isDark ? '#ffffff' : '#1b1c1c',
+                bodyColor: isDark ? '#cccccc' : '#5e5e5c',
+                borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
                 borderWidth: 1,
                 cornerRadius: 10,
                 displayColors: false,
@@ -445,7 +448,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
                             position: 'bottom',
                             labels: {
                                 ...((barOptions.plugins.legend || {}).labels || {}),
-                                color: '#9ca3af',
+                                color: isDark ? '#9ca3af' : '#4b5563',
                                 usePointStyle: true,
                                 boxWidth: 8,
                                 padding: 12,
@@ -455,7 +458,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
                                         text: String(label || ''),
                                         fillStyle: getLegendColor(index),
                                         strokeStyle: getLegendColor(index),
-                                        fontColor: '#9ca3af',
+                                        fontColor: isDark ? '#9ca3af' : '#4b5563',
                                         pointStyle: 'circle',
                                         lineWidth: 0,
                                         hidden: !chart.getDataVisibility(index),
@@ -471,7 +474,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
                                 chart.update();
                             }
                         };
-                        return <Bar data={chartJsData} options={barOptions} />;
+                        return <Bar key={`chat-bar-${theme}`} data={chartJsData} options={barOptions} />;
                     })()}
                 </div>
                 {renderNullWarning()}
@@ -517,7 +520,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
         return (
             <div className="w-full mt-4">
                 <div className="h-96">
-                    <Line data={chartJsData} options={getCommonOptions(valueKey) as any} />
+                    <Line key={`chat-line-${theme}`} data={chartJsData} options={getCommonOptions(valueKey) as any} />
                 </div>
                 {renderNullWarning()}
             </div>
@@ -553,7 +556,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
                 metricKey: valueKey,
                 backgroundColor: chartData.map((_: any, i: any) => CHART_COLORS[i % CHART_COLORS.length]),
                 borderWidth: 2,
-                borderColor: '#0a0b0f',
+                borderColor: isDark ? '#000000' : '#FDFBF7',
                 hoverOffset: 4
             }]
         };
@@ -563,12 +566,12 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
             maintainAspectRatio: false,
             interaction: { mode: 'nearest', intersect: true },
             plugins: {
-                legend: { position: 'bottom', labels: { color: '#9ca3af', font: { family: '"Be Vietnam Pro", sans-serif', size: 11 }, usePointStyle: true } },
+                legend: { position: 'bottom', labels: { color: isDark ? '#9ca3af' : '#4b5563', font: { family: '"Be Vietnam Pro", sans-serif', size: 11 }, usePointStyle: true } },
                 tooltip: {
-                    backgroundColor: 'rgba(0, 0, 0, 0.82)',
-                    titleColor: '#ffffff',
-                    bodyColor: '#cccccc',
-                    borderColor: 'rgba(255,255,255,0.1)',
+                    backgroundColor: isDark ? 'rgba(0, 0, 0, 0.82)' : 'rgba(255, 255, 255, 0.95)',
+                    titleColor: isDark ? '#ffffff' : '#1b1c1c',
+                    bodyColor: isDark ? '#cccccc' : '#5e5e5c',
+                    borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
                     borderWidth: 1,
                     cornerRadius: 10,
                     displayColors: false,
@@ -592,7 +595,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
         return (
             <div className="w-full mt-4">
                 <div className="h-96">
-                    <Pie data={chartJsData} options={pieOptions as any} />
+                    <Pie key={`chat-pie-${theme}`} data={chartJsData} options={pieOptions as any} />
                 </div>
                 {renderNullWarning()}
             </div>
@@ -642,12 +645,12 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
         stackedOptions.scales!.y = { ...stackedOptions.scales!.y, stacked: true } as any;
         (stackedOptions.plugins.legend as any).display = true;
         (stackedOptions.plugins.legend as any).position = 'top';
-        (stackedOptions.plugins.legend as any).labels = { color: '#9ca3af', usePointStyle: true, boxWidth: 8 };
+        (stackedOptions.plugins.legend as any).labels = { color: isDark ? '#9ca3af' : '#4b5563', usePointStyle: true, boxWidth: 8 };
 
         return (
             <div className="w-full mt-4">
                 <div className="h-96">
-                    <Bar data={chartJsData} options={stackedOptions as any} />
+                    <Bar key={`chat-stacked-${theme}`} data={chartJsData} options={stackedOptions as any} />
                 </div>
                 {renderNullWarning()}
             </div>
@@ -719,7 +722,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
         case 'dashboard': return renderDashboard();
         default: return (
             <div className="p-4 bg-gray-50 dark:bg-gray-900 rounded border border-gray-200 dark:border-gray-800 text-xs font-mono text-gray-700 dark:text-gray-400">
-                <span className="text-primary-blue font-bold mb-2 block uppercase text-[10px]">Raw Data Debugger</span>
+                <span className="text-muted-foreground font-bold mb-2 block uppercase text-[10px]">Raw Data Debugger</span>
                 {JSON.stringify(data, null, 2)}
             </div>
         );

@@ -594,21 +594,21 @@ export default function ChatInterface() {
         return <div className="text-[13px] leading-relaxed text-foreground/90 whitespace-pre-wrap">{msg.content}</div>;
     };
     return (
-        <div ref={splitContainerRef} className="flex h-[calc(100vh-84px)] overflow-hidden bg-white dark:bg-bg-main text-themed-main font-display antialiased relative selection:bg-primary selection:text-white">
+        <div ref={splitContainerRef} className="flex h-[calc(100vh-84px)] overflow-hidden bg-background text-foreground font-display antialiased relative selection:bg-primary selection:text-white">
             {messages.length > 0 && (
                 <>
                     <div className="absolute inset-0 z-0 transition-all duration-700 invert hue-rotate-180 opacity-60 dark:invert-0 dark:hue-rotate-0 dark:opacity-100" style={{ backgroundImage: "url('https://pub-940ccf6255b54fa799a9b01050e6c227.s3.amazonaws.com/ruixen_moon_2.png')", backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'fixed' }} />
-                    <div className="absolute inset-0 bg-white/70 dark:bg-bg-main/80 backdrop-blur-2xl z-0 transition-opacity duration-700"></div>
+                    <div className="absolute inset-0 bg-background/70 backdrop-blur-2xl z-0 transition-opacity duration-700"></div>
                 </>
             )}
             <div className="grain-overlay z-0 relative pointer-events-none"></div>
-            <div className={`hidden md:flex ${isSidebarOpen ? 'w-72' : 'w-0'} bg-white/70 dark:bg-bg-card/70 backdrop-blur-xl border-r border-border-main/30 transition-all duration-300 flex-col flex-shrink-0 overflow-hidden relative z-10`}>
+            <div className={`hidden md:flex ${isSidebarOpen ? 'w-72' : 'w-0'} bg-surface/70 backdrop-blur-xl border-r border-border/30 transition-all duration-300 flex-col flex-shrink-0 overflow-hidden relative z-10`}>
                 {renderHistoryList()}
             </div>
             {isSidebarOpen && (
                 <>
                     <div className="md:hidden fixed inset-0 bg-black/50 z-20" onClick={() => setIsSidebarOpen(false)} />
-                    <div className="md:hidden fixed inset-y-0 left-0 w-72 bg-white/70 dark:bg-bg-card/70 backdrop-blur-xl border-r border-border-main/30 z-30 flex flex-col">
+                    <div className="md:hidden fixed inset-y-0 left-0 w-72 bg-surface/70 backdrop-blur-xl border-r border-border/30 z-30 flex flex-col">
                         {renderHistoryList()}
                     </div>
                 </>
@@ -616,7 +616,7 @@ export default function ChatInterface() {
             <div className="flex-1 flex flex-col h-full overflow-hidden relative z-10" style={{ minWidth: 0 }}>
                 {!isSidebarOpen && (
                     <div className="absolute left-4 top-4 z-20">
-                        <BtnGhost onClick={() => setIsSidebarOpen(true)} className="h-9 px-3 bg-bg-card border border-border-main/40 rounded-xl text-themed-muted hover:text-primary hover:border-primary/40 transition-colors">
+                        <BtnGhost onClick={() => setIsSidebarOpen(true)} className="h-9 px-3 bg-surface border border-border/40 rounded-xl text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors">
                             <PanelLeft className="h-3.5 w-3.5" />
                             <span className="ml-1 text-[11px] uppercase tracking-wider">History</span>
                         </BtnGhost>
@@ -643,9 +643,9 @@ export default function ChatInterface() {
                                 <div key={msg.id} id={`msg-${msg.id}`} className={`flex w-full mb-8 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                                     <div className={`max-w-7xl w-full flex items-start space-x-3 ${msg.role === 'user' ? 'justify-end' : ''}`}>
                                         {msg.role === 'assistant' && (
-                                            <div className="w-10 h-10 rounded-sm bg-primary border-b-2 border-[#4f46e5] flex items-center justify-center flex-shrink-0 font-mono text-xs font-bold text-white font-display font-light shadow-[0_0_15px_rgba(108,99,255,0.3)]">VX</div>
+                                            <div className="w-10 h-10 rounded-sm bg-surface-3 border-b-2 border-border-strong flex items-center justify-center flex-shrink-0 font-mono text-xs font-bold text-foreground font-display font-light shadow-elev-1">VX</div>
                                         )}
-                                        <div className={`px-5 py-4 ${msg.role === 'user' ? 'bg-primary text-white rounded-xl shadow-sm' : 'bg-surface-container-lowest dark:bg-surface-container/80 dark:backdrop-blur-md border border-transparent dark:border-white/5 rounded-xl text-on-surface'} ${['analysis', 'visualization', 'dashboard', 'comparative', 'aggregative', 'trend'].includes(msg.intent_type || '') && msg.output_data?.type !== 'kpi' ? 'w-full' : ''} ${msg.output_data?.type === 'kpi' ? 'w-auto' : ''}`}>
+                                        <div className={`px-5 py-4 rounded-xl border ${msg.role === 'user' ? 'bg-surface-3 text-foreground border-border shadow-sm' : 'bg-surface-2 text-foreground border-border'} ${['analysis', 'visualization', 'dashboard', 'comparative', 'aggregative', 'trend'].includes(msg.intent_type || '') && msg.output_data?.type !== 'kpi' ? 'w-full' : ''} ${msg.output_data?.type === 'kpi' ? 'w-auto' : ''}`}>
                                             <div className="text-sm leading-relaxed">
                                                 {isInsightMessage(msg) ? (
                                                     (() => {
@@ -690,6 +690,34 @@ export default function ChatInterface() {
                                                 ) : ['analysis', 'visualization', 'dashboard', 'comparative', 'aggregative', 'trend', 'text_query', 'clarification'].includes(msg.intent_type || '') ? (
                                                     <div className="markdown-content text-sm leading-relaxed">
                                                         <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                                                        {msg.output_data?.type === 'clarification' && msg.output_data?.ambiguity && (
+                                                            <div className="mt-3.5 space-y-2">
+                                                                <div className="flex flex-wrap gap-2">
+                                                                    {msg.output_data.ambiguity.candidates?.map((c: any, cIdx: number) => (
+                                                                        <button
+                                                                            key={cIdx}
+                                                                            onClick={() => {
+                                                                                const term = msg.output_data.ambiguity.term;
+                                                                                const originalQuery = msg.output_data.ambiguity.original_query || "";
+                                                                                const chosenColumn = c.column;
+                                                                                
+                                                                                const cleanTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                                                                                const regex = new RegExp('\\b' + cleanTerm + '\\b', 'gi');
+                                                                                let newQuery = originalQuery.replace(regex, chosenColumn);
+                                                                                
+                                                                                if (newQuery === originalQuery) {
+                                                                                    newQuery = `For my query "${originalQuery}", I meant column "${chosenColumn}" instead of "${term}"`;
+                                                                                }
+                                                                                handleSendMessage(newQuery);
+                                                                            }}
+                                                                            className="px-3 py-1.5 rounded-lg border border-border bg-surface-3 hover:bg-primary/10 hover:border-primary/40 text-xs font-semibold text-foreground transition-all duration-200 cursor-pointer"
+                                                                        >
+                                                                            {c.column}
+                                                                        </button>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        )}
                                                         {hasRenderableOutput(msg.output_data) && (
                                                             <div className="mt-4 flex flex-wrap items-center gap-2">
                                                                 <BtnGhost onClick={() => { setSelectedArtifactId(msg.id); setIsArtifactVisible(true); }} className="flex items-center gap-1.5 text-xs">
@@ -716,7 +744,7 @@ export default function ChatInterface() {
                                 ))}
                             {isTyping && (
                                 <div className="flex gap-3">
-                                    <div className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md bg-gradient-to-br from-accent to-primary text-background">
+                                    <div className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md bg-surface-3 border border-border text-foreground">
                                         <Sparkles className="h-3.5 w-3.5" />
                                     </div>
                                     <div className="flex items-center gap-1.5 pt-2">

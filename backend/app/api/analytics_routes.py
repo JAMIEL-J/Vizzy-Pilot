@@ -520,15 +520,14 @@ def _backfill_date_trends_with_duckdb(
             normalized_rows = []
             for row in rows or []:
                 raw_date = row.get("date") or row.get("timestamp") or row.get("name")
-                if raw_date is None:
+                if raw_date is None or str(raw_date).strip().lower() in {'nat', 'null', 'none', '<nat>'}:
                     continue
                 ts = pd.to_datetime(raw_date, errors="coerce")
                 if pd.notna(ts):
                     label = ts.strftime("%b %Y")
                     iso_date = str(ts.date())
                 else:
-                    label = str(raw_date)
-                    iso_date = str(raw_date)
+                    continue
 
                 try:
                     value = float(row.get("value", 0))
@@ -624,11 +623,9 @@ def get_dashboard_analytics(  # pyright: ignore
         effective_overrides = {}
         if latest_version.semantic_map_json:
             try:
-                saved_map = json.loads(latest_version.semantic_map_json)
-                if isinstance(saved_map, dict):
-                    # Convert saved_map from {role: column_name} to {column_name: role} to match classification_overrides structure
-                    converted_map = {col: role for role, col in saved_map.items()}
-                    effective_overrides.update(converted_map)
+                from app.services.analytics.role_resolver import normalize_to_col_role
+                saved_map = normalize_to_col_role(latest_version.semantic_map_json)
+                effective_overrides.update(saved_map)
             except Exception as e:
                 logger.error(f"Failed to parse saved semantic map: {e}")
         

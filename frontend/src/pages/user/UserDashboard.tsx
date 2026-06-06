@@ -1,5 +1,5 @@
-import React from "react";
 // @ts-nocheck
+import React from "react";
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { datasetService, semanticMappingService } from '../../lib/api/dataset';
@@ -11,9 +11,12 @@ import GeoMapCard from './GeoMapCard';
 import { useFilterStore } from '../../store/useFilterStore';
 import RemapModal from '../../components/dashboard/RemapModal';
 import { ColumnClassificationPanel } from '../../components/dashboard/ColumnClassificationPanel';
+import { InsightModal } from '../../components/dashboard/InsightModal';
+
+
 import {
     Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, RadialLinearScale, BubbleController,
-  Title, Tooltip as ChartTooltip, Legend as ChartLegend, Filler
+    Title, Tooltip as ChartTooltip, Legend as ChartLegend, Filler
 } from 'chart.js';
 import { TreemapController, TreemapElement } from 'chartjs-chart-treemap';
 import { Bar, Line, Pie, Scatter, Radar, Bubble, PolarArea, Chart as ReactChart } from 'react-chartjs-2';
@@ -177,8 +180,16 @@ const setSessionCachedAnalytics = (cacheKey: string, value: DashboardAnalytics) 
 };
 
 // â”€â”€â”€ Color Palettes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-const CHART_COLORS = ['#f59e0b', '#6366f1', '#10b981', '#f43f5e', '#14b8a6', '#8b5cf6', '#0ea5e9', '#ea580c'];
+const CHART_COLORS = [
+    '#7D9BBA', // Soft Dusty Blue
+    '#6EA694', // Soft Sage Green
+    '#DF8B70', // Soft Coral/Salmon
+    '#CD7784', // Soft Muted Rose
+    '#68A3B2', // Soft Aqua/Teal
+    '#9184B7', // Soft Lavender/Lilac
+    '#C4A265', // Soft Warm Ochre/Gold
+    '#7E8B99'  // Soft Slate Gray
+];
 const KPI_CARD_COLORS = [
     '#4a40e0',
     '#006576',
@@ -206,9 +217,9 @@ const ThemedTooltip = ({ active, payload, label, formatter, chartTitle, valueLab
         if (lower.startsWith('usd')) return true;
         if (formatType === 'currency') return true;
         return ['revenue', 'cost', 'costs', 'spend', 'budget', 'income', 'sales', 'profit', 'payment',
-                'charge', 'charges', 'price', 'amount', 'roi', 'roas',
-                'salary', 'wage', 'compensation', 'payroll',
-                'daily rate', 'hourly rate', 'monthly rate', 'monthly income',
+            'charge', 'charges', 'price', 'amount', 'roi', 'roas',
+            'salary', 'wage', 'compensation', 'payroll',
+            'daily rate', 'hourly rate', 'monthly rate', 'monthly income',
         ].some((kw) => lower.includes(kw));
     };
 
@@ -222,8 +233,8 @@ const ThemedTooltip = ({ active, payload, label, formatter, chartTitle, valueLab
     const isCountLabel = (text: string) => {
         const lower = String(text || '').toLowerCase();
         return ['click', 'count', 'record', 'records', 'orders', 'order', 'customers', 'employees',
-                'units', 'qty', 'quantity', 'volume', 'visits', 'sessions', 'impressions', 'views',
-            ].some((kw) => lower.includes(kw));
+            'units', 'qty', 'quantity', 'volume', 'visits', 'sessions', 'impressions', 'views',
+        ].some((kw) => lower.includes(kw));
     };
 
     const fmtS = (v: number, lbl: string) => {
@@ -316,7 +327,7 @@ const ThemedTooltip = ({ active, payload, label, formatter, chartTitle, valueLab
                 {displayPayload.map((p: any, i: number) => (
                     <div key={i} className="flex items-center justify-between gap-6">
                         <div className="flex items-center gap-2">
-                            <span className="w-1.5 h-1.5 rounded-sm inline-block shadow-[0_0_5px_currentColor]" style={{ background: p.color || p.fill || CHART_COLORS[0] }} />
+                            <span className="w-1.5 h-1.5 rounded-sm inline-block" style={{ background: p.color || p.fill || CHART_COLORS[0] }} />
                             <span className="text-[10px] tracking-widest uppercase opacity-70 whitespace-nowrap">{p.name}:</span>
                         </div>
                         <span className="text-sm font-bold tabular-nums text-themed-main group-hover:text-primary transition-colors">
@@ -334,20 +345,20 @@ const KPICard = ({ title, value, icon, trend, trend_label, subtitle, cardColor, 
     // Map backend icons instantly to SVG nodes to guarantee rendering rather than relying on Web Fonts
     const getSvgIcon = (i?: string, idx = 0) => {
         const icons = [
-            /* payments */ <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 -960 960 960" className="w-[120px] h-[120px]"><path d="M160-160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h640q33 0 56.5 23.5T880-720v480q0 33-23.5 56.5T800-160H160Zm0-80h640v-480H160v480Zm320-80q50 0 85-35t35-85q0-50-35-85t-85-35q-50 0-85 35t-35 85q0 50 35 85t85 35Zm0-80q-17 0-28.5-11.5T440-480q0-17 11.5-28.5T480-520q17 0 28.5 11.5T520-480q0 17-11.5 28.5T480-400Zm0-80Z"/></svg>,
-            /* shopping_cart */ <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 -960 960 960" className="w-[120px] h-[120px]"><path d="M280-80q-33 0-56.5-23.5T200-160q0-33 23.5-56.5T280-240q33 0 56.5 23.5T360-160q0 33-23.5 56.5T280-80Zm400 0q-33 0-56.5-23.5T600-160q0-33 23.5-56.5T680-240q33 0 56.5 23.5T760-160q0 33-23.5 56.5T680-80ZM246-720l96 200h280l110-200H246Zm-38-80h590q23 0 32.5 16.5T810-745L692-532q-11 20-29.5 31T622-490H324l-44 80h480v80H280q-45 0-68-39.5t-2-78.5l54-98-144-304H40v-80h130l38 80Zm134 280h280-280Z"/></svg>,
-            /* receipt_long */ <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 -960 960 960" className="w-[120px] h-[120px]"><path d="M320-240h320v-80H320v80Zm0-160h320v-80H320v80ZM240-80l-80-80v-640q0-33 23.5-56.5T240-880h480q33 0 56.5 23.5T800-800v640l-80 80-80-80-80 80-80-80-80 80-80-80-80 80Zm0-163 40-40 80 80 80-80 80 80 80-80 80 80 80-80 40 40v-557H240v557Zm-80 43v-600 600Z"/></svg>,
-            /* analytics */ <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 -960 960 960" className="w-[120px] h-[120px]"><path d="M280-280h80v-200h-80v200Zm160 0h80v-400h-80v400Zm160 0h80v-120h-80v120ZM200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h560q33 0 56.5 23.5T840-760v560q0 33-23.5 56.5T760-120H200Zm0-80h560v-560H200v560Zm0-560v560-560Z"/></svg>
+            /* payments */ <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 -960 960 960" className="w-[120px] h-[120px]"><path d="M160-160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h640q33 0 56.5 23.5T880-720v480q0 33-23.5 56.5T800-160H160Zm0-80h640v-480H160v480Zm320-80q50 0 85-35t35-85q0-50-35-85t-85-35q-50 0-85 35t-35 85q0 50 35 85t85 35Zm0-80q-17 0-28.5-11.5T440-480q0-17 11.5-28.5T480-520q17 0 28.5 11.5T520-480q0 17-11.5 28.5T480-400Zm0-80Z" /></svg>,
+            /* shopping_cart */ <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 -960 960 960" className="w-[120px] h-[120px]"><path d="M280-80q-33 0-56.5-23.5T200-160q0-33 23.5-56.5T280-240q33 0 56.5 23.5T360-160q0 33-23.5 56.5T280-80Zm400 0q-33 0-56.5-23.5T600-160q0-33 23.5-56.5T680-240q33 0 56.5 23.5T760-160q0 33-23.5 56.5T680-80ZM246-720l96 200h280l110-200H246Zm-38-80h590q23 0 32.5 16.5T810-745L692-532q-11 20-29.5 31T622-490H324l-44 80h480v80H280q-45 0-68-39.5t-2-78.5l54-98-144-304H40v-80h130l38 80Zm134 280h280-280Z" /></svg>,
+            /* receipt_long */ <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 -960 960 960" className="w-[120px] h-[120px]"><path d="M320-240h320v-80H320v80Zm0-160h320v-80H320v80ZM240-80l-80-80v-640q0-33 23.5-56.5T240-880h480q33 0 56.5 23.5T800-800v640l-80 80-80-80-80 80-80-80-80 80-80-80-80 80Zm0-163 40-40 80 80 80-80 80 80 80-80 80 80 80-80 40 40v-557H240v557Zm-80 43v-600 600Z" /></svg>,
+            /* analytics */ <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 -960 960 960" className="w-[120px] h-[120px]"><path d="M280-280h80v-200h-80v200Zm160 0h80v-400h-80v400Zm160 0h80v-120h-80v120ZM200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h560q33 0 56.5 23.5T840-760v560q0 33-23.5 56.5T760-120H200Zm0-80h560v-560H200v560Zm0-560v560-560Z" /></svg>
         ];
-        
+
         if (i === 'dollar') return icons[0];
-        if (i === 'users' || i === 'group') return <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 -960 960 960" className="w-[120px] h-[120px]"><path d="M480-480q-66 0-113-47t-47-113q0-66 47-113t113-47q66 0 113 47t47 113q0 66-47 113t-113 47ZM160-240v-32q0-34 17.5-62.5T224-378q92-42 189-42t189 42q29 14 46.5 42.5T666-272v32q0 33-23.5 56.5T586-160H240q-33 0-56.5-23.5T160-240Zm80 0h400v-32q0-11-5.5-20T620-306q-71-34-140-34t-140 34q-10 6-15 14.5t-5 19.5v32Z"/></svg>;
+        if (i === 'users' || i === 'group') return <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 -960 960 960" className="w-[120px] h-[120px]"><path d="M480-480q-66 0-113-47t-47-113q0-66 47-113t113-47q66 0 113 47t47 113q0 66-47 113t-113 47ZM160-240v-32q0-34 17.5-62.5T224-378q92-42 189-42t189 42q29 14 46.5 42.5T666-272v32q0 33-23.5 56.5T586-160H240q-33 0-56.5-23.5T160-240Zm80 0h400v-32q0-11-5.5-20T620-306q-71-34-140-34t-140 34q-10 6-15 14.5t-5 19.5v32Z" /></svg>;
         if (i === 'percent') return icons[3];
         if (i === 'cart') return icons[1];
         if (i === 'receipt') return icons[2];
         return icons[idx % icons.length];
     };
-    
+
     const svgNode = getSvgIcon(icon, index);
 
 
@@ -443,16 +454,16 @@ const KPICard = ({ title, value, icon, trend, trend_label, subtitle, cardColor, 
 // ─── Chart Card Wrapper ───────────────────────────────────────────────────────
 
 const ChartCard = ({ title, children, className, actions }: { title: string; children: React.ReactNode; className?: string; actions?: React.ReactNode }) => (
-    <div className={`bg-white dark:bg-[#17181b] border border-[#e4e4e7] dark:border-[#2a2d33] rounded-3xl p-6 shadow-[0_2px_8px_rgba(0,0,0,0.04)] h-full flex flex-col ${className || ''}`}>
+    <div className={`bg-surface border border-border rounded-[16px] p-6 shadow-[0_2px_8px_rgba(0,0,0,0.02)] h-full flex flex-col ${className || ''}`}>
         <div className="flex flex-col items-center gap-2 mb-5 flex-shrink-0 w-full">
-            <h4 className="text-[15px] font-semibold text-[#2d2f2f] dark:text-[#eceff4] text-center leading-snug w-full">{title}</h4>
+            <h4 className="text-[15px] font-semibold text-foreground text-center leading-snug w-full">{title}</h4>
             {actions ? (
                 <div className="relative z-10 flex gap-2 items-center justify-center w-full">{actions}</div>
             ) : (
                 <div className="flex gap-2 relative z-10 justify-center w-full">
-                    <button className="p-1.5 hover:bg-[#f2f3f3] dark:hover:bg-[#262931] rounded-lg transition-colors"><span className="material-symbols-outlined text-sm text-[#5a5c5c] dark:text-[#b9bec9]">refresh</span></button>
-                    <button className="p-1.5 hover:bg-[#f2f3f3] dark:hover:bg-[#262931] rounded-lg transition-colors"><span className="material-symbols-outlined text-sm text-[#5a5c5c] dark:text-[#b9bec9]">ios_share</span></button>
-                    <button className="p-1.5 hover:bg-[#f2f3f3] dark:hover:bg-[#262931] rounded-lg transition-colors"><span className="material-symbols-outlined text-sm text-[#5a5c5c] dark:text-[#b9bec9]">more_vert</span></button>
+                    <button className="p-1.5 hover:bg-surface-2 rounded-lg transition-colors"><span className="material-symbols-outlined text-sm text-muted-foreground">refresh</span></button>
+                    <button className="p-1.5 hover:bg-surface-2 rounded-lg transition-colors"><span className="material-symbols-outlined text-sm text-muted-foreground">ios_share</span></button>
+                    <button className="p-1.5 hover:bg-surface-2 rounded-lg transition-colors"><span className="material-symbols-outlined text-sm text-muted-foreground">more_vert</span></button>
                 </div>
             )}
         </div>
@@ -481,6 +492,7 @@ const ChartRenderer = ({
     targetColumn?: string | null;
     quickReact?: boolean;
 }) => {
+    const { theme } = useTheme();
     const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
     const [showOutliers, setShowOutliers] = useState(true);
     const [treemapTip, setTreemapTip] = useState<{ x: number; y: number; name: string; value: number } | null>(null);
@@ -541,9 +553,9 @@ const ChartRenderer = ({
                         const normCandidate = candidate.toLowerCase().replace(/[^a-z0-9]/g, '');
                         // If the key is contained in the candidate, or candidate has common keywords, return candidate
                         if (
-                            normCandidate.includes(normalized) || 
+                            normCandidate.includes(normalized) ||
                             normalized.includes(normCandidate) ||
-                            ['revenue', 'profit', 'sales', 'cost', 'spend', 'charges', 'churn', 'count', 'record'].some(kw => normCandidate.includes(kw))
+                            (['revenue', 'profit', 'sales', 'cost', 'spend', 'charges', 'churn', 'count', 'record'].some(kw => normalized.includes(kw)) && normCandidate.includes(normalized))
                         ) {
                             return candidate;
                         }
@@ -573,8 +585,11 @@ const ChartRenderer = ({
         if (normalized.includes('cost') || normalized.includes('spend')) {
             return 'Total Cost';
         }
-        if (normalized.includes('charges')) {
+        if (normalized === 'totalcharges') {
             return 'Total Charges';
+        }
+        if (normalized === 'monthlycharges') {
+            return 'Monthly Charges';
         }
         if (normalized.includes('churn')) {
             return 'Churn Rate';
@@ -621,7 +636,7 @@ const ChartRenderer = ({
     const safeChartId = chartColorSeed.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'chart';
     const baseColorIndex = Array.from(chartColorSeed).reduce((hash, char) => ((hash * 31) + char.charCodeAt(0)) >>> 0, 0) % polishedPalette.length;
     const getPaletteColor = (index: number) => polishedPalette[(baseColorIndex + index) % polishedPalette.length];
-    const chartInstanceKey = `${safeChartId}-${String(chart?.type || 'chart')}-${rawChartData?.length ?? 0}-${quickReact ? 'q' : 'n'}`;
+    const chartInstanceKey = `${safeChartId}-${String(chart?.type || 'chart')}-${rawChartData?.length ?? 0}-${quickReact ? 'q' : 'n'}-${theme}`;
     const chartRedraw = true;
 
     if (!rawChartData?.length) {
@@ -660,9 +675,9 @@ const ChartRenderer = ({
         // Explicit backend format_type takes priority
         if (isChartExplicitCurrency) return true;
         return ['revenue', 'cost', 'costs', 'spend', 'budget', 'income', 'sales', 'profit', 'payment',
-                'charge', 'charges', 'price', 'amount', 'roi', 'roas',
-                'salary', 'wage', 'compensation', 'payroll',
-                'daily rate', 'hourly rate', 'monthly rate', 'monthly income',
+            'charge', 'charges', 'price', 'amount', 'roi', 'roas',
+            'salary', 'wage', 'compensation', 'payroll',
+            'daily rate', 'hourly rate', 'monthly rate', 'monthly income',
         ].some((kw) => token.includes(kw));
     };
 
@@ -678,9 +693,9 @@ const ChartRenderer = ({
     const isWholeNumberMetricLabel = (label?: string) => {
         const token = String(label || '').toLowerCase();
         return ['tenure', 'age', 'duration', 'month', 'months', 'year', 'years', 'day', 'days',
-                'los', 'length of stay', 'lengthofstay',
-                'miles', 'km', 'hours', 'sessions', 'count',
-                'rating',  // Likert scale: "Rating (1-4)"
+            'los', 'length of stay', 'lengthofstay',
+            'miles', 'km', 'hours', 'sessions', 'count',
+            'rating',  // Likert scale: "Rating (1-4)"
         ].some((kw) => token.includes(kw));
     };
 
@@ -951,9 +966,26 @@ const ChartRenderer = ({
         return false;
     };
 
-    const isTemporalXAxis = ['line', 'area', 'stacked'].includes(String(chart.type || '').toLowerCase())
-        || /date|time|month|year|week|day/i.test(String(chart.x_axis || chart.dimension || nameKey || ''))
-        || categoryLabels.some((label) => isLikelyDateLabel(label));
+    const isTemporalXAxis = (() => {
+        const dimStr = String(chart.x_axis || chart.dimension || nameKey || '').toLowerCase();
+        // Tenure, age, duration, etc. are numeric lifecycles, not temporal dates
+        if (['tenure', 'age', 'duration'].some(kw => dimStr.includes(kw))) {
+            return false;
+        }
+
+        // If category labels are purely numeric, it's not a temporal axis (e.g. numeric bins)
+        const allNumericCategories = categoryLabels.length > 0 && categoryLabels.every(lbl => {
+            const trimmed = String(lbl || '').trim();
+            return trimmed !== '' && !isNaN(Number(trimmed));
+        });
+        if (allNumericCategories) {
+            return false;
+        }
+
+        return ['line', 'area', 'stacked'].includes(String(chart.type || '').toLowerCase())
+            || /date|time|timestamp|year_month|fiscal_period/i.test(dimStr)
+            || categoryLabels.some((label) => isLikelyDateLabel(label));
+    })();
 
     const temporalTickInterval = Math.max(1, Math.ceil(Math.max(1, categoryLabels.length) / 5));
     const effectiveCategoryTickInterval = isTemporalXAxis ? temporalTickInterval : categoryTickInterval;
@@ -971,15 +1003,15 @@ const ChartRenderer = ({
     const axisTitleFont = { size: 10, weight: '700', family: '"Be Vietnam Pro", sans-serif' };
     const dimensionAxisLabel = toHumanLabel(chart.x_axis || chart.dimension || nameKey || 'Category', chart.title);
 
-    const valueAxisLabel = (function() {
+    const valueAxisLabel = (function () {
         const rawMetricLabel = toHumanLabel(chart.y_axis || chart.metric || 'Value', chart.title);
         const rawValueLabel = String(chart.value_label || '').trim();
-        
+
         // 1. Check for explicit count-like indicators in the data or config
         const firstRow = rawChartData[0] || {};
         const hasOrderId = 'order_id' in firstRow || 'orderid' in firstRow || 'order_no' in firstRow;
         const hasCustomerId = 'customer_id' in firstRow || 'customerid' in firstRow;
-        
+
         if (rawMetricLabel.toLowerCase().includes('count') || rawValueLabel.toLowerCase().includes('count')) {
             if (hasOrderId) return 'Order Count';
             if (hasCustomerId) return 'Customer Count';
@@ -987,7 +1019,7 @@ const ChartRenderer = ({
 
         const unitSuffixes = ['usd', 'rating', 'miles', 'km', 'years', 'sessions', 'hours', 'count', '%'];
         const hasUnitSuffix = rawValueLabel && unitSuffixes.some(u => rawValueLabel.toLowerCase().startsWith(u) || rawValueLabel.toLowerCase().includes('('));
-        
+
         return hasUnitSuffix && rawValueLabel.toLowerCase() !== rawMetricLabel.toLowerCase()
             ? `${rawMetricLabel} (${toHumanLabel(rawValueLabel, chart.title)})`
             : rawMetricLabel;
@@ -1101,9 +1133,11 @@ const ChartRenderer = ({
             },
             label: (ctx: any) => {
                 if (ctx?.raw && typeof ctx.raw === 'object' && ('x' in ctx.raw || 'y' in ctx.raw)) {
+                    const xLbl = ctx.raw.xLabel || scatterXAxisLabel;
+                    const yLbl = ctx.raw.yLabel || scatterYAxisLabel;
                     const lines: string[] = [];
-                    if (ctx.raw.x !== undefined) lines.push(` ${scatterXAxisLabel}: ${fmtTick(ctx.raw.x, scatterXAxisLabel)}`);
-                    if (ctx.raw.y !== undefined) lines.push(` ${scatterYAxisLabel}: ${fmtTick(ctx.raw.y, scatterYAxisLabel)}`);
+                    if (ctx.raw.x !== undefined) lines.push(` ${xLbl}: ${fmtTick(ctx.raw.x, xLbl)}`);
+                    if (ctx.raw.y !== undefined) lines.push(` ${yLbl}: ${fmtTick(ctx.raw.y, yLbl)}`);
                     return lines;
                 }
 
@@ -1124,7 +1158,7 @@ const ChartRenderer = ({
                     maxRotation: 0,
                     minRotation: 0,
                     font: axisTickFont,
-                    callback: function(val: any, index: number) {
+                    callback: function (val: any, index: number) {
                         if (index % effectiveCategoryTickInterval !== 0 && index !== categoryLabels.length - 1) {
                             return '';
                         }
@@ -1190,7 +1224,7 @@ const ChartRenderer = ({
                     minRotation: 0,
                     font: axisTickFont,
                     padding: 4,
-                    callback: function(val: any, index: number) {
+                    callback: function (val: any, index: number) {
                         const label = String(this.getLabelForValue(val as number) ?? '');
                         return formatCategoryTick(label, { truncate: false });
                     }
@@ -1313,399 +1347,401 @@ const ChartRenderer = ({
 
     const renderChartBody = () => {
         switch (chart.type) {
-        case 'bar':
-            return (
-                <div className="flex flex-col h-full w-full">
-                    {renderOutlierToggle()}
-                    <div style={{ height: 192, width: '100%' }}>
-                        <Bar
-                            key={`${chartInstanceKey}-bar-x`}
-                            redraw={chartRedraw}
-                            data={{
-                                labels: categoryLabels,
-                                datasets: [{
-                                    label: toHumanLabel(chart.y_axis || chart.metric || 'Value', chart.title),
-                                    data: chartData.map((d: any) => d.value),
-                                    backgroundColor: chartData.map((_: any, i: number) => getPaletteColor(i)),
-                                    borderRadius: 6
-                                }]
-                            }}
-                            options={{ ...(commonOptions(true, valueAxisLabel, 'x') as any), indexAxis: 'x' } as any}
-                        />
-                    </div>
-                </div>
-            );
-
-        case 'hbar':
-            return (
-                <div className="flex flex-col h-full w-full">
-                    {renderOutlierToggle()}
-                    <div style={{ height: chartData.length >= 8 ? Math.min(chartData.length * 28 + 40, 300) : 192, width: '100%' }}>
-                        <Bar
-                            key={`${chartInstanceKey}-bar-y`}
-                            redraw={chartRedraw}
-                            data={{
-                                labels: categoryLabels,
-                                datasets: [{
-                                    label: toHumanLabel(chart.y_axis || chart.metric || 'Value', chart.title),
-                                    data: chartData.map((d: any) => d.value),
-                                    backgroundColor: chartData.map((_: any, i: number) => getPaletteColor(i)),
-                                    borderRadius: 6
-                                }]
-                            }}
-                            options={{ ...commonOptions(true, valueAxisLabel, 'y') as any, indexAxis: 'y' } as any} 
-                        />
-                    </div>
-                </div>
-            );
-
-        case 'stacked_bar':
-            {
-            const activeStackKeys = stackedSeriesKeys.length > 0 ? stackedSeriesKeys : ['positive', 'negative'];
-            return (
-                <div className="flex flex-col h-full w-full">
-                    {renderOutlierToggle()}
-                    <div style={{ height: 192, width: '100%' }}>
-                        <Bar
-                            key={`${chartInstanceKey}-stacked`}
-                            redraw={chartRedraw}
-                            data={{
-                                labels: categoryLabels,
-                                datasets: activeStackKeys.map((key, idx) => ({
-                                    label: toHumanLabel(key, chart.title),
-                                    data: chartData.map((d: any) => getSeriesValue(d, key, idx)),
-                                    backgroundColor: getPaletteColor(idx),
-                                }))
-                            }} 
-                            options={{
-                                ...commonOptions(true, valueAxisLabel),
-                                plugins: {
-                                    ...(((commonOptions(true, valueAxisLabel) as any).plugins) || {}),
-                                    legend: { display: true }
-                                },
-                                scales: {
-                                    x: {
-                                        ...((commonOptions(true, valueAxisLabel) as any).scales?.x || {}),
-                                        stacked: true,
-                                    },
-                                    y: {
-                                        ...((commonOptions(true, valueAxisLabel) as any).scales?.y || {}),
-                                        stacked: true,
-                                    }
-                                }
-                            } as any} 
-                        />
-                    </div>
-                </div>
-            );
-            }
-
-        case 'pie':
-        case 'doughnut':
-        case 'donut':
-            return (
-                <div className="flex flex-col h-full w-full">
-                    {renderOutlierToggle()}
-                    <div style={{ height: 210, width: '100%' }}>
-                        <Pie
-                            key={`${chartInstanceKey}-pie`}
-                            redraw={chartRedraw}
-                            data={{
-                                labels: chartData.map((d: any) => normalizeLabel(d[nameKey] || d.name)),
-                                datasets: [{
-                                    label: toHumanLabel(chart.y_axis || chart.metric || 'Value', chart.title),
-                                    data: chartData.map((d: any) => d.value),
-                                    backgroundColor: chartData.map((_: any, i: number) => getPaletteColor(i)),
-                                    borderWidth: isDark ? 2 : 0,
-                                    borderColor: '#1a1d24'
-                                }]
-                            }} 
-                            options={{
-                                ...commonOptions(false, valueAxisLabel),
-                                cutout: (chart.type === 'donut' || chart.type === 'doughnut') ? '70%' : '0%',
-                                plugins: {
-                                    ...(((commonOptions(false, valueAxisLabel) as any).plugins) || {}),
-                                    legend: {
-                                        position: 'bottom',
-                                        labels: {
-                                            color: chartColors.text,
-                                            usePointStyle: true,
-                                            font: axisTickFont,
-                                        }
-                                    }
-                                }
-                            } as any} 
-                        />
-                    </div>
-                </div>
-            );
-
-        case 'polar_area':
-            return (
-                <div className="flex flex-col h-full w-full">
-                    {renderOutlierToggle()}
-                    <div style={{ height: 210, width: '100%' }}>
-                        <PolarArea
-                            key={`${chartInstanceKey}-polar`}
-                            redraw={chartRedraw}
-                            data={{
-                                labels: chartData.map((d: any) => normalizeLabel(d[nameKey] || d.name)),
-                                datasets: [{
-                                    label: toHumanLabel(chart.y_axis || chart.metric || 'Value', chart.title),
-                                    data: chartData.map((d: any) => d.value),
-                                    backgroundColor: chartData.map((_: any, i: number) => getPaletteColor(i)),
-                                }]
-                            }}
-                            options={{
-                                ...commonOptions(false, valueAxisLabel),
-                                plugins: {
-                                    ...(((commonOptions(false, valueAxisLabel) as any).plugins) || {}),
-                                    legend: {
-                                        display: true,
-                                        position: 'bottom',
-                                        labels: { color: chartColors.text, font: axisTickFont }
-                                    }
-                                },
-                                scales: {
-                                    r: {
-                                        angleLines: { color: chartColors.grid },
-                                        grid: { color: chartColors.grid },
-                                        pointLabels: { color: chartColors.text, font: axisTickFont },
-                                        ticks: {
-                                            color: chartColors.text,
-                                            font: axisTickFont,
-                                            callback: (v: any) => fmtTick(v, valueAxisLabel)
-                                        }
-                                    }
-                                }
-                            } as any}
-                        />
-                    </div>
-                </div>
-            );
-
-        case 'line':
-        case 'area':
-        case 'stacked':
-            {
-            const activeLineStackKeys = stackedSeriesKeys.length > 0 ? stackedSeriesKeys : (chart.categories || []);
-            return (
-                <div className="flex flex-col h-full w-full">
-                    {renderOutlierToggle()}
-                    <div style={{ height: 192, width: '100%' }}>
-                        <Line
-                            key={`${chartInstanceKey}-line`}
-                            redraw={chartRedraw}
-                            data={{
-                                labels: chartData.map((d: any) => d.timestamp || d.date || d[nameKey]),
-                                datasets: chart.type === 'stacked' 
-                                    ? activeLineStackKeys.map((cat: string, i: number) => ({
-                                        label: toHumanLabel(cat, chart.title),
-                                        data: chartData.map((d: any) => getSeriesValue(d, cat, i)),
-                                        backgroundColor: getPaletteColor(i),
-                                        borderColor: getPaletteColor(i),
-                                        fill: true
-                                    }))
-                                    : [{
+            case 'bar':
+                return (
+                    <div className="flex flex-col h-full w-full">
+                        {renderOutlierToggle()}
+                        <div style={{ height: 192, width: '100%' }}>
+                            <Bar
+                                key={`${chartInstanceKey}-bar-x`}
+                                redraw={chartRedraw}
+                                data={{
+                                    labels: categoryLabels,
+                                    datasets: [{
                                         label: toHumanLabel(chart.y_axis || chart.metric || 'Value', chart.title),
                                         data: chartData.map((d: any) => d.value),
-                                        backgroundColor: chart.type === 'line' ? 'transparent' : 'rgba(99, 102, 241, 0.2)',
-                                        borderColor: getPaletteColor(0),
-                                        fill: chart.type === 'area',
-                                        tension: 0.4
+                                        backgroundColor: chartData.map((_: any, i: number) => getPaletteColor(i)),
+                                        borderRadius: 6
                                     }]
-                            }} 
-                            options={{
-                                ...commonOptions(true, valueAxisLabel),
-                                scales: chart.type === 'stacked' 
-                                    ? {
-                                        x: { ...(((commonOptions(true, valueAxisLabel) as any).scales || {}).x || {}), stacked: true },
-                                        y: { ...(((commonOptions(true, valueAxisLabel) as any).scales || {}).y || {}), stacked: true }
-                                    }
-                                    : commonOptions(true, valueAxisLabel).scales
-                            } as any} 
-                        />
+                                }}
+                                options={{ ...(commonOptions(true, valueAxisLabel, 'x') as any), indexAxis: 'x' } as any}
+                            />
+                        </div>
                     </div>
-                </div>
-            );
-            }
+                );
 
-        case 'scatter':
-            return (
-                <div className="flex flex-col h-full w-full">
-                    {renderOutlierToggle()}
-                    <div style={{ height: 192, width: '100%' }}>
-                        <Scatter
-                            key={`${chartInstanceKey}-scatter`}
-                            redraw={chartRedraw}
-                            data={{
-                                datasets: [{
-                                    label: toHumanLabel(chart.y_axis || chart.metric || 'Value', chart.title),
-                                    data: chartData.map((d: any) => ({ x: d.x, y: d.y })),
-                                    backgroundColor: getPaletteColor(0)
-                                }]
-                            }} 
-                            options={commonOptions(true, scatterYAxisLabel, 'x', true) as any} 
-                        />
+            case 'hbar':
+                return (
+                    <div className="flex flex-col h-full w-full">
+                        {renderOutlierToggle()}
+                        <div style={{ height: chartData.length >= 8 ? Math.min(chartData.length * 28 + 40, 300) : 192, width: '100%' }}>
+                            <Bar
+                                key={`${chartInstanceKey}-bar-y`}
+                                redraw={chartRedraw}
+                                data={{
+                                    labels: categoryLabels,
+                                    datasets: [{
+                                        label: toHumanLabel(chart.y_axis || chart.metric || 'Value', chart.title),
+                                        data: chartData.map((d: any) => d.value),
+                                        backgroundColor: chartData.map((_: any, i: number) => getPaletteColor(i)),
+                                        borderRadius: 6
+                                    }]
+                                }}
+                                options={{ ...commonOptions(true, valueAxisLabel, 'y') as any, indexAxis: 'y' } as any}
+                            />
+                        </div>
                     </div>
-                </div>
-            );
+                );
 
-        case 'bubble':
-            return (
-                <div className="flex flex-col h-full w-full">
-                    {renderOutlierToggle()}
-                    <div style={{ height: 192, width: '100%' }}>
-                        <Bubble
-                            key={`${chartInstanceKey}-bubble`}
-                            redraw={chartRedraw}
-                            data={{
-                                datasets: [{
-                                    label: valueAxisLabel,
-                                    data: chartData.map((d: any, i: number) => ({
-                                        x: Number(d.x ?? i + 1),
-                                        y: Number(d.y ?? d.value ?? 0),
-                                        r: Math.max(4, Math.min(16, Number(d.r ?? d.size ?? 8))),
-                                    })),
-                                    backgroundColor: 'rgba(99, 102, 241, 0.55)',
-                                    borderColor: getPaletteColor(0),
-                                    borderWidth: 1,
-                                }]
-                            }}
-                            options={commonOptions(true, scatterYAxisLabel, 'x', true) as any}
-                        />
-                    </div>
-                </div>
-            );
-            
-        case 'radar':
-            return (
-                <div className="flex flex-col h-full w-full">
-                    {renderOutlierToggle()}
-                    <div style={{ height: 210, width: '100%' }}>
-                        <Radar
-                            key={`${chartInstanceKey}-radar`}
-                            redraw={chartRedraw}
-                            data={{
-                                labels: categoryLabels,
-                                datasets: [{
-                                    label: valueAxisLabel,
-                                    data: chartData.map((d: any) => d.value),
-                                    borderColor: getPaletteColor(0),
-                                    backgroundColor: 'rgba(99, 102, 241, 0.24)',
-                                    pointBackgroundColor: getPaletteColor(0),
-                                    pointBorderColor: getPaletteColor(0),
-                                    pointRadius: 3,
-                                    fill: true,
-                                }]
-                            }}
-                            options={{
-                                ...commonOptions(false, valueAxisLabel),
-                                scales: {
-                                    r: {
-                                        angleLines: { color: chartColors.grid },
-                                        grid: { color: chartColors.grid },
-                                        pointLabels: {
-                                            color: chartColors.text,
-                                            font: axisTickFont,
-                                            callback: (label: any, index: number) => {
-                                                if (index % categoryTickInterval !== 0 && index !== categoryLabels.length - 1) return '';
-                                                return formatCategoryTick(String(label || ''));
-                                            }
+            case 'stacked_bar':
+                {
+                    const activeStackKeys = stackedSeriesKeys.length > 0 ? stackedSeriesKeys : ['positive', 'negative'];
+                    return (
+                        <div className="flex flex-col h-full w-full">
+                            {renderOutlierToggle()}
+                            <div style={{ height: 192, width: '100%' }}>
+                                <Bar
+                                    key={`${chartInstanceKey}-stacked`}
+                                    redraw={chartRedraw}
+                                    data={{
+                                        labels: categoryLabels,
+                                        datasets: activeStackKeys.map((key, idx) => ({
+                                            label: toHumanLabel(key, chart.title),
+                                            data: chartData.map((d: any) => getSeriesValue(d, key, idx)),
+                                            backgroundColor: getPaletteColor(idx),
+                                        }))
+                                    }}
+                                    options={{
+                                        ...commonOptions(true, valueAxisLabel),
+                                        plugins: {
+                                            ...(((commonOptions(true, valueAxisLabel) as any).plugins) || {}),
+                                            legend: { display: true }
                                         },
-                                        ticks: {
-                                            color: chartColors.text,
-                                            backdropColor: 'transparent',
+                                        scales: {
+                                            x: {
+                                                ...((commonOptions(true, valueAxisLabel) as any).scales?.x || {}),
+                                                stacked: true,
+                                            },
+                                            y: {
+                                                ...((commonOptions(true, valueAxisLabel) as any).scales?.y || {}),
+                                                stacked: true,
+                                            }
+                                        }
+                                    } as any}
+                                />
+                            </div>
+                        </div>
+                    );
+                }
+
+            case 'pie':
+            case 'doughnut':
+            case 'donut':
+                return (
+                    <div className="flex flex-col h-full w-full">
+                        {renderOutlierToggle()}
+                        <div style={{ height: 210, width: '100%' }}>
+                            <Pie
+                                key={`${chartInstanceKey}-pie`}
+                                redraw={chartRedraw}
+                                data={{
+                                    labels: chartData.map((d: any) => normalizeLabel(d[nameKey] || d.name)),
+                                    datasets: [{
+                                        label: toHumanLabel(chart.y_axis || chart.metric || 'Value', chart.title),
+                                        data: chartData.map((d: any) => d.value),
+                                        backgroundColor: chartData.map((_: any, i: number) => getPaletteColor(i)),
+                                        borderWidth: 2,
+                                        borderColor: isDark ? '#000000' : '#FDFBF7'
+                                    }]
+                                }}
+                                options={{
+                                    ...commonOptions(false, valueAxisLabel),
+                                    cutout: (chart.type === 'donut' || chart.type === 'doughnut') ? '70%' : '0%',
+                                    plugins: {
+                                        ...(((commonOptions(false, valueAxisLabel) as any).plugins) || {}),
+                                        legend: {
+                                            position: 'bottom',
+                                            labels: {
+                                                color: chartColors.text,
+                                                usePointStyle: true,
+                                                font: axisTickFont,
+                                            }
+                                        }
+                                    }
+                                } as any}
+                            />
+                        </div>
+                    </div>
+                );
+
+            case 'polar_area':
+                return (
+                    <div className="flex flex-col h-full w-full">
+                        {renderOutlierToggle()}
+                        <div style={{ height: 210, width: '100%' }}>
+                            <PolarArea
+                                key={`${chartInstanceKey}-polar`}
+                                redraw={chartRedraw}
+                                data={{
+                                    labels: chartData.map((d: any) => normalizeLabel(d[nameKey] || d.name)),
+                                    datasets: [{
+                                        label: toHumanLabel(chart.y_axis || chart.metric || 'Value', chart.title),
+                                        data: chartData.map((d: any) => d.value),
+                                        backgroundColor: chartData.map((_: any, i: number) => getPaletteColor(i)),
+                                        borderWidth: 2,
+                                        borderColor: isDark ? '#000000' : '#FDFBF7'
+                                    }]
+                                }}
+                                options={{
+                                    ...commonOptions(false, valueAxisLabel),
+                                    plugins: {
+                                        ...(((commonOptions(false, valueAxisLabel) as any).plugins) || {}),
+                                        legend: {
+                                            display: true,
+                                            position: 'bottom',
+                                            labels: { color: chartColors.text, font: axisTickFont }
+                                        }
+                                    },
+                                    scales: {
+                                        r: {
+                                            angleLines: { color: chartColors.grid },
+                                            grid: { color: chartColors.grid },
+                                            pointLabels: { color: chartColors.text, font: axisTickFont },
+                                            ticks: {
+                                                color: chartColors.text,
+                                                font: axisTickFont,
+                                                callback: (v: any) => fmtTick(v, valueAxisLabel)
+                                            }
+                                        }
+                                    }
+                                } as any}
+                            />
+                        </div>
+                    </div>
+                );
+
+            case 'line':
+            case 'area':
+            case 'stacked':
+                {
+                    const activeLineStackKeys = stackedSeriesKeys.length > 0 ? stackedSeriesKeys : (chart.categories || []);
+                    return (
+                        <div className="flex flex-col h-full w-full">
+                            {renderOutlierToggle()}
+                            <div style={{ height: 192, width: '100%' }}>
+                                <Line
+                                    key={`${chartInstanceKey}-line`}
+                                    redraw={chartRedraw}
+                                    data={{
+                                        labels: chartData.map((d: any) => d.timestamp || d.date || d[nameKey]),
+                                        datasets: chart.type === 'stacked'
+                                            ? activeLineStackKeys.map((cat: string, i: number) => ({
+                                                label: toHumanLabel(cat, chart.title),
+                                                data: chartData.map((d: any) => getSeriesValue(d, cat, i)),
+                                                backgroundColor: getPaletteColor(i),
+                                                borderColor: getPaletteColor(i),
+                                                fill: true
+                                            }))
+                                            : [{
+                                                label: toHumanLabel(chart.y_axis || chart.metric || 'Value', chart.title),
+                                                data: chartData.map((d: any) => d.value),
+                                                backgroundColor: chart.type === 'line' ? 'transparent' : 'rgba(99, 102, 241, 0.2)',
+                                                borderColor: getPaletteColor(0),
+                                                fill: chart.type === 'area',
+                                                tension: 0.4
+                                            }]
+                                    }}
+                                    options={{
+                                        ...commonOptions(true, valueAxisLabel),
+                                        scales: chart.type === 'stacked'
+                                            ? {
+                                                x: { ...(((commonOptions(true, valueAxisLabel) as any).scales || {}).x || {}), stacked: true },
+                                                y: { ...(((commonOptions(true, valueAxisLabel) as any).scales || {}).y || {}), stacked: true }
+                                            }
+                                            : commonOptions(true, valueAxisLabel).scales
+                                    } as any}
+                                />
+                            </div>
+                        </div>
+                    );
+                }
+
+            case 'scatter':
+                return (
+                    <div className="flex flex-col h-full w-full">
+                        {renderOutlierToggle()}
+                        <div style={{ height: 192, width: '100%' }}>
+                            <Scatter
+                                key={`${chartInstanceKey}-scatter`}
+                                redraw={chartRedraw}
+                                data={{
+                                    datasets: [{
+                                        label: toHumanLabel(chart.y_axis || chart.metric || 'Value', chart.title),
+                                        data: chartData.map((d: any) => ({ x: d.x, y: d.y, xLabel: d.xLabel, yLabel: d.yLabel })),
+                                        backgroundColor: getPaletteColor(0)
+                                    }]
+                                }}
+                                options={commonOptions(true, scatterYAxisLabel, 'x', true) as any}
+                            />
+                        </div>
+                    </div>
+                );
+
+            case 'bubble':
+                return (
+                    <div className="flex flex-col h-full w-full">
+                        {renderOutlierToggle()}
+                        <div style={{ height: 192, width: '100%' }}>
+                            <Bubble
+                                key={`${chartInstanceKey}-bubble`}
+                                redraw={chartRedraw}
+                                data={{
+                                    datasets: [{
+                                        label: valueAxisLabel,
+                                        data: chartData.map((d: any, i: number) => ({
+                                            x: Number(d.x ?? i + 1),
+                                            y: Number(d.y ?? d.value ?? 0),
+                                            r: Math.max(4, Math.min(16, Number(d.r ?? d.size ?? 8))),
+                                        })),
+                                        backgroundColor: 'rgba(99, 102, 241, 0.55)',
+                                        borderColor: getPaletteColor(0),
+                                        borderWidth: 1,
+                                    }]
+                                }}
+                                options={commonOptions(true, scatterYAxisLabel, 'x', true) as any}
+                            />
+                        </div>
+                    </div>
+                );
+
+            case 'radar':
+                return (
+                    <div className="flex flex-col h-full w-full">
+                        {renderOutlierToggle()}
+                        <div style={{ height: 210, width: '100%' }}>
+                            <Radar
+                                key={`${chartInstanceKey}-radar`}
+                                redraw={chartRedraw}
+                                data={{
+                                    labels: categoryLabels,
+                                    datasets: [{
+                                        label: valueAxisLabel,
+                                        data: chartData.map((d: any) => d.value),
+                                        borderColor: getPaletteColor(0),
+                                        backgroundColor: 'rgba(99, 102, 241, 0.24)',
+                                        pointBackgroundColor: getPaletteColor(0),
+                                        pointBorderColor: getPaletteColor(0),
+                                        pointRadius: 3,
+                                        fill: true,
+                                    }]
+                                }}
+                                options={{
+                                    ...commonOptions(false, valueAxisLabel),
+                                    scales: {
+                                        r: {
+                                            angleLines: { color: chartColors.grid },
+                                            grid: { color: chartColors.grid },
+                                            pointLabels: {
+                                                color: chartColors.text,
+                                                font: axisTickFont,
+                                                callback: (label: any, index: number) => {
+                                                    if (index % categoryTickInterval !== 0 && index !== categoryLabels.length - 1) return '';
+                                                    return formatCategoryTick(String(label || ''));
+                                                }
+                                            },
+                                            ticks: {
+                                                color: chartColors.text,
+                                                backdropColor: 'transparent',
+                                                font: axisTickFont,
+                                                callback: (v: any) => fmtTick(v, valueAxisLabel)
+                                            }
+                                        }
+                                    },
+                                    plugins: {
+                                        ...((commonOptions(false, valueAxisLabel) as any).plugins || {}),
+                                        legend: { display: false }
+                                    }
+                                } as any}
+                            />
+                        </div>
+                    </div>
+                );
+
+            case 'treemap':
+                return (
+                    <div className="flex flex-col h-full w-full">
+                        {renderOutlierToggle()}
+                        <div style={{ height: 210, width: '100%' }}>
+                            <ReactChart
+                                type="treemap"
+                                key={`${chartInstanceKey}-treemap`}
+                                redraw={chartRedraw}
+                                data={{
+                                    datasets: [{
+                                        label: valueAxisLabel,
+                                        tree: chartData.map((d: any, i: number) => ({
+                                            name: normalizeLabel(d[nameKey] || d.name || `Item ${i + 1}`),
+                                            value: Number(d.value || 0),
+                                            color: getPaletteColor(i),
+                                        })),
+                                        key: 'value',
+                                        groups: ['name'],
+                                        spacing: 1,
+                                        borderColor: isDark ? '#0f1115' : '#ffffff',
+                                        borderWidth: 1,
+                                        backgroundColor: (ctx: any) => ctx?.raw?._data?.color || getPaletteColor(ctx?.dataIndex || 0),
+                                        labels: {
+                                            display: true,
+                                            color: isDark ? '#e5e7eb' : '#0f172a',
                                             font: axisTickFont,
-                                            callback: (v: any) => fmtTick(v, valueAxisLabel)
+                                            formatter: (ctx: any) => formatCategoryTick(String(ctx?.raw?._data?.name || ''))
+                                        }
+                                    }]
+                                }}
+                                options={{
+                                    ...commonOptions(false, valueAxisLabel),
+                                    parsing: false,
+                                    onClick: (_e: any, elements: any[]) => {
+                                        if (!elements.length || !onFilterClick) return;
+                                        const raw = elements[0]?.element?.$context?.raw?._data;
+                                        if (raw?.name) onFilterClick(filterCol, String(raw.name));
+                                    },
+                                    plugins: {
+                                        ...((commonOptions(false, valueAxisLabel) as any).plugins || {}),
+                                        legend: { display: false },
+                                        tooltip: {
+                                            ...(((commonOptions(false, valueAxisLabel) as any).plugins || {}).tooltip || {}),
+                                            callbacks: {
+                                                title: (items: any) => normalizeLabel(items?.[0]?.raw?._data?.name || items?.[0]?.label || ''),
+                                                label: (ctx: any) => ` ${valueAxisLabel}: ${fmtVal(ctx?.raw?._data?.value ?? ctx?.raw?.v ?? ctx?.raw, valueAxisLabel)}`
+                                            }
                                         }
                                     }
-                                },
-                                plugins: {
-                                    ...((commonOptions(false, valueAxisLabel) as any).plugins || {}),
-                                    legend: { display: false }
-                                }
-                            } as any}
+                                } as any}
+                            />
+                        </div>
+                    </div>
+                );
+
+            case 'geo_map':
+            case 'map':
+                return (
+                    <div className="flex flex-col h-full w-full">
+                        {renderOutlierToggle()}
+                        <GeoMapCard
+                            data={chartData}
+                            mapType={chart.geo_meta?.map_type ?? 'world'}
+                            chartTitle={chart.title}
+                            formatType={chart.format_type}
+                            isDark={isDark}
+                            quickReact={quickReact}
                         />
                     </div>
-                </div>
-            );
+                );
 
-        case 'treemap':
-            return (
-                <div className="flex flex-col h-full w-full">
-                    {renderOutlierToggle()}
-                    <div style={{ height: 210, width: '100%' }}>
-                        <ReactChart
-                            type="treemap"
-                            key={`${chartInstanceKey}-treemap`}
-                            redraw={chartRedraw}
-                            data={{
-                                datasets: [{
-                                    label: valueAxisLabel,
-                                    tree: chartData.map((d: any, i: number) => ({
-                                        name: normalizeLabel(d[nameKey] || d.name || `Item ${i + 1}`),
-                                        value: Number(d.value || 0),
-                                        color: getPaletteColor(i),
-                                    })),
-                                    key: 'value',
-                                    groups: ['name'],
-                                    spacing: 1,
-                                    borderColor: isDark ? '#0f1115' : '#ffffff',
-                                    borderWidth: 1,
-                                    backgroundColor: (ctx: any) => ctx?.raw?._data?.color || getPaletteColor(ctx?.dataIndex || 0),
-                                    labels: {
-                                        display: true,
-                                        color: isDark ? '#e5e7eb' : '#0f172a',
-                                        font: axisTickFont,
-                                        formatter: (ctx: any) => formatCategoryTick(String(ctx?.raw?._data?.name || ''))
-                                    }
-                                }]
-                            }}
-                            options={{
-                                ...commonOptions(false, valueAxisLabel),
-                                parsing: false,
-                                onClick: (_e: any, elements: any[]) => {
-                                    if (!elements.length || !onFilterClick) return;
-                                    const raw = elements[0]?.element?.$context?.raw?._data;
-                                    if (raw?.name) onFilterClick(filterCol, String(raw.name));
-                                },
-                                plugins: {
-                                    ...((commonOptions(false, valueAxisLabel) as any).plugins || {}),
-                                    legend: { display: false },
-                                    tooltip: {
-                                        ...(((commonOptions(false, valueAxisLabel) as any).plugins || {}).tooltip || {}),
-                                        callbacks: {
-                                            title: (items: any) => normalizeLabel(items?.[0]?.raw?._data?.name || items?.[0]?.label || ''),
-                                            label: (ctx: any) => ` ${valueAxisLabel}: ${fmtVal(ctx?.raw?._data?.value ?? ctx?.raw?.v ?? ctx?.raw, valueAxisLabel)}`
-                                        }
-                                    }
-                                }
-                            } as any}
-                        />
-                    </div>
-                </div>
-            );
-
-        case 'geo_map':
-        case 'map':
-            return (
-                <div className="flex flex-col h-full w-full">
-                    {renderOutlierToggle()}
-                    <GeoMapCard
-                        data={chartData}
-                        mapType={chart.geo_meta?.map_type ?? 'world'}
-                        chartTitle={chart.title}
-                        formatType={chart.format_type}
-                        isDark={isDark}
-                        quickReact={quickReact}
-                    />
-                </div>
-            );
-
-        default:
-            return <div className="h-48 flex items-center justify-center text-themed-muted text-sm">Unsupported chart type</div>;
-    }
+            default:
+                return <div className="h-48 flex items-center justify-center text-themed-muted text-sm">Unsupported chart type</div>;
+        }
     };
 
     return (
@@ -1754,7 +1790,7 @@ const FilterDropdown = ({
             </button>
 
             {open && (
-                <div className="absolute right-0 top-full mt-2 w-56 bg-white border border-[#e5e7e7] rounded-2xl shadow-2xl z-50 overflow-hidden">
+                <div className="absolute right-0 top-full mt-2 w-56 bg-surface border border-border rounded-xl shadow-2xl z-50 overflow-hidden">
                     <div className="py-1">
                         {datasets.length === 0 ? (
                             <p className="px-4 py-3 text-sm text-[#7a7c7c]">No datasets available</p>
@@ -1881,9 +1917,9 @@ const MultiFilterPanel = ({
 
     return (
         <div ref={panelRef} className="mb-6 relative z-30">
-            <div className="bg-white dark:bg-[#17181b] border border-[#eceeee] dark:border-[#2a2d33] rounded-[24px] shadow-[0_4px_20px_rgba(32,48,68,0.05)] p-5">
+            <div className="bg-surface border border-border rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.02)] p-5">
                 <div className="flex items-center justify-between mb-3">
-                    <span className="text-[10px] uppercase tracking-[0.08em] text-[#5a5c5c] dark:text-[#a3a8b3] font-semibold">Filters</span>
+                    <span className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground font-semibold">Filters</span>
                     {totalActive > 0 && (
                         <button
                             type="button"
@@ -1914,7 +1950,7 @@ const MultiFilterPanel = ({
                         return (
                             <div key={slotIdx} className="flex flex-col gap-2">
                                 <div className="relative">
-                                    <div className="text-[10px] uppercase tracking-[0.08em] text-[#5a5c5c] dark:text-[#a3a8b3] font-semibold mb-1.5" style={{ fontFamily: '"Be Vietnam Pro", sans-serif' }}>
+                                    <div className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground font-semibold mb-1.5" style={{ fontFamily: '"Be Vietnam Pro", sans-serif' }}>
                                         {selectedCol ? toLabel(selectedCol) : `Filter ${slotIdx + 1}`}
                                     </div>
                                     <button
@@ -1942,7 +1978,7 @@ const MultiFilterPanel = ({
                                                         onFilterChange(selectedCol, []);
                                                         onSlotChange(slotIdx, null);
                                                     }}
-                                                    className="text-[#7a7c7c] hover:text-red-500 transition-colors"
+                                                    className="text-muted-foreground hover:text-destructive transition-colors"
                                                     aria-label="Remove filter"
                                                 >
                                                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1950,7 +1986,7 @@ const MultiFilterPanel = ({
                                                     </svg>
                                                 </span>
                                             )}
-                                            <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full transition-colors ${isPickerOpen || !!selectedCol ? 'bg-[#6c63ff] text-white' : 'bg-[#dfe1e1] text-[#5a5c5c] dark:bg-[#2c2f36] dark:text-[#c0c6d0]'}`}>
+                                            <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full transition-colors ${isPickerOpen || !!selectedCol ? 'bg-primary text-primary-foreground' : 'bg-surface-2 text-muted-foreground'}`}>
                                                 <svg className={`w-3 h-3 transition-transform ${isPickerOpen ? 'rotate-180' : ''}`}
                                                     fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.3" d="M19 9l-7 7-7-7" />
@@ -1959,8 +1995,8 @@ const MultiFilterPanel = ({
                                         </div>
                                     </button>
 
-                                        {isPickerOpen && (
-                                            <div className="absolute top-full left-0 mt-1 w-full min-w-[180px] bg-white dark:bg-[#17181b] rounded-[16px] border border-[#e5e7e7] dark:border-[#2f333b] shadow-2xl z-50 overflow-hidden">
+                                    {isPickerOpen && (
+                                        <div className="absolute top-full left-0 mt-1 w-full min-w-[180px] bg-surface rounded-xl border border-border shadow-2xl z-50 overflow-hidden">
                                             {selectedCol && (
                                                 <button
                                                     type="button"
@@ -2002,17 +2038,17 @@ const MultiFilterPanel = ({
 
                                 {selectedCol && (
                                     <div className="relative">
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setOpenPicker(null);
-                                            setOpenValues(isValuesOpen ? null : slotIdx);
-                                        }}
-                                        className={`w-full h-9 flex items-center justify-between gap-2 px-3 rounded-md text-[12px] border border-border transition-all ${slotValues.length > 0
-                                            ? 'bg-surface-2 text-primary font-medium'
-                                            : 'bg-surface text-foreground'
-                                            }`}
-                                    >
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setOpenPicker(null);
+                                                setOpenValues(isValuesOpen ? null : slotIdx);
+                                            }}
+                                            className={`w-full h-9 flex items-center justify-between gap-2 px-3 rounded-md text-[12px] border border-border transition-all ${slotValues.length > 0
+                                                ? 'bg-surface-2 text-primary font-medium'
+                                                : 'bg-surface text-foreground'
+                                                }`}
+                                        >
                                             <span className="truncate">
                                                 {slotValues.length === 0
                                                     ? 'All values'
@@ -2023,17 +2059,17 @@ const MultiFilterPanel = ({
                                                         : `${slotValues.length} selected`}
                                             </span>
                                             <div className="flex items-center gap-1 flex-shrink-0">
-                                                <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full transition-colors ${isValuesOpen || slotValues.length > 0 ? 'bg-[#6c63ff] text-white' : 'bg-[#dfe1e1] text-[#5a5c5c] dark:bg-[#2c2f36] dark:text-[#c0c6d0]'}`}>
+                                                <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full transition-colors ${isValuesOpen || slotValues.length > 0 ? 'bg-primary text-primary-foreground' : 'bg-surface-2 text-muted-foreground'}`}>
                                                     <svg className={`w-3 h-3 transition-transform ${isValuesOpen ? 'rotate-180' : ''}`}
                                                         fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.3" d="M19 9l-7 7-7-7" />
                                                     </svg>
                                                 </span>
                                             </div>
-                                    </button>
+                                        </button>
 
                                         {isValuesOpen && (
-                                            <div className="absolute top-full left-0 mt-1 w-full min-w-[200px] bg-white dark:bg-[#17181b] border border-[#e5e7e7] dark:border-[#2f333b] rounded-[16px] shadow-2xl z-50 overflow-hidden">
+                                            <div className="absolute top-full left-0 mt-1 w-full min-w-[200px] bg-surface border border-border rounded-xl shadow-2xl z-50 overflow-hidden">
                                                 <div className="flex items-center justify-between px-3 py-2.5 border-b border-border bg-surface-2">
                                                     <button
                                                         type="button"
@@ -2108,7 +2144,7 @@ const CorrelationHeatmapCard = ({
         return (
             <ChartCard title="Feature Correlation Matrix">
                 <div className="h-48 flex items-center justify-center">
-                    <div className="w-7 h-7 rounded-full border-2 border-blue-500/20 border-t-blue-400 animate-spin" />
+                    <div className="w-7 h-7 rounded-full border-2 border-border-strong/20 border-t-foreground animate-spin" />
                 </div>
             </ChartCard>
         );
@@ -2215,7 +2251,7 @@ const CorrelationHeatmapCard = ({
                 {/* Tooltip */}
                 {tip && (
                     <div
-                        className="absolute pointer-events-none z-20 bg-white dark:bg-[#1a1a2e] border border-gray-200 dark:border-border-main rounded-lg px-3 py-2 shadow-2xl text-xs whitespace-nowrap -translate-x-1/2 -translate-y-full transition-colors duration-300"
+                        className="absolute pointer-events-none z-20 bg-surface border border-border rounded-lg px-3 py-2 shadow-2xl text-xs whitespace-nowrap -translate-x-1/2 -translate-y-full transition-colors duration-300"
                         style={{
                             left: tip.x,
                             top: tip.y,
@@ -2418,17 +2454,17 @@ export default function UserDashboard() {
 
     const { charts: streamedCharts, kpis: streamedKpis, done: streamDone, error: streamError } = useDashboardStream(versionId || '');
     // inline column display removed — use side panel classifier instead
-    const totalColumnsCount = analytics?.columns ? (Object.values(analytics.columns).reduce((s:any, arr:any) => s + (Array.isArray(arr) ? arr.length : 0), 0)) : 0;
+    const totalColumnsCount = analytics?.columns ? (Object.values(analytics.columns).reduce((s: any, arr: any) => s + (Array.isArray(arr) ? arr.length : 0), 0)) : 0;
 
     // Dynamic Chart Colors
     const chartColors = {
-        grid: isDark ? '#1F2937' : '#E5E7EB',
-        axis: isDark ? '#9CA3AF' : '#6B7280',
-        text: isDark ? '#D1D5DB' : '#374151',
+        grid: isDark ? '#262626' : '#E5E2DE',
+        axis: isDark ? '#A3A3A3' : '#5E5E5C',
+        text: isDark ? '#FFFFFF' : '#1B1C1C',
         tooltip: {
-            bg: isDark ? '#111827' : '#FFFFFF',
-            border: isDark ? '#374151' : '#E5E7EB',
-            text: isDark ? '#F3F4F6' : '#111827'
+            bg: isDark ? '#000000' : '#FFFFFF',
+            border: isDark ? '#262626' : '#E5E2DE',
+            text: isDark ? '#FFFFFF' : '#1B1C1C'
         }
     };
 
@@ -2442,7 +2478,13 @@ export default function UserDashboard() {
     const [quickReactCharts, setQuickReactCharts] = useState(false);
     const quickReactResetRef = useRef<number | null>(null);
 
+    const previousDatasetIdRef = useRef<string>('');
     const [classifierOpen, setClassifierOpen] = useState(false);
+    const [isInsightOpen, setIsInsightOpen] = useState(false);
+    const [insightNarrative, setInsightNarrative] = useState<string | null>(null);
+    const [isGeneratingInsight, setIsGeneratingInsight] = useState(false);
+
+
 
     const [isRemapModalOpen, setIsRemapModalOpen] = useState(false);
     const [isDiffModalOpen, setIsDiffModalOpen] = useState(false);
@@ -2450,7 +2492,41 @@ export default function UserDashboard() {
     const [remapCurrentMappings, setRemapCurrentMappings] = useState<Record<string, string> | null>(null);
     const [versionDiffData, setVersionDiffData] = useState<{ prev: any[], curr: any[] }>({ prev: [], curr: [] });
 
-    const previousDatasetIdRef = useRef<string>('');
+    const handleGenerateInsight = async () => {
+        if (!analytics || !selectedDatasetId) {
+            toast.error("No dataset selected to generate insights from.");
+            return;
+        }
+
+        setNarrativeLoading(true);
+        setNarrative(null);
+
+        try {
+            const res = await narrativeService.generate(
+                selectedDatasetId,
+                analytics.kpis,
+                analytics.domain,
+                analytics.dataset_name,
+                analytics.charts
+            );
+            setNarrative(res);
+        } catch (err: any) {
+            console.error("Failed to generate insight:", err);
+            toast.error(err?.response?.data?.detail || err?.message || "Failed to generate insight");
+        } finally {
+            setNarrativeLoading(false);
+        }
+    };
+
+
+    const handleDeepDive = () => {
+        setIsInsightOpen(false);
+        // If the chat interface is integrated, we would trigger a predefined prompt here.
+        // For now, we'll just notify the user.
+        toast.success("Opening deep dive chat with Vizzy...");
+    };
+
+
 
     const normalizedActiveFilters = useMemo(() => {
         const rawFilters = Object.entries(active_filters || {}).filter(([, vals]) => Array.isArray(vals) && vals.length > 0);
@@ -2525,12 +2601,12 @@ export default function UserDashboard() {
         try {
             if (!selectedDatasetId) return;
             setIsLoading(true);
-            
+
             const latestVersion = await datasetService.getLatestVersion(selectedDatasetId);
             const versionDetails = await datasetService.getVersion(latestVersion.id);
-            
+
             const mappings = JSON.parse(versionDetails.semantic_map_json || '{}');
-            
+
             setRemapVersionId(latestVersion.id);
             setRemapCurrentMappings(mappings);
             setIsRemapModalOpen(true);
@@ -2545,25 +2621,25 @@ export default function UserDashboard() {
         try {
             if (!selectedDatasetId) return;
             setIsLoading(true);
-            
+
             const versions = await datasetService.listVersionsForDataset(selectedDatasetId);
             if (versions.length < 2) {
                 toast.error('At least two versions are required to show a diff.');
                 return;
             }
-            
+
             const current = versions[0];
             const previous = versions[1];
-            
+
             const currMap = JSON.parse(current.semantic_map_json || '[]');
             const prevMap = JSON.parse(previous.semantic_map_json || '[]');
-            
+
             // Normalize to array of {column_name, role}
             const normalize = (map: any) => {
                 if (Array.isArray(map)) return map;
                 return Object.entries(map).map(([role, col]) => ({ column_name: col, role }));
             };
-            
+
             setVersionDiffData({
                 prev: normalize(prevMap),
                 curr: normalize(currMap)
@@ -3560,12 +3636,12 @@ export default function UserDashboard() {
                 title={getDashboardTitle(analytics?.domain)}
                 description={analytics ? `${analytics.total_rows.toLocaleString()} rows · ${analytics.domain} domain` : "Select a dataset to start analytics"}
                 actions={(
-                        <div className="flex items-center gap-3">
-                            <BtnSecondary onClick={handleOpenDiff}><GitCompare className="h-3 w-3" />Diff versions</BtnSecondary>
-                            <BtnSecondary onClick={handleOpenRemap}><Wand2 className="h-3 w-3" />Remap</BtnSecondary>
-                            <BtnSecondary onClick={() => loadAnalytics(undefined, true)}><RefreshCw className="h-3 w-3" />Refresh</BtnSecondary>
-                            <BtnPrimary><Sparkles className="h-3 w-3" />Ask Vizzy</BtnPrimary>
-                        </div>
+                    <div className="flex items-center gap-3">
+                        <BtnSecondary onClick={handleOpenDiff}><GitCompare className="h-3 w-3" />Diff versions</BtnSecondary>
+                        <BtnSecondary onClick={handleOpenRemap}><Wand2 className="h-3 w-3" />Remap</BtnSecondary>
+                        <BtnSecondary onClick={() => loadAnalytics(undefined, true)}><RefreshCw className="h-3 w-3" />Refresh</BtnSecondary>
+                        <BtnPrimary><Sparkles className="h-3 w-3" />Ask Vizzy</BtnPrimary>
+                    </div>
 
                 )}
             />
@@ -3643,7 +3719,7 @@ export default function UserDashboard() {
                                 const streamedKpi = streamedKpis[key];
                                 const resolvedValue = streamedKpi?.data?.value ?? kpi.value;
                                 const resolvedTrend = streamedKpi?.data?.trend ?? kpi.trend;
-                                
+
                                 const hasTrend = typeof resolvedTrend === 'number';
                                 const up = hasTrend ? resolvedTrend >= 0 : false;
                                 const delta = hasTrend ? `${resolvedTrend >= 0 ? '+' : ''}${resolvedTrend.toFixed(1)}%` : null;
@@ -3718,7 +3794,15 @@ export default function UserDashboard() {
                                         })}
                                     </div>
                                 ) : (
-                                    <p className="text-sm text-muted-foreground">Generating insights...</p>
+                                    <div className="flex flex-col items-center justify-center py-6 text-center">
+                                        <p className="text-sm text-muted-foreground mb-4 italic">
+                                            No insights generated yet. Get a high-level summary of your data.
+                                        </p>
+                                        <BtnAccent onClick={handleGenerateInsight} className="group">
+                                            <Sparkles className="h-3 w-3 mr-2" />
+                                            Generate Insight
+                                        </BtnAccent>
+                                    </div>
                                 )}
                             </div>
                         </Panel>
@@ -3776,47 +3860,58 @@ export default function UserDashboard() {
                         <div className="flex items-center gap-1.5">
                             <BtnGhost onClick={handleOpenRemap}><Wand2 className="h-3 w-3" />Remap values</BtnGhost>
                             <BtnSecondary onClick={() => setClassifierOpen(true)}>Column classifier</BtnSecondary>
-                            <BtnAccent><Sparkles className="h-3 w-3" />Generate insight</BtnAccent>
+                            <BtnAccent onClick={handleGenerateInsight} className="group">
+                                <Sparkles className="h-3 w-3 mr-2" />
+                                Generate Insight
+                            </BtnAccent>
                         </div>
                     </div>
                 </div>
             )}
 
-                    {isRemapModalOpen && (
-                        <RemapModal
-                            datasetId={selectedDatasetId || ''}
-                            versionId={remapVersionId || ''}
-                            currentMappings={remapCurrentMappings || {}}
-                            onConfirm={handleConfirmRemap}
-                            onCancel={() => setIsRemapModalOpen(false)}
-                        />
-                    )}
-                    {isDiffModalOpen && (
-                        <VersionDiffModal
-                            isOpen={isDiffModalOpen}
-                            onClose={() => setIsDiffModalOpen(false)}
-                            previousMap={versionDiffData.prev}
-                            currentMap={versionDiffData.curr}
-                        />
-                    )}
+            {isRemapModalOpen && (
+                <RemapModal
+                    datasetId={selectedDatasetId || ''}
+                    versionId={remapVersionId || ''}
+                    currentMappings={remapCurrentMappings || {}}
+                    onConfirm={handleConfirmRemap}
+                    onCancel={() => setIsRemapModalOpen(false)}
+                />
+            )}
+            {isDiffModalOpen && (
+                <VersionDiffModal
+                    isOpen={isDiffModalOpen}
+                    onClose={() => setIsDiffModalOpen(false)}
+                    previousMap={versionDiffData.prev}
+                    currentMap={versionDiffData.curr}
+                />
+            )}
 
-                    {classifierOpen && analytics?.columns && (
-                        <div className="fixed inset-0 z-50 flex">
-                            <div className="flex-1 bg-background/60 backdrop-blur-sm" onClick={() => setClassifierOpen(false)} />
-                            <aside className="flex w-[520px] flex-col border-l border-border bg-surface shadow-2xl">
-                                <div className="flex items-start justify-between border-b border-border px-5 py-4">
-                                    <div>
-                                        <h3 className="text-[14px] font-semibold">Column classifier</h3>
-                                        <p className="mt-0.5 text-[11.5px] text-muted-foreground">Auto-typed by Vizzy · review & override</p>
-                                    </div>
-                                    <button onClick={() => setClassifierOpen(false)} className="rounded p-1 hover:bg-surface-2"><X className="h-3.5 w-3.5" /></button>
-                                </div>
-                                <div className="flex-1 overflow-auto">
-                                    <ColumnClassificationPanel columns={analytics.columns} isDark={isDark} />
-                                </div>
-                            </aside>
+            {classifierOpen && analytics?.columns && (
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-background/60 backdrop-blur-sm"
+                    onClick={() => setClassifierOpen(false)}
+                >
+                    <div
+                        className="flex w-full max-w-5xl max-h-[90vh] flex-col bg-surface rounded-3xl shadow-2xl border border-border overflow-hidden"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="flex items-start justify-between border-b border-border px-6 py-5">
+                            <div>
+                                <h3 className="text-[18px] font-bold">Column classifier</h3>
+                                <p className="mt-1 text-[13px] text-muted-foreground">Auto-typed by Vizzy · review & override</p>
+                            </div>
+                            <button onClick={() => setClassifierOpen(false)} className="rounded-full p-2 hover:bg-surface-2 transition-colors">
+                                <X className="h-4 w-4" />
+                            </button>
                         </div>
-                    )}
+                        <div className="flex-1 overflow-auto p-6">
+                            <ColumnClassificationPanel columns={analytics.columns} isDark={isDark} />
+                        </div>
+                    </div>
+                </div>
+            )}
+
 
         </div>
     );

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any
 from uuid import UUID
 
@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from app.api.deps import DBSession, RateLimitedUser
 from app.services import cleaning_plan_service
+from app.services.ingestion_execution.file_loader import _read_csv_with_encodings
 from app.services.cleaning_execution.planner import execute_cleaning
 from app.core.storage import get_cleaned_data_path
 from app.models.dataset_version import DatasetVersion
@@ -112,6 +113,7 @@ def get_cleaning_plan(
     response_model=CleaningPlanResponse,
 )
 def approve_cleaning_plan(
+    version_id: UUID,
     plan_id: UUID,
     session: DBSession,
     current_user: RateLimitedUser,
@@ -199,11 +201,84 @@ def _convert_actions_to_steps(proposed_actions: Dict[str, Any]) -> Dict[str, Any
 
 
 @router.post(
+    "/preview",
+    status_code=status.HTTP_200_OK,
+    summary="Preview a cleaning plan on a sample of raw data",
+)
+def preview_cleaning_plan(
+    version_id: UUID,
+    request: CleaningPlanCreateRequest,
+    session: DBSession,
+    current_user: RateLimitedUser,
+) -> Dict[str, Any]:
+    """
+    Dry-run clean-up on a sample of the dataset version's raw data.
+    Does NOT save files or create versions.
+    """
+    try:
+        version = session.get(DatasetVersion, version_id)
+        if not version or not version.is_active:
+            raise ResourceNotFound("DatasetVersion", str(version_id))
+
+        # Load first 200 rows of raw data
+        raw_path = version.source_reference
+        df = _read_csv_with_encodings(raw_path, nrows=200)
+
+        # Convert actions
+        normalized_actions = _convert_actions_to_steps(request.proposed_actions)
+
+        if not normalized_actions.get("steps"):
+            original_records = df.replace({pd.NA: None}).where(pd.notnull(df), None).to_dict(orient="records")
+            now_str = datetime.now(timezone.utc).isoformat()
+            return {
+                "success": True,
+                "original_data": original_records,
+                "cleaned_data": original_records,
+                "rows_before": len(df),
+                "rows_after": len(df),
+                "steps_executed": 0,
+                "started_at": now_str,
+                "completed_at": now_str,
+                "rows_dropped": 0,
+                "cells_modified": 0,
+                "changes": [],
+            }
+
+        # Execute cleaning on the sample
+        result = execute_cleaning(df, normalized_actions)
+
+        # Build original data & cleaned data records lists
+        # (Handling NaNs so they can be JSON serialized safely)
+        df_cleaned = result["cleaned_df"]
+        
+        original_records = df.replace({pd.NA: None}).where(pd.notnull(df), None).to_dict(orient="records")
+        cleaned_records = df_cleaned.replace({pd.NA: None}).where(pd.notnull(df_cleaned), None).to_dict(orient="records")
+
+        return {
+            "success": True,
+            "original_data": original_records,
+            "cleaned_data": cleaned_records,
+            "rows_before": len(df),
+            "rows_after": len(df_cleaned),
+            **result["execution_summary"],
+        }
+    except ResourceNotFound as e:
+        raise HTTPException(status_code=404, detail=e.message)
+    except AuthorizationError as e:
+        raise HTTPException(status_code=403, detail=e.message)
+    except InvalidOperation as e:
+        raise HTTPException(status_code=409, detail=e.message)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.post(
     "/{plan_id}/execute",
     status_code=status.HTTP_200_OK,
     summary="Execute an approved cleaning plan",
 )
 def execute_cleaning_plan(
+    version_id: UUID,
     plan_id: UUID,
     session: DBSession,
     current_user: RateLimitedUser,
@@ -228,10 +303,36 @@ def execute_cleaning_plan(
 
         # Load raw data
         raw_path = version.source_reference
-        df = pd.read_csv(raw_path, low_memory=False)
+        df = _read_csv_with_encodings(raw_path)
 
         # Convert frontend actions → rule-engine steps format
         normalized_actions = _convert_actions_to_steps(plan.proposed_actions)
+
+        if not normalized_actions.get("steps"):
+            cleaned_path = get_cleaned_data_path(
+                dataset_id=version.dataset_id,
+                version_id=version.id,
+            )
+            df.to_csv(str(cleaned_path), index=False)
+            
+            # Persist reference on version
+            version.cleaned_reference = str(cleaned_path)
+            session.add(version)
+            session.commit()
+            
+            now_str = datetime.now(timezone.utc).isoformat()
+            return {
+                "success": True,
+                "cleaned_path": str(cleaned_path),
+                "rows_before": len(df),
+                "rows_after": len(df),
+                "steps_executed": 0,
+                "started_at": now_str,
+                "completed_at": now_str,
+                "rows_dropped": 0,
+                "cells_modified": 0,
+                "changes": [],
+            }
 
         # Execute cleaning
         result = execute_cleaning(df, normalized_actions)

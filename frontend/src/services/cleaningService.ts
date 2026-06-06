@@ -113,4 +113,12 @@ export const cleaningService = {
         const response = await api.post<Record<string, any>>(`/versions/${versionId}/cleaning/${planId}/execute`);
         return response.data;
     },
+
+    // Preview a cleaning plan (dry-run on a sample of data)
+    previewPlan: async (versionId: string, proposedActions: Record<string, any>): Promise<Record<string, any>> => {
+        const response = await api.post<Record<string, any>>(`/versions/${versionId}/cleaning/preview`, {
+            proposed_actions: proposedActions
+        });
+        return response.data;
+    },
 };

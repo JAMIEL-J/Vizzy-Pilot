@@ -101,26 +101,34 @@ async def dashboard_event_generator(
             yield f"data: {_dumps({'error': 'DuckDB file not found for this version'})}\n\n"
             return
 
-        # Create a dedicated engine for this version's file
-        db_engine = DBEngine(db_path=str(duckdb_path))
-        # Force read connection initialization
-        db_engine._lock_down_read_con()
-        conn = db_engine._read_con
-        
-        chart_configs = generate_chart_configs(version.semantic_map_json)
-        filters = {}
-        kpi_configs = {} 
-        
-        async for result in execute_dashboard_load(
-            conn=conn,
-            chart_configs=chart_configs,
-            kpi_configs=kpi_configs,
-            filters=filters,
-            dataset_id=version.dataset_id
-        ):
-            yield f"data: {_dumps(result)}\n\n"
+        db_engine = None
+        try:
+            # Create a dedicated engine for this version's file (in read-only mode to allow concurrent queries)
+            db_engine = DBEngine(db_path=str(duckdb_path), read_only=True)
+            # Force read connection initialization
+            db_engine._lock_down_read_con()
+            conn = db_engine._read_con
             
-        yield "data: {\"event\": \"done\"}\n\n"
+            chart_configs = generate_chart_configs(version.semantic_map_json)
+            filters = {}
+            kpi_configs = {} 
+            
+            async for result in execute_dashboard_load(
+                conn=conn,
+                chart_configs=chart_configs,
+                kpi_configs=kpi_configs,
+                filters=filters,
+                dataset_id=version.dataset_id
+            ):
+                yield f"data: {_dumps(result)}\n\n"
+                
+            yield "data: {\"event\": \"done\"}\n\n"
+        finally:
+            if db_engine is not None:
+                try:
+                    db_engine.close()
+                except Exception:
+                    pass
         
     except Exception as e:
         logger.exception(f"Error streaming dashboard for version {version_id}: {e}")

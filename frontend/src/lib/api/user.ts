@@ -22,6 +22,7 @@ export interface UserProfileStats {
         email: string;
         role: 'user' | 'admin' | string;
         is_active: boolean;
+        created_at?: string;
     };
     totals: {
         total_datasets: number;
@@ -57,4 +58,31 @@ export const userApi = {
         const response = await apiClient.patch<UserProfileStats['user']>('/users/me', payload);
         return response.data;
     },
+
+    getLLMSettings: async () => {
+        const response = await apiClient.get<LLMSettings>('/users/me/llm-settings');
+        return response.data;
+    },
+
+    updateLLMSettings: async (payload: LLMSettingsUpdate) => {
+        const response = await apiClient.put<LLMSettings>('/users/me/llm-settings', payload);
+        return response.data;
+    },
 };
+
+export interface LLMSettings {
+    provider: 'default' | 'openai' | 'gemini' | 'ollama' | string;
+    has_openai_key: boolean;
+    has_gemini_key: boolean;
+    ollama_url?: string;
+    ollama_model?: string;
+}
+
+export interface LLMSettingsUpdate {
+    provider: string;
+    openai_api_key?: string | null;
+    gemini_api_key?: string | null;
+    ollama_url?: string;
+    ollama_model?: string;
+}
+

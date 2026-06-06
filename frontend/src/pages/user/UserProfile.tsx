@@ -152,7 +152,9 @@ export default function UserProfile() {
             plan,
             role: role === 'admin' ? 'Workspace Admin' : 'Lead Analyst',
             initial: displayName.charAt(0).toUpperCase() || 'U',
-            joined: 'Jan 12, 2024' // Placeholder
+            joined: profile.user.created_at
+                ? new Date(profile.user.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                : '-'
         };
     }, [profile]);
 

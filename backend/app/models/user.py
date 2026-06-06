@@ -36,3 +36,5 @@ class User(BaseModel, table=True):
     hashed_password: str = Field(nullable=False)
     role: UserRole = Field(default=UserRole.USER, nullable=False)
     is_active: bool = Field(default=True, nullable=False)
+    llm_settings: Optional[str] = Field(default=None, nullable=True)
+

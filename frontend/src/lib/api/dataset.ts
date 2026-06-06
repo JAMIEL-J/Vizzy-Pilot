@@ -34,6 +34,15 @@ export interface DatasetVersionSummary {
     is_active: boolean;
 }
 
+export interface DatasetMetadata {
+    dataset_id: string;
+    version_id: string;
+    column_count: number;
+    columns: string[];
+    raw_size: number;
+    cleaned_size?: number | null;
+}
+
 export interface MappingProposalItem {
     column_name: string;
     role: string;
@@ -72,6 +81,11 @@ export const datasetService = {
         return response.data;
     },
 
+    getDatasetMetadata: async (datasetId: string) => {
+        const response = await apiClient.get<DatasetMetadata>(`/datasets/${datasetId}/metadata`);
+        return response.data;
+    },
+
     getLatestVersion: async (datasetId: string) => {
         const response = await apiClient.get<DatasetVersionSummary>(`/datasets/${datasetId}/versions/latest`);
         return response.data;
@@ -94,8 +108,23 @@ export const datasetService = {
     downloadCleaned: async (datasetId: string) => {
         const response = await apiClient.get(`/datasets/${datasetId}/download/cleaned`, { responseType: 'blob' });
         return response.data;
+    },
+
+    getDownloadHistory: async () => {
+        const response = await apiClient.get<DownloadHistoryItem[]>('/datasets/downloads/history');
+        return response.data;
     }
 };
+
+export interface DownloadHistoryItem {
+    dataset_id: string;
+    dataset_name: string;
+    version_id: string;
+    version_number: number;
+    download_type: 'raw' | 'cleaned' | string;
+    timestamp: string;
+}
+
 
 export const uploadService = {
     uploadFile: async (datasetId: string, file: File) => {

@@ -60,10 +60,9 @@ def create_cleaning_plan(
     ).first()
 
     if existing:
-        raise InvalidOperation(
-            operation="create_cleaning_plan",
-            reason="A cleaning plan already exists for this dataset version",
-        )
+        # Soft-deactivate the existing plan to allow creating a new one with new selections
+        existing.is_active = False
+        session.add(existing)
 
     plan = CleaningPlan(
         dataset_version_id=dataset_version_id,

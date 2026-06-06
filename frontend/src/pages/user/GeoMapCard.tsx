@@ -367,7 +367,7 @@ const GeoMapCard: React.FC<GeoMapCardProps> = ({ data, mapType = 'world', chartT
                     max: minValue === maxValue ? maxValue + 1 : Math.max(maxValue, minValue + 1),
                     quantize: 6,
                     interpolate: selectedMetricInterpolate,
-                    missing: isDark ? '#1a1a1a' : '#f1f5f9',
+                    missing: isDark ? '#171717' : '#EFEDED',
                     ticks: { display: false },
                     grid: { display: false },
                     legend: {
@@ -377,9 +377,9 @@ const GeoMapCard: React.FC<GeoMapCardProps> = ({ data, mapType = 'world', chartT
             },
             elements: {
                 geoFeature: {
-                    borderColor: isDark ? '#0b0f17' : '#d1d5db',
+                    borderColor: isDark ? '#000000' : '#E5E2DE',
                     borderWidth: mapType === 'us_states' ? 0.5 : 0.3,
-                    hoverBorderColor: isDark ? '#ffffff55' : '#4f46e5',
+                    hoverBorderColor: isDark ? '#ffffff' : '#000000',
                     hoverBorderWidth: 0.8,
                 },
             },

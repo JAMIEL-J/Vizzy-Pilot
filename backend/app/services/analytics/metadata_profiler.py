@@ -62,6 +62,10 @@ def profile_dataset(df: pd.DataFrame) -> Dict[str, Dict[str, Any]]:
         col_lower = col.lower().replace("_", " ").replace("-", " ")
         for tag, patterns in SEMANTIC_PATTERNS.items():
             if any(re.search(pat, col_lower) for pat in patterns):
+                if tag == "temporal:period":
+                    exclude_kws = ['charge', 'cost', 'price', 'amount', 'fee', 'balance', 'salary', 'income', 'revenue', 'tenure', 'duration', 'age', 'mrr', 'monthly', 'weekly', 'daily', 'yearly']
+                    if any(kw in col_lower for kw in exclude_kws):
+                        continue
                 semantic_tags.append(tag)
 
         # Statistical heuristics for ID detection
@@ -70,8 +74,16 @@ def profile_dataset(df: pd.DataFrame) -> Dict[str, Dict[str, Any]]:
 
         # Format detection
         format_type = "number"
-        if logical_type == "temporal" or "temporal:period" in semantic_tags:
+        if logical_type == "temporal" or ("temporal:period" in semantic_tags and logical_type != "numeric"):
             format_type = "date"
+        elif logical_type == "numeric" and "temporal:period" in semantic_tags:
+            # check if it looks like a year (values in 1900-2100 range)
+            try:
+                non_null = series.dropna()
+                if not non_null.empty and non_null.max() <= 2100 and non_null.min() >= 1900:
+                    format_type = "date"
+            except Exception:
+                pass
         elif "financial:monetary" in semantic_tags:
             format_type = "currency"
         elif any(x in col_lower for x in ["ratio", "percent", "pct", "rate", "ctr", "cvr", "csat", "sla"]):

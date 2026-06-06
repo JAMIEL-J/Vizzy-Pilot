@@ -38,12 +38,14 @@ def generate_overview_dashboard(
     classification = filter_columns(df, domain)
 
     if semantic_map_json:
-        import json
         try:
-            s_map = json.loads(semantic_map_json)
+            from app.services.analytics.role_resolver import normalize_to_col_role, invert_to_role_map
             from app.services.semantic_audit import ROLE_TAXONOMY
-            # The saved semantic map is stored as {role: column_name}
-            for role, col in s_map.items():
+
+            # Normalize to {column: role} regardless of stored format
+            col_role_map = normalize_to_col_role(semantic_map_json)
+
+            for col, role in col_role_map.items():
                 if col not in df.columns:
                     continue
 
@@ -119,11 +121,12 @@ def generate_overview_dashboard(
     kpi_dict = generate_kpis(df, domain, classification, semantic_map_json=semantic_map_json)
 
     # ── 4. Smart Chart Recommendations ──
-    import json
     overrides = None
     if semantic_map_json:
         try:
-            overrides = json.loads(semantic_map_json)
+            from app.services.analytics.role_resolver import invert_to_role_map
+            # chart_recommender expects {role: column} format
+            overrides = invert_to_role_map(semantic_map_json)
         except Exception:
             pass
     chart_dict = recommend_charts(df, domain, classification, overrides=overrides)

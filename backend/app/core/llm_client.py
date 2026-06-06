@@ -28,6 +28,7 @@ logger = get_logger(__name__)
 class LLMProvider(str, Enum):
     """Available LLM providers."""
     GROQ_DASHBOARD_NARRATIVE = "groq_dashboard_narrative"
+    GROQ_SEMANTIC_MAP = "groq_semantic_map"
     GROQ_CHAT_INSIGHT = "groq_chat_insight"
     GROQ_NARRATIVE = "groq_narrative"
     GROQ_CHAT = "groq_chat"
@@ -162,17 +163,62 @@ class LLMClient:
         max_tokens: Optional[int] = None,
         purpose: str = "narrative",
         response_format: Optional[Dict[str, Any]] = None,
+        llm_config: Optional[Dict[str, Any]] = None,
     ) -> LLMResponse:
         """
-        Send completion request using Groq with internal fallback based on purpose.
-        
-        Purpose 'sql' or 'chat' uses the Groq chat/sql route first.
-        Purpose 'dashboard_narrative' uses the dashboard Llama config.
-        Purpose 'chat_insight' uses the chat-insight Llama config.
-        Purpose 'narrative' (default) maps to dashboard narrative for backward compatibility.
+        Send completion request using Groq, Gemini, or custom LLMs with fallback.
         """
+        # Load user configuration from ContextVar if not passed explicitly
+        if not llm_config:
+            from app.core.crypto import active_llm_config
+            llm_config = active_llm_config.get(None)
+
         temp = temperature if temperature is not None else self.settings.temperature
         tokens = max_tokens if max_tokens is not None else self.settings.max_tokens
+
+        # Check if user has specified custom cloud APIs or local Ollama
+        if llm_config and llm_config.get("provider") in {"openai", "gemini", "ollama"}:
+            provider_type = llm_config["provider"]
+            if provider_type == "openai":
+                from app.core.crypto import decrypt_val
+                api_key = decrypt_val(llm_config.get("openai_api_key", ""))
+                if api_key:
+                    logger.info("Routing completion to custom user OpenAI key")
+                    return await self._call_custom_openai_api(
+                        api_key=api_key,
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        temperature=temp,
+                        max_tokens=tokens,
+                        response_format=response_format,
+                    )
+            elif provider_type == "gemini":
+                from app.core.crypto import decrypt_val
+                api_key = decrypt_val(llm_config.get("gemini_api_key", ""))
+                if api_key:
+                    logger.info("Routing completion to custom user Gemini key")
+                    return await self._call_gemini_internal(
+                        api_key_str=api_key,
+                        model=self.settings.gemini_chat_model or "gemini-1.5-pro",
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        temperature=temp,
+                        max_tokens=tokens,
+                        provider=LLMProvider.GEMINI_CHAT,
+                        response_format=response_format,
+                    )
+            elif provider_type == "ollama":
+                ollama_url = llm_config.get("ollama_url") or "http://localhost:11434"
+                ollama_model = llm_config.get("ollama_model") or "llama3"
+                logger.info(f"Routing completion to user local Ollama at {ollama_url}")
+                return await self._call_ollama_internal(
+                    url=ollama_url,
+                    model=ollama_model,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    temperature=temp,
+                )
+
 
         # Determine output token budget
         if purpose == "semantic_mapping":
@@ -199,9 +245,9 @@ class LLMClient:
         )
 
         if purpose == "semantic_mapping":
-            # Use the Groq Dashboard Narrator provider for semantic mapping as requested
+            # Use the Groq Semantic Map provider for semantic mapping
             providers = [
-                (LLMProvider.GROQ_DASHBOARD_NARRATIVE, self._call_groq_dashboard_narrative),
+                (LLMProvider.GROQ_SEMANTIC_MAP, self._call_groq_semantic_map),
                 (LLMProvider.GROQ_CHAT, self._call_groq_chat),
             ]
         elif self.settings.primary_provider == "gemini":
@@ -375,6 +421,18 @@ class LLMClient:
             **kwargs,
         )
 
+    async def _call_groq_semantic_map(self, **kwargs) -> LLMResponse:
+        """Call the semantic map Llama config."""
+        map_key = self.settings.groq_semantic_map.get_secret_value()
+        final_key = map_key if map_key else self.settings.groq_api_key.get_secret_value()
+
+        return await self._call_groq_internal(
+            api_key_str=final_key,
+            model=self.settings.groq_semantic_map_model or self.settings.groq_model,
+            provider=LLMProvider.GROQ_SEMANTIC_MAP,
+            **kwargs,
+        )
+
     async def _call_groq_chat_insight(self, **kwargs) -> LLMResponse:
         """Call the chat insight Llama config."""
         insight_key = self.settings.groq_chat_insight_api_key.get_secret_value()
@@ -479,6 +537,84 @@ class LLMClient:
             provider=LLMProvider.GEMINI_CHAT,
             **kwargs,
         )
+
+    async def _call_custom_openai_api(
+        self,
+        api_key: str,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float,
+        max_tokens: int,
+        response_format: Optional[Dict[str, Any]] = None,
+    ) -> LLMResponse:
+        """Call standard OpenAI chat completions using custom key."""
+        url = "https://api.openai.com/v1/chat/completions"
+        client = await self._get_client()
+        
+        json_payload = {
+            "model": "gpt-4o",
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        
+        if response_format:
+            json_payload["response_format"] = response_format
+            
+        response = await client.post(
+            url,
+            headers={"Authorization": f"Bearer {api_key}"},
+            json=json_payload,
+        )
+        response.raise_for_status()
+        data = response.json()
+        
+        content = data["choices"][0]["message"]["content"]
+        return LLMResponse(
+            content=content,
+            provider=LLMProvider.GROQ_CHAT,
+            model="gpt-4o",
+            usage=data.get("usage"),
+        )
+
+    async def _call_ollama_internal(
+        self,
+        url: str,
+        model: str,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float,
+    ) -> LLMResponse:
+        """Call local Ollama chat completions endpoint."""
+        endpoint = f"{url.rstrip('/')}/api/chat"
+        client = await self._get_client()
+        
+        json_payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "options": {
+                "temperature": temperature,
+            },
+            "stream": False
+        }
+        
+        response = await client.post(endpoint, json=json_payload, timeout=60.0)
+        response.raise_for_status()
+        data = response.json()
+        
+        content = data["message"]["content"]
+        return LLMResponse(
+            content=content,
+            provider=LLMProvider.GROQ_CHAT,
+            model=model,
+        )
+
 
 
 def parse_json_response(content: str) -> Dict[str, Any]:

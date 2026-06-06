@@ -2,10 +2,9 @@ export const DashboardSkeleton = ({ isDark }: { isDark?: boolean }) => {
     // aria-label placeholder for UX audit compliance
     // A skeleton mimicking the User Dashboard layout.
     // Includes: Top header area, Filter slots, 4 KPI cards, and 2-3 Chart Cards.
-    
-    const bgClass = isDark ? 'bg-[#23262d]' : 'bg-[#e2e4e4]';
-    const borderClass = isDark ? 'border-[#2a2d33]' : 'border-[#eceeee]';
-    const containerBg = isDark ? 'bg-[#17181b]' : 'bg-white';
+    const bgClass = 'bg-surface-3';
+    const borderClass = 'border-border';
+    const containerBg = 'bg-surface';
 
     return (
         <div className="flex flex-col gap-8 w-full animate-pulse">

@@ -18,7 +18,8 @@ def drop_rows_with_nulls(
         _validate_columns(result, columns)
         return result.dropna(subset=columns).reset_index(drop=True)
 
-    return result.dropna().reset_index(drop=True)
+    cols_to_check = [c for c in result.columns if c != "_vizzy_row_idx"]
+    return result.dropna(subset=cols_to_check).reset_index(drop=True)
 
 
 def fill_missing_mean(
@@ -140,9 +141,11 @@ def remove_duplicates(
 
     if subset is not None:
         _validate_columns(result, subset)
-        return result.drop_duplicates(subset=subset, keep=keep).reset_index(drop=True)
+        cols_to_compare = [c for c in subset if c != "_vizzy_row_idx"]
+        return result.drop_duplicates(subset=cols_to_compare, keep=keep).reset_index(drop=True)
 
-    return result.drop_duplicates(keep=keep).reset_index(drop=True)
+    cols_to_compare = [c for c in result.columns if c != "_vizzy_row_idx"]
+    return result.drop_duplicates(subset=cols_to_compare, keep=keep).reset_index(drop=True)
 
 
 def cap_outliers(

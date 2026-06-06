@@ -109,6 +109,10 @@ class LLMSettings(BaseSettings):
     groq_dashboard_api_key: SecretStr = Field(default=SecretStr(""))
     groq_dashboard_model: str = Field(default="llama-3.3-70b-versatile")
 
+    # Dedicated semantic mapping override (optional, defaults to Account 1)
+    groq_semantic_map: SecretStr = Field(default=SecretStr(""))
+    groq_semantic_map_model: str = Field(default="meta-llama/llama-4-scout-17b-16e-instruct")
+
     # Account 2: Groq (alternate Chat/SQL model)
     groq_chat_api_key: SecretStr = Field(default=SecretStr(""))
     groq_chat_model: str = Field(default="openai/gpt-oss-120b")

@@ -5,9 +5,9 @@ interface SkeletonProps {
 }
 
 export const ChartSkeleton = ({ isDark }: SkeletonProps) => {
-    const bgClass = isDark ? 'bg-[#23262d]' : 'bg-[#e2e4e4]';
-    const borderClass = isDark ? 'border-[#2a2d33]' : 'border-[#eceeee]';
-    const containerBg = isDark ? 'bg-[#17181b]' : 'bg-white';
+    const bgClass = 'bg-surface-3';
+    const borderClass = 'border-border';
+    const containerBg = 'bg-surface';
 
     return (
         <div className={`${containerBg} border ${borderClass} rounded-3xl p-6 h-[320px] flex flex-col animate-pulse`}>
@@ -24,9 +24,9 @@ export const ChartSkeleton = ({ isDark }: SkeletonProps) => {
 };
 
 export const KPISkeleton = ({ isDark }: SkeletonProps) => {
-    const bgClass = isDark ? 'bg-[#23262d]' : 'bg-[#e2e4e4]';
-    const borderClass = isDark ? 'border-[#2a2d33]' : 'border-[#eceeee]';
-    const containerBg = isDark ? 'bg-[#17181b]' : 'bg-white';
+    const bgClass = 'bg-surface-3';
+    const borderClass = 'border-border';
+    const containerBg = 'bg-surface';
 
     return (
         <div className={`rounded-xl p-6 ${containerBg} border ${borderClass} shadow-sm overflow-hidden h-[160px] flex flex-col justify-between animate-pulse`}>
@@ -38,9 +38,9 @@ export const KPISkeleton = ({ isDark }: SkeletonProps) => {
 };
 
 export const HeaderSkeleton = ({ isDark }: SkeletonProps) => {
-    const bgClass = isDark ? 'bg-[#23262d]' : 'bg-[#e2e4e4]';
-    const borderClass = isDark ? 'border-[#2a2d33]' : 'border-[#eceeee]';
-    const containerBg = isDark ? 'bg-[#17181b]' : 'bg-white';
+    const bgClass = 'bg-surface-3';
+    const borderClass = 'border-border';
+    const containerBg = 'bg-surface';
 
     return (
         <div className="flex flex-col gap-6 animate-pulse">

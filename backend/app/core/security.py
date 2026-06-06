@@ -157,6 +157,28 @@ def verify_token(token: str, token_type: str = "access") -> TokenData:
     )
 
 
+def _populate_user_llm_settings(user_id: str) -> None:
+    """Best-effort loading of user LLM settings into ContextVar."""
+    try:
+        from sqlmodel import Session, select
+        from app.models.database import engine
+        from app.models.user import User
+        from app.core.crypto import active_llm_config
+        from uuid import UUID
+        import json
+        
+        with Session(engine) as session:
+            db_user = session.exec(select(User).where(User.id == UUID(user_id))).first()
+            if db_user and db_user.llm_settings:
+                try:
+                    config_dict = json.loads(db_user.llm_settings)
+                    active_llm_config.set(config_dict)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+
 async def get_current_user(
     authorization: Optional[str] = Header(default=None),
 ) -> CurrentUser:
@@ -172,6 +194,8 @@ async def get_current_user(
 
     token = authorization[7:]
     token_data = verify_token(token)
+
+    _populate_user_llm_settings(token_data.user_id)
 
     return CurrentUser(
         user_id=token_data.user_id,
@@ -200,10 +224,13 @@ async def get_current_user_from_header_or_query(
 
     token_data = verify_token(token)
 
+    _populate_user_llm_settings(token_data.user_id)
+
     return CurrentUser(
         user_id=token_data.user_id,
         role=token_data.role,
     )
+
 
 
 def require_role(required_role: UserRole) -> Callable:

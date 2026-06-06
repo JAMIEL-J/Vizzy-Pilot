@@ -11,15 +11,14 @@ export const VIZZY_THEME = {
 } as const;
 
 export const VIZZY_CHART_COLORS = [
-    VIZZY_THEME.primary,     // Original Primary
-    '#3B82F6',               // Vibrant Blue
-    '#10B981',               // Emerald Green
-    '#F59E0B',               // Amber Yellow
-    '#EF4444',               // Red
-    '#8B5CF6',               // Violet
-    '#EC4899',               // Pink
-    '#06B6D4',               // Cyan
-    '#F97316',               // Orange
-    '#14B8A6',               // Teal
-    VIZZY_THEME.secondary,   // Original Secondary
+    '#7D9BBA', // Soft Dusty Blue
+    '#6EA694', // Soft Sage Green
+    '#DF8B70', // Soft Coral/Salmon
+    '#CD7784', // Soft Muted Rose
+    '#68A3B2', // Soft Aqua/Teal
+    '#9184B7', // Soft Lavender/Lilac
+    '#C4A265', // Soft Warm Ochre/Gold
+    '#7E8B99', // Soft Slate Gray
+    '#9AB4E3', // Soft Light Blue
+    '#83BAB5', // Soft Light Teal
 ] as const;

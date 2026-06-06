@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
+import os
+import json
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
@@ -175,6 +177,70 @@ def get_dataset_duckdb_status(
             ready=build_status.get("status") == "ready",
             error=build_status.get("error"),
             duckdb_path=build_status.get("duckdb_path"),
+        )
+    except ResourceNotFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=e.message,
+        )
+    except AuthorizationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=e.message,
+        )
+
+
+class DatasetMetadataResponse(BaseModel):
+    dataset_id: UUID
+    version_id: UUID
+    column_count: int
+    columns: List[str]
+    raw_size: int
+    cleaned_size: Optional[int] = None
+
+
+@router.get("/{dataset_id}/metadata", response_model=DatasetMetadataResponse)
+def get_dataset_metadata(
+    dataset_id: UUID,
+    session: DBSession,
+    current_user: RateLimitedUser,
+) -> DatasetMetadataResponse:
+    """Return column details and size metrics for latest version of a dataset."""
+    try:
+        # Enforce access checks
+        dataset_service.get_dataset_details(
+            session=session,
+            dataset_id=dataset_id,
+            user_id=UUID(current_user.user_id),
+            role=current_user.role,
+        )
+
+        latest_version = get_latest_version(session=session, dataset_id=dataset_id)
+        
+        raw_size = 0
+        cleaned_size = None
+        
+        if latest_version.source_reference and os.path.exists(latest_version.source_reference):
+            raw_size = os.path.getsize(latest_version.source_reference)
+            
+        if latest_version.cleaned_reference and os.path.exists(latest_version.cleaned_reference):
+            cleaned_size = os.path.getsize(latest_version.cleaned_reference)
+            
+        columns = []
+        if latest_version.schema_metadata:
+            try:
+                schema_cols = json.loads(latest_version.schema_metadata)
+                columns = [col.get("name") for col in schema_cols if col.get("name")]
+            except Exception:
+                pass
+                
+        return DatasetMetadataResponse(
+            dataset_id=dataset_id,
+            version_id=latest_version.id,
+            column_count=len(columns),
+            columns=columns,
+            raw_size=raw_size,
+            cleaned_size=cleaned_size,
         )
     except ResourceNotFound as e:
         raise HTTPException(
