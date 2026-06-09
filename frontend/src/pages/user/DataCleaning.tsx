@@ -534,8 +534,6 @@ export default function DataCleaning() {
                     <HealthMetric label="Completeness" value={`${Math.max(0, 100 - (healthScoreObj?.breakdown?.missing_values_penalty || 0)).toFixed(1)}%`} tone={(healthScoreObj?.breakdown?.missing_values_penalty || 0) > 5 ? "warning" : "success"} />
                     <HealthMetric label="Validity" value={`${Math.max(0, 100 - (healthScoreObj?.breakdown?.other_penalty || 0)).toFixed(1)}%`} tone={(healthScoreObj?.breakdown?.other_penalty || 0) > 5 ? "warning" : "success"} />
                     <HealthMetric label="Uniqueness" value={`${Math.max(0, 100 - (healthScoreObj?.breakdown?.duplicates_penalty || 0)).toFixed(1)}%`} tone={(healthScoreObj?.breakdown?.duplicates_penalty || 0) > 5 ? "warning" : "success"} />
-                    <HealthMetric label="Consistency" value="98.2%" tone="success" />
-                    <HealthMetric label="Timeliness" value="100%" tone="success" />
                 </div>
             )}
 
@@ -946,7 +944,7 @@ function HealthScoreWidget({ score, riskLevel }: { score: number, riskLevel: str
     };
     
     return (
-        <div className="col-span-12 row-span-1 flex items-center justify-between bg-surface px-6 py-5 md:col-span-4 border-r border-border">
+        <div className="col-span-12 row-span-1 flex items-center justify-between bg-surface px-6 py-5 lg:col-span-3 md:col-span-6 border-r border-border">
             <div>
                 <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-mono">Overall health</div>
                 <div className="mt-1.5 flex items-baseline gap-2">
@@ -970,7 +968,7 @@ function HealthScoreWidget({ score, riskLevel }: { score: number, riskLevel: str
 function HealthMetric({ label, value, tone }: { label: string; value: string; tone: "success" | "warning" | "danger" }) {
     const numValue = parseFloat(value);
     return (
-        <div className="col-span-6 bg-surface px-5 py-5 border-r border-border md:col-span-3 lg:col-span-2">
+        <div className="col-span-6 bg-surface px-5 py-5 border-r border-border md:col-span-6 lg:col-span-3">
             <div className="text-[10.5px] uppercase tracking-wider text-muted-foreground font-mono">{label}</div>
             <div className={`num mt-1.5 text-display text-[22px] font-semibold font-mono ${tone === "warning" ? "text-warning" : tone === "danger" ? "text-destructive" : "text-success"}`}>{value}</div>
             <div className="mt-2.5 h-1 bg-surface-2 border border-border/40">

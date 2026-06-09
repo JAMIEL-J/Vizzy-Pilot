@@ -15,10 +15,11 @@ import { PromptInputBox } from "@/components/ui/ai-prompt-box";
 
 
 interface RuixenMoonChatProps {
-  onSendMessage?: (msg: string) => void;
+  onSendMessage?: (msg: string, options?: { forceDeepAnalysis?: boolean; enableSuggestions?: boolean }) => void;
   datasets?: { id: string; name: string }[];
   selectedDatasetId?: string;
   onDatasetChange?: (id: string) => void;
+  suggestions?: string[];
 }
 
 export default function RuixenMoonChat({
@@ -26,6 +27,7 @@ export default function RuixenMoonChat({
   datasets = [],
   selectedDatasetId = "",
   onDatasetChange,
+  suggestions = [],
 }: RuixenMoonChatProps) {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -125,7 +127,7 @@ export default function RuixenMoonChat({
 
         <div className="w-full">
           <PromptInputBox 
-            onSend={(msg) => onSendMessage?.(msg)}
+            onSend={(msg, files, options) => onSendMessage?.(msg, options)}
             placeholder="Ask about revenue, trends, or specific metrics..."
             disabled={!selectedDatasetId}
           />
@@ -133,34 +135,57 @@ export default function RuixenMoonChat({
 
         {/* Quick Actions */}
         <div className="flex items-center justify-center flex-wrap gap-3 mt-8">
-          <QuickAction 
-            icon={<Code2 className="w-4 h-4" />} 
-            label="Sales Summary"
-            onClick={() => {
-              if (onSendMessage) onSendMessage("What is the total sales?");
-            }} 
-          />
-          <QuickAction 
-            icon={<Rocket className="w-4 h-4" />} 
-            label="Revenue by Region" 
-            onClick={() => {
-              if (onSendMessage) onSendMessage("Show me revenue by region");
-            }} 
-          />
-          <QuickAction 
-            icon={<Layers className="w-4 h-4" />} 
-            label="Top Customers" 
-            onClick={() => {
-              if (onSendMessage) onSendMessage("Who are the top 5 customers?");
-            }} 
-          />
-          <QuickAction 
-            icon={<MonitorIcon className="w-4 h-4" />} 
-            label="Recent Trends" 
-            onClick={() => {
-              if (onSendMessage) onSendMessage("Show me sales trends over time");
-            }} 
-          />
+          {suggestions.length > 0 ? (
+            suggestions.map((s, idx) => {
+              const icons = [
+                <Code2 className="w-4 h-4" key={0} />,
+                <Rocket className="w-4 h-4" key={1} />,
+                <Layers className="w-4 h-4" key={2} />,
+                <MonitorIcon className="w-4 h-4" key={3} />
+              ];
+              return (
+                <QuickAction
+                  key={idx}
+                  icon={icons[idx % icons.length] || <Code2 className="w-4 h-4" />}
+                  label={s}
+                  onClick={() => {
+                    if (onSendMessage) onSendMessage(s, { enableSuggestions: true });
+                  }}
+                />
+              );
+            })
+          ) : (
+            <>
+              <QuickAction 
+                icon={<Code2 className="w-4 h-4" />} 
+                label="Sales Summary"
+                onClick={() => {
+                  if (onSendMessage) onSendMessage("What is the total sales?");
+                }} 
+              />
+              <QuickAction 
+                icon={<Rocket className="w-4 h-4" />} 
+                label="Revenue by Region" 
+                onClick={() => {
+                  if (onSendMessage) onSendMessage("Show me revenue by region");
+                }} 
+              />
+              <QuickAction 
+                icon={<Layers className="w-4 h-4" />} 
+                label="Top Customers" 
+                onClick={() => {
+                  if (onSendMessage) onSendMessage("Who are the top 5 customers?");
+                }} 
+              />
+              <QuickAction 
+                icon={<MonitorIcon className="w-4 h-4" />} 
+                label="Recent Trends" 
+                onClick={() => {
+                  if (onSendMessage) onSendMessage("Show me sales trends over time");
+                }} 
+              />
+            </>
+          )}
         </div>
       </div>
     </div>

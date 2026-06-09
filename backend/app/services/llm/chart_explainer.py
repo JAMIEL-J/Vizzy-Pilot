@@ -56,17 +56,19 @@ You are an expert data analyst explaining chart insights to business users.
 Your job is to generate clear, concise explanations of data visualizations.
 
 Rules:
-1. Start with what the chart shows (e.g., "This bar chart displays...")
-2. Highlight the key insight (highest, lowest, trend)
-3. Mention specific values with context
-4. Keep explanation under 100 words
-5. Use business-friendly language, avoid jargon
-6. End with an actionable insight or observation
+1. Start with what the chart shows.
+2. Format the detailed explanation as 2-3 structured bullet points instead of a paragraph. Use markdown `- ` list syntax.
+3. Highlight key terms, metrics, numbers, and main concepts by wrapping them in double asterisks (e.g., **Churn Rate**, **26.74%**, **Revenue Spike**).
+4. Highlight the key insight (highest, lowest, trend).
+5. Mention specific values with context.
+6. Keep explanation under 100 words.
+7. Use business-friendly language, avoid jargon.
+8. End with an actionable insight or observation.
 
 Output format:
 {
   "summary": "One-sentence summary of what the chart shows",
-  "explanation": "2-3 sentence detailed explanation with key insights",
+  "explanation": "Detailed explanation formatted as markdown bullet points, highlighting key words with double asterisks",
   "key_insight": "The most important takeaway",
   "followup_questions": ["Question 1?", "Question 2?", "Question 3?"]
 }
@@ -283,14 +285,16 @@ def _generate_fallback_explanation(
                 
                 summary = f"Bar chart showing {title} breakdown."
                 explanation = (
-                    f"**{max_cat}** has the highest value "
-                    f"({_format_number_value(max_val, currency_symbol)}), while **{min_cat}** is the lowest "
-                    f"({_format_number_value(min_val, currency_symbol)})."
+                    f"- **{max_cat}** has the **highest value** at **{_format_number_value(max_val, currency_symbol)}**.\n"
+                    f"- **{min_cat}** represents the **lowest value** in this breakdown at **{_format_number_value(min_val, currency_symbol)}**."
                 )
                 key_insight = f"{max_cat} dominates with {_format_number_value(max_val, currency_symbol)}."
             else:
                 summary = f"Bar chart showing {title}"
-                explanation = "A breakdown of values by category."
+                explanation = (
+                    f"- A breakdown of values by category for **{title}**.\n"
+                    f"- Used to compare specific metric counts across categories."
+                )
                 key_insight = "Compare values across categories."
                 
         elif chart_type == "line":
@@ -306,7 +310,7 @@ def _generate_fallback_explanation(
                     y_col = cols[1] if len(cols) > 1 else cols[0]
                     x = [s.get(x_col) for s in series]
                     y = [s.get(y_col) for s in series]
-
+ 
             if y and len(y) > 1:
                 start = y[0]
                 end = y[-1]
@@ -317,14 +321,16 @@ def _generate_fallback_explanation(
                 
                 summary = f"Line chart showing {title} over time."
                 explanation = (
-                    f"The trend is generally **{trend}**, starting at "
-                    f"{_format_number_value(start, currency_symbol)} and ending at "
-                    f"{_format_number_value(end, currency_symbol)} ({pct_change:+.1f}%)."
+                    f"- The overall trend is **{trend}** over the observed period.\n"
+                    f"- Started at **{_format_number_value(start, currency_symbol)}** and ended at **{_format_number_value(end, currency_symbol)}** (a change of **{pct_change:+.1f}%**)."
                 )
                 key_insight = f"Overall {trend} trend observed."
             else:
                 summary = f"Line chart showing {title}"
-                explanation = "Visualizing trends over time."
+                explanation = (
+                    f"- Visualizing metrics and fluctuations over time for **{title}**.\n"
+                    f"- Used to observe chronological changes and anomalies."
+                )
                 key_insight = "Observe the changes over the period."
                 
         elif chart_type == "pie":
@@ -340,7 +346,7 @@ def _generate_fallback_explanation(
                     v_col = cols[1] if len(cols) > 1 else cols[0]
                     labels = [r.get(l_col) for r in rows]
                     values = [r.get(v_col) for r in rows]
-
+ 
             if labels and values:
                 total = sum(values) if sum(values) != 0 else 1
                 max_val = max(values)
@@ -349,11 +355,17 @@ def _generate_fallback_explanation(
                 max_pct = (max_val / total) * 100
                 
                 summary = f"Pie chart showing {title} distribution."
-                explanation = f"**{max_label}** accounts for the largest share at **{max_pct:.1f}%**."
+                explanation = (
+                    f"- **{max_label}** accounts for the largest share at **{max_pct:.1f}%** of the total.\n"
+                    f"- Visualizes the proportional segment distribution."
+                )
                 key_insight = f"{max_label} is the significant majority."
             else:
                 summary = f"Pie chart showing {title}"
-                explanation = "Showing proportion of each category."
+                explanation = (
+                    f"- Showing the segment shares and proportions of categories for **{title}**.\n"
+                    f"- Used to identify majority segments and distributions."
+                )
                 key_insight = "Compare segment sizes."
                 
         elif chart_type == "kpi":
@@ -363,11 +375,14 @@ def _generate_fallback_explanation(
                 
             label = chart_data.get("label", chart_data.get("title", "Metric"))
             summary = f"KPI for {label}: {_format_number_value(value, currency_symbol)}"
-            explanation = f"The {label} is currently **{_format_number_value(value, currency_symbol)}**."
+            explanation = f"The current calculated **{label}** is **{_format_number_value(value, currency_symbol)}**."
             key_insight = f"Current status: {_format_number_value(value, currency_symbol)}"
             
         else:
-            explanation = "Visualizing data for analysis."
+            explanation = (
+                f"- Visualizing dataset metrics for analysis.\n"
+                f"- Review the visual results to explore further details."
+            )
             key_insight = "Review the visual data."
 
     except Exception as e:

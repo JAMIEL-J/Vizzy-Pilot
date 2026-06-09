@@ -221,8 +221,7 @@ export default function FileUpload() {
             <PageHeader
                 breadcrumb={["Datasets", "Upload"]}
                 title="Upload data"
-                description="CSV, Parquet, JSON, or Excel · max 5 GB per file"
-                actions={<BtnSecondary>View ingestion log</BtnSecondary>}
+                description="CSV files"
             />
             <div className="grid grid-cols-12 gap-4 px-5 py-4">
                 <Panel className="col-span-12 lg:col-span-7">
@@ -254,10 +253,9 @@ export default function FileUpload() {
                             </p>
                             <div className="mt-4 flex gap-2" onClick={(e) => e.stopPropagation()}>
                                 <BtnPrimary onClick={() => fileInputRef.current?.click()}><UploadIcon className="h-3 w-3" />Browse files</BtnPrimary>
-                                <BtnSecondary>From URL</BtnSecondary>
                             </div>
                             <div className="mt-4 flex items-center gap-1.5 text-[10.5px] text-muted-foreground">
-                                <Pill>CSV</Pill><Pill>Parquet</Pill><Pill>JSON</Pill><Pill>XLSX</Pill>
+                                <Pill>CSV</Pill>
                             </div>
                         </div>
 

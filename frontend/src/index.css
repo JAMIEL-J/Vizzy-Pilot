@@ -757,3 +757,48 @@ body {
 .font-mono {
     font-family: "DM Sans", "Inter", "Segoe UI", system-ui, sans-serif;
 }
+
+/* Premium typography and styling for chat insights */
+.chat-insight-container {
+    font-family: var(--font-body);
+    line-height: 1.75;
+    font-size: 13.5px;
+    letter-spacing: 0.015em;
+    color: var(--text-main);
+}
+
+.chat-insight-container ul, .chat-insight-container ol {
+    margin-top: 8px;
+    margin-bottom: 8px;
+    padding-left: 20px;
+    list-style-type: none; /* remove basic bullets to style them */
+}
+
+.chat-insight-container li {
+    position: relative;
+    margin-bottom: 12px;
+    padding-left: 20px;
+}
+
+/* Custom premium bullet points */
+.chat-insight-container li::before {
+    content: "•";
+    color: var(--accent-primary);
+    font-weight: bold;
+    font-size: 16px;
+    position: absolute;
+    left: 0;
+    top: -2px;
+}
+
+/* Highlight main words in the insights */
+.chat-insight-container strong {
+    font-weight: 700;
+    color: var(--accent-primary);
+    background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 13px;
+    letter-spacing: 0.01em;
+}
+

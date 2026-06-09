@@ -144,13 +144,11 @@ export default function UserProfile() {
         })();
 
         const role = String(profile.user.role || 'user').toLowerCase();
-        const plan = role === 'admin' ? 'Enterprise' : 'Pro';
 
         return {
             displayName,
             email,
-            plan,
-            role: role === 'admin' ? 'Workspace Admin' : 'Lead Analyst',
+            role: role === 'admin' ? 'Admin' : 'User',
             initial: displayName.charAt(0).toUpperCase() || 'U',
             joined: profile.user.created_at
                 ? new Date(profile.user.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
@@ -172,7 +170,7 @@ export default function UserProfile() {
         const growthPct = prevActions > 0 ? ((monthActions - prevActions) / prevActions) * 100 : (monthActions > 0 ? 100 : 0);
 
         const title = growthPct >= 0 ? 'Monthly activity milestone' : 'Monthly activity summary';
-        const message = `You completed ${monthActions.toLocaleString()} actions this month. You're in the top 4% of analysts this quarter.`;
+        const message = `You completed ${monthActions.toLocaleString()} actions this month — ${growthPct >= 0 ? '+' : ''}${Math.round(growthPct)}% vs last month.`;
 
         return { growthPct, title, message };
     }, [profile]);
@@ -304,7 +302,6 @@ export default function UserProfile() {
                             </div>
                         </div>
                         <div className="flex items-center gap-2">
-                            <BtnSecondary>Share milestone</BtnSecondary>
                             <button onClick={dismissMilestone} className="rounded p-1 text-muted-foreground hover:bg-surface-2"><X className="h-3.5 w-3.5" /></button>
                         </div>
                     </div>
@@ -314,7 +311,7 @@ export default function UserProfile() {
             <div className="grid grid-cols-12 gap-4 px-5 py-4">
                 {/* Profile */}
                 <Panel className="col-span-12 lg:col-span-4">
-                    <PanelHeader title="Profile" subtitle={`vizzy.app/u/${profileIdentity.email.split('@')[0]}`} />
+                    <PanelHeader title="Profile" />
                     <div className="p-5">
                         <div className="flex items-center gap-4">
                             <div className="grid h-16 w-16 place-items-center rounded-2xl bg-gradient-to-br from-accent to-primary text-[20px] font-semibold text-background">{profileIdentity.initial}</div>
@@ -322,8 +319,7 @@ export default function UserProfile() {
                                 <div className="text-[16px] font-semibold">{profileIdentity.displayName}</div>
                                 <div className="text-[12px] text-muted-foreground">{profileIdentity.role}</div>
                                 <div className="mt-1 flex gap-1.5">
-                                    <Pill tone="accent">{profileIdentity.plan}</Pill>
-                                    <Pill>Active Account</Pill>
+                                    <Pill>{profile?.user.is_active ? 'Active' : 'Inactive'}</Pill>
                                 </div>
                             </div>
                         </div>
@@ -417,7 +413,6 @@ export default function UserProfile() {
                             <div className="space-y-4 p-5">
                                 <Input label="Display name" required value={editForm.name} onChange={(v) => setEditForm(prev => ({ ...prev, name: v }))} />
                                 <Input label="Email" type="email" required value={editForm.email} onChange={(v) => setEditForm(prev => ({ ...prev, email: v }))} />
-                                <Input label="Role" value={profileIdentity.role} onChange={() => {}} />
                             </div>
                             <div className="flex justify-end gap-2 border-t border-border bg-surface-2/40 px-5 py-3">
                                 <BtnSecondary onClick={() => setIsEditOpen(false)}>Cancel</BtnSecondary>

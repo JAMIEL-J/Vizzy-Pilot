@@ -120,6 +120,10 @@ def _auto_chart_type(chart_type: str, data: List[Dict[str, Any]], columns: List[
     numeric_cols = [c for c in columns if isinstance(first_row.get(c), (int, float))]
     non_numeric_cols = [c for c in columns if c not in numeric_cols]
 
+    # If there is exactly one row and all columns are numeric, it should render as a KPI.
+    if len(data) == 1 and len(numeric_cols) >= 1 and len(non_numeric_cols) == 0:
+        return "kpi"
+
     # Multi-metric category comparisons should render as stacked bars.
     if len(non_numeric_cols) >= 1 and len(numeric_cols) >= 2 and chart_type in {"bar", "table", "stacked"}:
         return "stacked_bar"

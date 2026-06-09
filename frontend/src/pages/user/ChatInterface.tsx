@@ -8,7 +8,7 @@ import {
     PanelRightClose, Download, Copy, Maximize2, 
     Sparkles, Database, Code2, Check, ArrowUp,
     BarChart3, AlertCircle, X, Plus, MessageSquare,
-    PanelLeft, PanelLeftClose, Table as TableIcon, FileText, Wand2
+    PanelLeft, PanelLeftClose, Table as TableIcon, FileText, Wand2, BrainCog, Globe
 } from 'lucide-react';
 import { Panel, PanelHeader, Pill, BtnGhost, BtnSecondary, BtnAccent } from '@/components/ui/primitive';
 import RuixenMoonChat from '../../components/ui/ruixen-moon-chat';
@@ -108,6 +108,8 @@ const getMessageArtifactPayload = (msg?: ChatMessage | null) => {
 export default function ChatInterface() {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [isTyping, setIsTyping] = useState(false);
+    const [thinkProgress, setThinkProgress] = useState<{ step: number; total: number; phase: string; detail: string; query_index?: number; query_total?: number } | null>(null);
+    const [initialSuggestions, setInitialSuggestions] = useState<string[]>([]);
     const [datasets, setDatasets] = useState<Dataset[]>([]);
     const [selectedDatasetId, setSelectedDatasetId] = useState<string>('');
     const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
@@ -205,6 +207,16 @@ export default function ChatInterface() {
         }
     };
 
+    const loadSuggestions = async (sessionId: string) => {
+        try {
+            const data = await chatService.getInitialSuggestions(sessionId);
+            setInitialSuggestions(data || []);
+        } catch (error) {
+            console.error('Failed to load initial suggestions:', error);
+            setInitialSuggestions([]);
+        }
+    };
+
     const loadSessions = async () => {
         try {
             const data = await chatService.listSessions();
@@ -222,6 +234,7 @@ export default function ChatInterface() {
             const msgs = await chatService.getMessages(sessionId);
             setMessages(msgs);
             if (window.innerWidth < 768) setIsSidebarOpen(false);
+            loadSuggestions(session.id);
         } catch (error) {
             console.error('Failed to load session:', error);
         }
@@ -236,6 +249,7 @@ export default function ChatInterface() {
             if (currentSessionId === sessionId) {
                 setCurrentSessionId(null);
                 setMessages([]);
+                setInitialSuggestions([]);
             }
         } catch (error) {
             console.error('Failed to delete session:', error);
@@ -245,8 +259,25 @@ export default function ChatInterface() {
     const handleNewChat = () => {
         setCurrentSessionId(null);
         setMessages([]);
+        setInitialSuggestions([]);
         if (window.innerWidth < 768) setIsSidebarOpen(false);
     };
+
+    useEffect(() => {
+        const initSession = async () => {
+            if (selectedDatasetId && !currentSessionId) {
+                try {
+                    const newSession = await chatService.createSession(selectedDatasetId, undefined, 'New Analysis');
+                    setCurrentSessionId(newSession.id);
+                    loadSessions();
+                    loadSuggestions(newSession.id);
+                } catch (error) {
+                    console.error('Failed to create session on dataset selection:', error);
+                }
+            }
+        };
+        initSession();
+    }, [selectedDatasetId]);
 
     const handleDownloadCSV = (data: any, title: string) => {
         const rows = Array.isArray(data?.data?.rows) ? data.data.rows : (Array.isArray(data?.rows) ? data.rows : (Array.isArray(data?.data) ? data.data : []));
@@ -283,7 +314,7 @@ export default function ChatInterface() {
         document.body.removeChild(link);
     };
 
-    const handleSendMessage = async (text: string) => {
+    const handleSendMessage = async (text: string, options?: { forceDeepAnalysis?: boolean; enableSuggestions?: boolean }) => {
         if (!text.trim()) return;
         if (!selectedDatasetId) {
             setMessages(prev => [...prev, {
@@ -310,6 +341,7 @@ export default function ChatInterface() {
                 sessionId = newSession.id;
                 setCurrentSessionId(sessionId);
                 loadSessions();
+                loadSuggestions(sessionId);
             } catch (error) {
                 console.error('Failed to create new session:', error);
                 return;
@@ -324,12 +356,34 @@ export default function ChatInterface() {
         abortControllerRef.current = new AbortController();
 
         try {
-            const response = await chatService.sendMessage(sessionId, text, abortControllerRef.current.signal);
+            let response;
+            if (options?.forceDeepAnalysis) {
+                setThinkProgress({
+                    step: 1,
+                    total: 6,
+                    phase: 'classifying',
+                    detail: 'Analyzing your question...'
+                });
+                response = await chatService.sendMessageStream(
+                    sessionId,
+                    text,
+                    (progress) => {
+                        setThinkProgress(progress);
+                    },
+                    abortControllerRef.current.signal,
+                    options
+                );
+            } else {
+                response = await chatService.sendMessage(sessionId, text, abortControllerRef.current.signal, options);
+            }
             setMessages(prev => {
                 const filtered = prev.filter(m => m.id !== tempId);
                 return [...filtered, response.user_message, response.assistant_message];
             });
-            if (hasRenderableOutput(response.assistant_message.output_data)) {
+            setInitialSuggestions([]);
+
+            const isKpi = response.assistant_message.output_data?.type === 'kpi' || response.assistant_message.output_data?.chart?.type === 'kpi';
+            if (hasRenderableOutput(response.assistant_message.output_data) && !isKpi) {
                 setSelectedArtifactId(response.assistant_message.id);
                 setIsArtifactVisible(true);
             }
@@ -345,6 +399,7 @@ export default function ChatInterface() {
             }]);
         } finally {
             setIsTyping(false);
+            setThinkProgress(null);
         }
     };
 
@@ -442,7 +497,13 @@ export default function ChatInterface() {
                                 <Code2 className="h-3 w-3" />{showSql[msg.id] ? 'Hide SQL' : 'View SQL'}
                             </BtnSecondary>
                         )}
-                        <BtnAccent onClick={() => handleSendMessage('Explain this result further')}>
+                        <BtnAccent onClick={() => {
+                            const title = targetData?.title || targetData?.chart?.title || 'Data Analysis';
+                            const sqlPart = targetData?.sql ? ` SQL: ${targetData.sql}.` : '';
+                            const dataObj = targetData?.data || targetData?.chart?.data;
+                            const dataPart = dataObj ? ` Data: ${JSON.stringify(dataObj).substring(0, 800)}.` : '';
+                            handleSendMessage(`Explain this result further: "${title}".${sqlPart}${dataPart}`);
+                        }}>
                             <Sparkles className="h-3 w-3" />Explain further
                         </BtnAccent>
                     </div>
@@ -624,7 +685,13 @@ export default function ChatInterface() {
                 )}
                 <div className="flex-1 overflow-y-auto w-full">
                     {messages.length === 0 ? (
-                        <RuixenMoonChat onSendMessage={handleSendMessage} datasets={datasets} selectedDatasetId={selectedDatasetId} onDatasetChange={setSelectedDatasetId} />
+                        <RuixenMoonChat 
+                            onSendMessage={handleSendMessage} 
+                            datasets={datasets} 
+                            selectedDatasetId={selectedDatasetId} 
+                            onDatasetChange={setSelectedDatasetId} 
+                            suggestions={initialSuggestions}
+                        />
                     ) : (
                         <div className="p-6 md:p-10 space-y-8 max-w-5xl mx-auto w-full">
                             {error && (
@@ -646,13 +713,20 @@ export default function ChatInterface() {
                                             <div className="w-10 h-10 rounded-sm bg-surface-3 border-b-2 border-border-strong flex items-center justify-center flex-shrink-0 font-mono text-xs font-bold text-foreground font-display font-light shadow-elev-1">VX</div>
                                         )}
                                         <div className={`px-5 py-4 rounded-xl border ${msg.role === 'user' ? 'bg-surface-3 text-foreground border-border shadow-sm' : 'bg-surface-2 text-foreground border-border'} ${['analysis', 'visualization', 'dashboard', 'comparative', 'aggregative', 'trend'].includes(msg.intent_type || '') && msg.output_data?.type !== 'kpi' ? 'w-full' : ''} ${msg.output_data?.type === 'kpi' ? 'w-auto' : ''}`}>
-                                            <div className="text-sm leading-relaxed">
+                                            {msg.role === 'assistant' && (msg.output_data?.type === 'interpretive_text' || msg.output_data?.source === 'orchestrator_interpretive') && (
+                                                <div className="mb-2 flex items-center">
+                                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold tracking-wider uppercase bg-[#8B5CF6]/15 text-[#8B5CF6] border border-[#8B5CF6]/30">
+                                                        <BrainCog className="h-3 w-3" /> Deep Analysis
+                                                    </span>
+                                                </div>
+                                            )}
+                                            <div className="chat-insight-container text-sm leading-relaxed">
                                                 {isInsightMessage(msg) ? (
                                                     (() => {
                                                         const insightSqlQueries = getInsightSqlQueries(msg);
                                                         return (
                                                             <div className="space-y-4 w-full">
-                                                                <div className="markdown-content text-themed-main">{renderInsightPoints(msg.content)}</div>
+                                                                <div className="chat-insight-container text-themed-main">{renderInsightPoints(msg.content)}</div>
                                                                 {insightSqlQueries.length > 0 && (
                                                                     <div className="rounded-sm border border-border-main bg-bg-main/40">
                                                                         <div className="flex items-center justify-between px-3 py-2 border-b border-border-main/70">
@@ -688,7 +762,7 @@ export default function ChatInterface() {
                                                         );
                                                     })()
                                                 ) : ['analysis', 'visualization', 'dashboard', 'comparative', 'aggregative', 'trend', 'text_query', 'clarification'].includes(msg.intent_type || '') ? (
-                                                    <div className="markdown-content text-sm leading-relaxed">
+                                                    <div className="chat-insight-container text-sm leading-relaxed">
                                                         <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
                                                         {msg.output_data?.type === 'clarification' && msg.output_data?.ambiguity && (
                                                             <div className="mt-3.5 space-y-2">
@@ -700,14 +774,7 @@ export default function ChatInterface() {
                                                                                 const term = msg.output_data.ambiguity.term;
                                                                                 const originalQuery = msg.output_data.ambiguity.original_query || "";
                                                                                 const chosenColumn = c.column;
-                                                                                
-                                                                                const cleanTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                                                                                const regex = new RegExp('\\b' + cleanTerm + '\\b', 'gi');
-                                                                                let newQuery = originalQuery.replace(regex, chosenColumn);
-                                                                                
-                                                                                if (newQuery === originalQuery) {
-                                                                                    newQuery = `For my query "${originalQuery}", I meant column "${chosenColumn}" instead of "${term}"`;
-                                                                                }
+                                                                                const newQuery = `For my query "${originalQuery}", I meant column "${chosenColumn}" instead of "${term}"`;
                                                                                 handleSendMessage(newQuery);
                                                                             }}
                                                                             className="px-3 py-1.5 rounded-lg border border-border bg-surface-3 hover:bg-primary/10 hover:border-primary/40 text-xs font-semibold text-foreground transition-all duration-200 cursor-pointer"
@@ -718,26 +785,60 @@ export default function ChatInterface() {
                                                                 </div>
                                                             </div>
                                                         )}
-                                                        {hasRenderableOutput(msg.output_data) && (
-                                                            <div className="mt-4 flex flex-wrap items-center gap-2">
-                                                                <BtnGhost onClick={() => { setSelectedArtifactId(msg.id); setIsArtifactVisible(true); }} className="flex items-center gap-1.5 text-xs">
-                                                                    <BarChart3 className="h-3 w-3" /> View Visualization
-                                                                </BtnGhost>
-                                                                {msg.output_data?.sql && (
-                                                                    <BtnGhost onClick={() => setShowSql(prev => ({ ...prev, [msg.id]: !prev[msg.id] }))} className="flex items-center gap-1.5 text-xs">
-                                                                        <Code2 className="h-3 w-3" /> {showSql[msg.id] ? 'Hide' : 'View'} SQL
-                                                                    </BtnGhost>
-                                                                )}
-                                                                <BtnGhost onClick={() => handleDownloadCSV(msg.output_data, msg.id)} className="flex items-center gap-1.5 text-xs">
-                                                                    <Download className="h-3 w-3" /> CSV
-                                                                </BtnGhost>
-                                                            </div>
-                                                        )}
+                                                        {hasRenderableOutput(msg.output_data) && (() => {
+                                                             const isKpi = msg.output_data?.type === 'kpi' || msg.output_data?.chart?.type === 'kpi';
+                                                             return (
+                                                                 <>
+                                                                     <div className="mt-4 flex flex-wrap items-center gap-2">
+                                                                         {!isKpi && (
+                                                                             <BtnGhost onClick={() => { setSelectedArtifactId(msg.id); setIsArtifactVisible(true); }} className="flex items-center gap-1.5 text-xs">
+                                                                                 <BarChart3 className="h-3 w-3" /> View Visualization
+                                                                             </BtnGhost>
+                                                                         )}
+                                                                         {msg.output_data?.sql && (
+                                                                             <BtnGhost onClick={() => setShowSql(prev => ({ ...prev, [msg.id]: !prev[msg.id] }))} className="flex items-center gap-1.5 text-xs">
+                                                                                 <Code2 className="h-3 w-3" /> {showSql[msg.id] ? 'Hide' : 'View'} SQL
+                                                                             </BtnGhost>
+                                                                         )}
+                                                                         {!isKpi && (
+                                                                             <BtnGhost onClick={() => handleDownloadCSV(msg.output_data, msg.id)} className="flex items-center gap-1.5 text-xs">
+                                                                                 <Download className="h-3 w-3" /> CSV
+                                                                             </BtnGhost>
+                                                                         )}
+                                                                     </div>
+                                                                     {msg.output_data?.sql && showSql[msg.id] && (
+                                                                         <div className="mt-3 rounded-md border border-border bg-surface-2">
+                                                                             <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
+                                                                                 <span className="font-mono text-[10.5px] text-muted-foreground">generated.sql · NL2SQL</span>
+                                                                                 <BtnGhost onClick={() => { navigator.clipboard.writeText(msg.output_data.sql); setCopiedSqlMsgId(msg.id); setTimeout(() => setCopiedSqlMsgId(null), 1500); }}>
+                                                                                     {copiedSqlMsgId === msg.id ? <><Check className="h-3 w-3" />Copied</> : <><Copy className="h-3 w-3" />Copy</>}
+                                                                                 </BtnGhost>
+                                                                             </div>
+                                                                             <pre className="overflow-auto p-3 font-mono text-[11.5px] leading-relaxed text-foreground/90"><code>{msg.output_data.sql}</code></pre>
+                                                                         </div>
+                                                                     )}
+                                                                 </>
+                                                             );
+                                                         })()}
                                                     </div>
                                                 ) : (
                                                     <div className="text-sm leading-relaxed">{msg.content}</div>
                                                 )}
                                             </div>
+                                            {msg.role === 'assistant' && msg.output_data?.followup_suggestions && msg.output_data.followup_suggestions.length > 0 && (
+                                                <div className="mt-4 flex flex-wrap gap-2 animate-fade-in border-t border-border/20 pt-3">
+                                                    {msg.output_data.followup_suggestions.map((suggestion: string, sIdx: number) => (
+                                                        <button
+                                                            key={sIdx}
+                                                            onClick={() => handleSendMessage(suggestion, { enableSuggestions: true })}
+                                                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-[#1EAEDB]/20 bg-[#1EAEDB]/5 hover:bg-[#1EAEDB]/15 hover:border-[#1EAEDB]/45 text-xs font-medium text-[#1EAEDB] transition-all duration-200 cursor-pointer shadow-sm active:scale-[0.98]"
+                                                        >
+                                                            <Globe className="h-3.5 w-3.5" />
+                                                            {suggestion}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -745,14 +846,46 @@ export default function ChatInterface() {
                             {isTyping && (
                                 <div className="flex gap-3">
                                     <div className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md bg-surface-3 border border-border text-foreground">
-                                        <Sparkles className="h-3.5 w-3.5" />
+                                        {thinkProgress ? <BrainCog className="h-3.5 w-3.5 text-primary animate-pulse" /> : <Sparkles className="h-3.5 w-3.5" />}
                                     </div>
-                                    <div className="flex items-center gap-1.5 pt-2">
-                                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-muted-foreground" />
-                                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-muted-foreground [animation-delay:120ms]" />
-                                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-muted-foreground [animation-delay:240ms]" />
-                                        <span className="ml-1 text-[11px] text-muted-foreground">Helix is thinking...</span>
-                                    </div>
+                                    {thinkProgress ? (
+                                        <div className="flex-1 max-w-md bg-surface-2 border border-border/60 rounded-xl p-4 shadow-sm animate-fade-in space-y-3">
+                                            <div className="flex items-center justify-between text-xs font-semibold">
+                                                <span className="flex items-center gap-1.5 text-primary">
+                                                    <BrainCog className="h-4 w-4 animate-spin [animation-duration:3s]" />
+                                                    Deep Analysis
+                                                </span>
+                                                <span className="text-muted-foreground font-mono">
+                                                    {thinkProgress.step}/{thinkProgress.total}
+                                                </span>
+                                            </div>
+                                            
+                                            <div className="h-1.5 w-full bg-surface-3 rounded-full overflow-hidden border border-border/30">
+                                                <div 
+                                                    className="h-full bg-gradient-to-r from-primary to-[#8B5CF6] transition-all duration-500 ease-out rounded-full"
+                                                    style={{ width: `${(thinkProgress.step / thinkProgress.total) * 100}%` }}
+                                                />
+                                            </div>
+
+                                            <div className="text-xs text-foreground/90 font-medium">
+                                                {thinkProgress.detail}
+                                            </div>
+                                            
+                                            {thinkProgress.query_index !== undefined && thinkProgress.query_total !== undefined && (
+                                                <div className="text-[10px] text-muted-foreground font-mono flex items-center justify-between">
+                                                    <span>Query {thinkProgress.query_index} of {thinkProgress.query_total}</span>
+                                                    <span>{Math.round((thinkProgress.query_index / thinkProgress.query_total) * 100)}%</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <div className="flex items-center gap-1.5 pt-2">
+                                            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-muted-foreground" />
+                                            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-muted-foreground [animation-delay:120ms]" />
+                                            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-muted-foreground [animation-delay:240ms]" />
+                                            <span className="ml-1 text-[11px] text-muted-foreground">Helix is thinking...</span>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                             <div ref={messagesEndRef} />
@@ -763,7 +896,7 @@ export default function ChatInterface() {
                 <div className="border-t border-border bg-background p-4">
                     <div className="mx-auto max-w-[680px]">
                         <PromptInputBox 
-                            onSend={(msg) => handleSendMessage(msg)}
+                            onSend={(msg, files, options) => handleSendMessage(msg, options)}
                             placeholder={`Ask anything about ${activeDatasetName || 'your data'}...`}
                             isLoading={isTyping}
                         />

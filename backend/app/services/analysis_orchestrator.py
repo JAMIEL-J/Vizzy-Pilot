@@ -1,6 +1,6 @@
 import pandas as pd
 from uuid import UUID
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Callable, Awaitable
 import datetime
 import re
 
@@ -525,6 +525,8 @@ async def run_analysis_orchestration(
     role,
     query: str,
     context: Optional[List[Dict[str, str]]] = None,
+    force_deep_analysis: bool = False,
+    progress_callback: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
 ) -> Dict[str, Any]:
     """
     Full conversational analytics pipeline with natural language responses.
@@ -546,6 +548,9 @@ async def run_analysis_orchestration(
         Formatted response with message, chart, explanation, and suggestions
     """
 
+    if progress_callback:
+        await progress_callback({"step": 1, "total": 6, "phase": "classifying", "detail": "Analyzing your question..."})
+
     # 1. Load dataset version
     version = session.get(DatasetVersion, dataset_version_id)
     if not version or not version.is_active:
@@ -553,6 +558,9 @@ async def run_analysis_orchestration(
 
     # 2. Load data
     data_path = version.cleaned_reference or version.source_reference
+
+    if progress_callback:
+        await progress_callback({"step": 2, "total": 6, "phase": "loading", "detail": "Loading dataset..."})
 
     try:
         df = pd.read_csv(data_path)
@@ -678,6 +686,9 @@ async def run_analysis_orchestration(
         IntentType.AMBIGUOUS: 'retrieval',
     }
     route = _LEGACY_MAP.get(intent.intent_type) or _NEW_MAP.get(intent.intent_type, 'analysis_chart')
+    if force_deep_analysis:
+        logger.info("Forcing deep analysis - routing to interpretive")
+        route = 'interpretive'
 
     # Guardrail for charted analytical queries that the classifier marks as ambiguous.
     if intent.intent_type == IntentType.AMBIGUOUS:
@@ -721,13 +732,20 @@ async def run_analysis_orchestration(
 
         logger.info("Processing interpretive query — running diagnostic battery")
 
+        if progress_callback:
+            await progress_callback({"step": 3, "total": 6, "phase": "diagnostic", "detail": "Running diagnostic battery..."})
+
         battery_result = await run_diagnostic_battery(
             df=df,
             query=query,
             target_col=contract.target_column if hasattr(contract, 'target_column') else None,
             metric_col=intent.metric,
             execution_mode="sql",
+            progress_callback=progress_callback,
         )
+
+        if progress_callback:
+            await progress_callback({"step": 5, "total": 6, "phase": "synthesizing", "detail": "Synthesizing insights..."})
 
         diagnostics = battery_result.get("diagnostics", [])
 

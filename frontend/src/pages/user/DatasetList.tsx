@@ -2,18 +2,16 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
     AlertCircle,
-    ArrowUpDown,
     CheckCircle2,
     Clock,
     Database,
     FileSpreadsheet,
-    Filter,
-    MoreHorizontal,
     Plus,
     Search,
     Upload,
     ChevronLeft,
     ChevronRight,
+    Trash2,
 } from "lucide-react";
 import { datasetService, type Dataset, type DuckDBStatus } from "../../lib/api/dataset";
 import { PageHeader } from "@/components/layout/TopNav";
@@ -213,8 +211,6 @@ export default function DatasetList() {
                                     className="flex-1 bg-transparent text-[12px] outline-none placeholder:text-muted-foreground/60"
                                 />
                             </div>
-                            <BtnGhost><Filter className="h-3 w-3" />Filter</BtnGhost>
-                            <BtnGhost><ArrowUpDown className="h-3 w-3" />Updated</BtnGhost>
                         </div>
                         <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
                             <span className="num">{filteredDatasets.length} of {datasets.length}</span>
@@ -291,7 +287,6 @@ export default function DatasetList() {
                                                     </div>
                                                     <div>
                                                         <div className="font-medium text-foreground">{d.name}</div>
-                                                        <div className="text-[10.5px] text-muted-foreground">workspace.vizzy</div>
                                                     </div>
                                                 </div>
                                             </td>
@@ -312,7 +307,10 @@ export default function DatasetList() {
                                                 </div>
                                             </td>
                                             <td className="px-2 py-3">
-                                                <BtnGhost onClick={() => handleDelete(d.id)}><MoreHorizontal className="h-3 w-3" /></BtnGhost>
+                                                <BtnGhost onClick={() => handleDelete(d.id)} className="text-destructive hover:bg-destructive/10 hover:text-destructive gap-1">
+                                                    <Trash2 className="h-3.5 w-3.5" />
+                                                    <span>Delete</span>
+                                                </BtnGhost>
                                             </td>
                                         </tr>
                                     ))

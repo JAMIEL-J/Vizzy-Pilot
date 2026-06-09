@@ -1,16 +1,16 @@
 import { useState } from "react";
-import { AlertCircle, CheckCircle2, ChevronRight, Database, Loader2, Lock, Server } from "lucide-react";
+import { AlertCircle, CheckCircle2, ChevronRight, Database, Loader2, Server } from "lucide-react";
 import { externalDbService, type DatabaseConnectionConfig } from "../../lib/api/external-db";
 import { PageHeader } from "@/components/layout/TopNav";
 import { Panel, PanelHeader, Pill, BtnSecondary, BtnPrimary } from "@/components/ui/primitive";
 
 const providers = [
     { id: "postgresql", name: "PostgreSQL", desc: "OLTP relational database", active: true },
-    { id: "snowflake", name: "Snowflake", desc: "Cloud data warehouse" },
-    { id: "bigquery", name: "BigQuery", desc: "Google managed warehouse" },
-    { id: "redshift", name: "Redshift", desc: "AWS warehouse" },
-    { id: "mysql", name: "MySQL", desc: "OLTP relational database" },
-    { id: "mongodb", name: "MongoDB", desc: "Document database" },
+    { id: "snowflake", name: "Snowflake", desc: "Cloud data warehouse", active: false },
+    { id: "bigquery", name: "BigQuery", desc: "Google managed warehouse", active: false },
+    { id: "redshift", name: "Redshift", desc: "AWS warehouse", active: false },
+    { id: "mysql", name: "MySQL", desc: "OLTP relational database", active: true },
+    { id: "mongodb", name: "MongoDB", desc: "Document database", active: false },
 ];
 
 export default function ConnectDatabase() {
@@ -25,7 +25,7 @@ export default function ConnectDatabase() {
     });
 
     const [isTesting, setIsTesting] = useState(false);
-    const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+    const [testResult, setTestResult] = useState<{ success: boolean; message: string; tableCount?: number } | null>(null);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
@@ -33,7 +33,11 @@ export default function ConnectDatabase() {
     };
 
     const handleProviderSelect = (type: DatabaseConnectionConfig["type"]) => {
-        setConfig(prev => ({ ...prev, type }));
+        setConfig(prev => ({ 
+            ...prev, 
+            type,
+            port: type === "mysql" ? 3306 : 5432
+        }));
     };
 
     const handleTestConnection = async () => {
@@ -41,7 +45,18 @@ export default function ConnectDatabase() {
         setTestResult(null);
         try {
             await externalDbService.testConnection(config);
-            setTestResult({ success: true, message: "Successfully established a handshake with the database." });
+            let tableCount = 0;
+            try {
+                const tables = await externalDbService.listTables(config);
+                tableCount = tables.length;
+            } catch (tableErr) {
+                console.error("Failed to list tables:", tableErr);
+            }
+            setTestResult({ 
+                success: true, 
+                message: "Successfully established a handshake with the database.",
+                tableCount
+            });
         } catch (error: any) {
             console.error("Connection failed:", error);
             const errMsg = error?.response?.data?.message || error.message || "Connection failed. Please check your credentials.";
@@ -56,29 +71,44 @@ export default function ConnectDatabase() {
             <PageHeader
                 breadcrumb={["Datasets", "Connect source"]}
                 title="Connect a database"
-                description="Stream tables into Vizzy · credentials encrypted at rest with AES-256"
+                description="Stream tables into Vizzy"
             />
             <div className="grid grid-cols-12 gap-4 px-5 py-4">
                 {/* providers */}
                 <Panel className="col-span-12 lg:col-span-4">
                     <PanelHeader title="Source" subtitle="Choose a provider" />
                     <div className="divide-y divide-border">
-                        {providers.map(p => (
-                            <button
-                                key={p.id}
-                                onClick={() => handleProviderSelect(p.id as DatabaseConnectionConfig["type"])}
-                                className={`flex w-full items-center gap-3 px-4 py-3 text-left transition ${config.type === p.id ? "bg-surface-2" : "hover:bg-surface-2/50"}`}
-                            >
-                                <div className="grid h-8 w-8 place-items-center rounded-md bg-surface-3">
-                                    <Database className="h-3.5 w-3.5 text-muted-foreground" />
-                                </div>
-                                <div className="flex-1">
-                                    <div className="text-[12.5px] font-medium">{p.name}</div>
-                                    <div className="text-[10.5px] text-muted-foreground">{p.desc}</div>
-                                </div>
-                                {config.type === p.id && <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
-                            </button>
-                        ))}
+                        {providers.map(p => {
+                            const isActive = p.active;
+                            return (
+                                <button
+                                    key={p.id}
+                                    disabled={!isActive}
+                                    onClick={() => handleProviderSelect(p.id as DatabaseConnectionConfig["type"])}
+                                    className={`flex w-full items-center gap-3 px-4 py-3 text-left transition ${
+                                        !isActive 
+                                            ? "opacity-50 cursor-not-allowed" 
+                                            : config.type === p.id 
+                                                ? "bg-surface-2" 
+                                                : "hover:bg-surface-2/50"
+                                    }`}
+                                >
+                                    <div className="grid h-8 w-8 place-items-center rounded-md bg-surface-3">
+                                        <Database className="h-3.5 w-3.5 text-muted-foreground" />
+                                    </div>
+                                    <div className="flex-1">
+                                        <div className="flex items-center gap-1.5">
+                                            <span className="text-[12.5px] font-medium text-foreground">{p.name}</span>
+                                            {!isActive && (
+                                                <span className="rounded bg-surface-3 px-1.5 py-0.5 text-[8.5px] font-semibold text-muted-foreground tracking-wider uppercase">Coming soon</span>
+                                            )}
+                                        </div>
+                                        <div className="text-[10.5px] text-muted-foreground">{p.desc}</div>
+                                    </div>
+                                    {isActive && config.type === p.id && <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
+                                </button>
+                            );
+                        })}
                     </div>
                 </Panel>
 
@@ -89,7 +119,6 @@ export default function ConnectDatabase() {
                             title={`${providers.find(p => p.id === config.type)?.name || "Database"} connection`}
                             subtitle="Vizzy will create a read-only role automatically"
                             icon={<Server className="h-3.5 w-3.5" />}
-                            actions={<Pill tone="info"><Lock className="h-2.5 w-2.5" />SSL required</Pill>}
                         />
                         
                         {/* Claude-style error display */}
@@ -120,7 +149,7 @@ export default function ConnectDatabase() {
                                     <div className="flex items-center gap-2 text-[12px]">
                                         <CheckCircle2 className="h-3.5 w-3.5 text-success" />
                                         <span className="font-medium text-success">Connection successful</span>
-                                        <span className="text-muted-foreground">· 42 tables discovered · roundtrip 38ms</span>
+                                        <span className="text-muted-foreground">· {testResult.tableCount ?? 0} tables discovered</span>
                                     </div>
                                 )}
                                 {isTesting && (
@@ -133,26 +162,13 @@ export default function ConnectDatabase() {
                                 <BtnSecondary onClick={handleTestConnection} disabled={isTesting}>
                                     Test connection
                                 </BtnSecondary>
-                                <BtnPrimary>Save & sync</BtnPrimary>
+                                <BtnPrimary disabled title="Coming soon" className="opacity-50 cursor-not-allowed">
+                                    Save & sync
+                                </BtnPrimary>
                             </div>
                         </div>
                     </Panel>
 
-                    <Panel>
-                        <PanelHeader title="Network & security" subtitle="Optional advanced configuration" />
-                        <div className="grid grid-cols-3 gap-px bg-border">
-                            {[
-                                { label: "SSH tunnel", v: "Not configured" },
-                                { label: "IP allowlist", v: "34.120.0.0/16" },
-                                { label: "Sync cadence", v: "Every 15 min" },
-                            ].map(x => (
-                                <div key={x.label} className="bg-surface p-4">
-                                    <div className="text-[10.5px] uppercase tracking-wider text-muted-foreground">{x.label}</div>
-                                    <div className="mt-1 text-[12.5px] font-medium">{x.v}</div>
-                                </div>
-                            ))}
-                        </div>
-                    </Panel>
                 </div>
             </div>
         </div>

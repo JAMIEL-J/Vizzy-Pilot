@@ -6,7 +6,7 @@ Responsibility: Auto-generate and run multiple diagnostic queries for "why" ques
 When intent_type == INTERPRETIVE, this module produces multi-axis analysis.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Callable, Awaitable
 import pandas as pd
 import re
 
@@ -376,6 +376,7 @@ async def _execute_diagnostic_sql(
 async def _execute_diagnostic_batch_sql(
     df: pd.DataFrame,
     diag_queries: List[Dict[str, Any]],
+    progress_callback: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
 ) -> List[Dict[str, Any]]:
     """Execute a full diagnostic batch in SQL mode using a transient DuckDB engine."""
     from app.services.analytics.db_engine import DBEngine
@@ -384,7 +385,17 @@ async def _execute_diagnostic_batch_sql(
     try:
         await engine.load_dataframe("data", df)
         out: List[Dict[str, Any]] = []
-        for q in diag_queries:
+        total = len(diag_queries)
+        for idx, q in enumerate(diag_queries):
+            if progress_callback:
+                await progress_callback({
+                    "step": 3,
+                    "total": 6,
+                    "phase": "diagnostic",
+                    "detail": f"Running diagnostic: {q.get('title', 'Query')}",
+                    "query_index": idx + 1,
+                    "query_total": total
+                })
             out.append(await _execute_diagnostic_sql(engine, q))
         return out
     finally:
@@ -398,6 +409,7 @@ async def run_diagnostic_battery(
     target_col: Optional[str] = None,
     metric_col: Optional[str] = None,
     execution_mode: str = "sql",
+    progress_callback: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
 ) -> Dict[str, Any]:
     """
     Run a full diagnostic battery for an interpretive question.
@@ -501,7 +513,7 @@ async def run_diagnostic_battery(
     # Build and execute diagnostics
     diag_queries = _build_diagnostic_queries(df, target_col, metric_col, dimensions)
     if execution_mode == "sql":
-        results = await _execute_diagnostic_batch_sql(df, diag_queries)
+        results = await _execute_diagnostic_batch_sql(df, diag_queries, progress_callback=progress_callback)
         successful_sql = [r for r in results if "error" not in r]
         if not successful_sql:
             logger.warning("SQL diagnostic batch returned no successful results; falling back to pandas diagnostics")

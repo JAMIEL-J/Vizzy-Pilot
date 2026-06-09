@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 from app.api.deps import DBSession, AuthenticatedUser, RateLimitedUser
 from app.services import chat_service
+from sqlmodel import select
+from app.models.analysis_contract import AnalysisContract
 from app.services.analysis_orchestrator import run_analysis_orchestration
 from app.core.exceptions import ResourceNotFound, AuthorizationError, InvalidOperation
 from app.services.llm.intent_classifier import classify_intent_fast, FAST_INTENT_LABELS
@@ -66,6 +68,61 @@ def _build_simple_chat_response(query: str, has_dataset: bool) -> str:
     return (
         "Hello! I can help with your data. Please attach a dataset and I’ll answer questions about "
         "total sales, counts, trends, or comparisons."
+    )
+
+
+def _is_percentage_kpi(kpi_label: str, chart_spec: dict) -> bool:
+    """Detect whether KPI should be rendered as a percentage."""
+    column_metadata = chart_spec.get("column_metadata", {}) if isinstance(chart_spec, dict) else {}
+    for meta in column_metadata.values():
+        if isinstance(meta, dict) and isinstance(meta.get("display_format"), dict):
+            if meta["display_format"].get("type") in ("percentage", "percent"):
+                return True
+
+    label = (kpi_label or "").lower()
+    # Exclude pay rates — 'daily rate', 'hourly rate' etc. are currency, not percent
+    if label.startswith("usd") or (any(p in label for p in ["daily", "hourly", "monthly", "annual"]) and "rate" in label):
+        return False
+
+    percentage_keywords = [
+        "percent", "percentage", "pct", "%", "ratio", "margin", "churn"
+    ]
+    return any(kw in label for kw in percentage_keywords) or (
+        "rate" in label and not any(p in label for p in ["daily", "hourly", "monthly", "annual"])
+    )
+
+
+def _format_percentage_value(value: Any) -> str:
+    """Format numeric values as percentage (e.g. 26.74%). Handles decimal ratios and raw percentages."""
+    if not isinstance(value, (int, float)):
+        return str(value)
+    
+    val_float = float(value)
+    # Detect if the value is a decimal ratio (e.g. between -1.0 and 1.0, non-zero)
+    if 0.0 < abs(val_float) <= 1.0:
+        val_float *= 100.0
+        
+    formatted = f"{val_float:,.2f}".rstrip("0").rstrip(".")
+    return f"{formatted}%"
+
+
+def _looks_percentage_metric_name(metric_name: str, column_metadata: Optional[dict] = None) -> bool:
+    """Detect if metric name represents a percentage."""
+    metadata = column_metadata or {}
+    meta = metadata.get(metric_name, {}) if isinstance(metadata, dict) else {}
+    display_format = meta.get("display_format", {}) if isinstance(meta, dict) else {}
+    if isinstance(display_format, dict) and display_format.get("type") in ("percentage", "percent"):
+        return True
+
+    label = (metric_name or "").lower()
+    if label.startswith("usd") or (any(p in label for p in ["daily", "hourly", "monthly", "annual"]) and "rate" in label):
+        return False
+
+    percentage_keywords = [
+        "percent", "percentage", "pct", "%", "ratio", "margin", "churn"
+    ]
+    return any(kw in label for kw in percentage_keywords) or (
+        "rate" in label and not any(p in label for p in ["daily", "hourly", "monthly", "annual"])
     )
 
 
@@ -190,11 +247,14 @@ def _build_numbered_metric_summary(
 
     lines: List[str] = []
     for metric, value in numeric_metrics:
-        is_currency = _looks_currency_metric_name(metric)
-        symbol = _metric_currency_symbol(metric, column_metadata)
-        formatted = _format_compact_value(value, is_currency=is_currency, currency_symbol=symbol)
+        if _looks_percentage_metric_name(metric, column_metadata):
+            formatted = _format_percentage_value(value)
+        else:
+            is_currency = _looks_currency_metric_name(metric)
+            symbol = _metric_currency_symbol(metric, column_metadata)
+            formatted = _format_compact_value(value, is_currency=is_currency, currency_symbol=symbol)
         label = metric.replace("_", " ").title()
-        lines.append(f"- **{label}:** {formatted}")
+        lines.append(f"**{label}:** {formatted}")
 
     return "\n".join(lines)
 
@@ -518,6 +578,8 @@ class UpdateSessionRequest(BaseModel):
 class SendMessageRequest(BaseModel):
     """Request to send a message in a chat session."""
     content: str = Field(..., min_length=1, max_length=5000)
+    force_deep_analysis: bool = Field(default=False)
+    enable_suggestions: bool = Field(default=False)
 
 
 class MessageResponse(BaseModel):
@@ -765,8 +827,30 @@ async def send_message(
 
         has_dataset_attached = bool(chat_session.dataset_version_id)
 
+        # Pre-process query if it is a clarification sentence
+        query_text = request.content
+        m = re.match(
+            r'^For my query "(.*)", I meant column "(.*)" instead of "(.*)"$',
+            query_text,
+            flags=re.IGNORECASE
+        )
+        if m:
+            original_query = m.group(1)
+            chosen_column = m.group(2)
+            term = m.group(3)
+            # Reconstruct the query by replacing the term with chosen_column
+            clean_term = re.escape(term)
+            query_text = re.sub(
+                r'\b' + clean_term + r'\b',
+                chosen_column,
+                original_query,
+                flags=re.IGNORECASE
+            )
+            if query_text == original_query:
+                query_text = original_query.replace(term, chosen_column)
+
         # Deterministic replay with pre-check: only hit DB when replay is likely.
-        normalized_query = _normalize_query_text(request.content)
+        normalized_query = _normalize_query_text(query_text)
         cached_content, cached_output, cached_intent = (None, None, None)
         if has_dataset_attached and _should_attempt_replay_lookup(chat_session.id, chat_session.message_count, normalized_query):
             session_messages = chat_service.get_session_messages(
@@ -776,7 +860,7 @@ async def send_message(
                 limit=50,
             )
             _index_queries_from_messages(chat_session.id, session_messages)
-            cached_content, cached_output, cached_intent = _find_prior_exact_answer(session_messages, request.content)
+            cached_content, cached_output, cached_intent = _find_prior_exact_answer(session_messages, query_text)
 
         # Add user message
         user_msg = chat_service.add_user_message(
@@ -785,7 +869,7 @@ async def send_message(
             user_id=UUID(current_user.user_id),
             content=request.content,
         )
-        _remember_query(chat_session.id, request.content)
+        _remember_query(chat_session.id, query_text)
 
         # Auto-generate title from first message
         if chat_session.message_count == 1:
@@ -795,8 +879,8 @@ async def send_message(
                 first_message=request.content,
             )
 
-        is_interpretive_query = _looks_interpretive_query(request.content)
-        is_schema_columns_query = _is_schema_columns_query(request.content) and not _explicitly_requests_visual(request.content)
+        is_interpretive_query = _looks_interpretive_query(query_text)
+        is_schema_columns_query = _is_schema_columns_query(query_text) and not _explicitly_requests_visual(query_text)
 
         if cached_content:
             if is_interpretive_query:
@@ -852,9 +936,9 @@ async def send_message(
         # Run analysis if dataset is attached
         if has_dataset_attached:
             # ── Intent Detection (6-type heuristic) ──
-            detected_intent, intent_confidence, intent_label = classify_intent_fast(request.content)
+            detected_intent, intent_confidence, intent_label = classify_intent_fast(query_text)
             is_dashboard = detected_intent == 'dashboard'
-            interpretive_text_mode = _looks_interpretive_query(request.content) and not _explicitly_requests_visual(request.content)
+            interpretive_text_mode = (_looks_interpretive_query(query_text) and not _explicitly_requests_visual(query_text)) or request.force_deep_analysis
 
             if is_schema_columns_query:
                 from app.models.dataset_version import DatasetVersion
@@ -876,7 +960,7 @@ async def send_message(
                     dataset_version_id=chat_session.dataset_version_id,
                     user_id=UUID(current_user.user_id),
                     role=current_user.role,
-                    query=request.content,
+                    query=query_text,
                 )
 
                 assistant_content, intent_type, output_data = _normalize_orchestrator_response(result, default_intent="dashboard")
@@ -884,7 +968,7 @@ async def send_message(
                     output_data["detected_intent"] = intent_label
 
                 # If user explicitly requested a visual, keep chat in chart-renderable mode.
-                if _explicitly_requests_visual(request.content) and intent_type in {"text_query", "retrieval"}:
+                if _explicitly_requests_visual(query_text) and intent_type in {"text_query", "retrieval"}:
                     intent_type = "analysis"
 
             elif interpretive_text_mode:
@@ -896,7 +980,8 @@ async def send_message(
                     dataset_version_id=chat_session.dataset_version_id,
                     user_id=UUID(current_user.user_id),
                     role=current_user.role,
-                    query=request.content,
+                    query=query_text,
+                    force_deep_analysis=request.force_deep_analysis,
                 )
 
                 assistant_content, intent_type, orch_output = _normalize_orchestrator_response(result, default_intent="interpretive")
@@ -978,7 +1063,7 @@ async def send_message(
                             if history:
                                 context_prefix = f"[Conversation Context]:\n{history}\n\n"
 
-                        normalized_query = _normalize_nl2sql_query(request.content)
+                        normalized_query = _normalize_nl2sql_query(query_text)
                         contextual_query = f"{context_prefix}[Current Question]: {normalized_query}"
 
                         # Execute via self-healing NL2SQL engine
@@ -1008,12 +1093,18 @@ async def send_message(
                     explanation = chart_output.get("explanation", {})
                     followups = chart_output.get("followup_suggestions", [])
 
+                    # Use resolved/upgraded chart type from the chart spec
+                    chart_type = chart_spec.get("type", chart_type)
+
                     if chart_type == "kpi":
                         kpi_value = chart_spec.get("data", {}).get("value", "")
                         kpi_label = chart_spec.get("data", {}).get("label", "Result")
-                        is_currency_kpi = _is_currency_kpi(kpi_label, chart_spec)
-                        currency_symbol = _kpi_currency_symbol(chart_spec)
-                        formatted_val = _format_compact_value(kpi_value, is_currency=is_currency_kpi, currency_symbol=currency_symbol)
+                        if _is_percentage_kpi(kpi_label, chart_spec):
+                            formatted_val = _format_percentage_value(kpi_value)
+                        else:
+                            is_currency_kpi = _is_currency_kpi(kpi_label, chart_spec)
+                            currency_symbol = _kpi_currency_symbol(chart_spec)
+                            formatted_val = _format_compact_value(kpi_value, is_currency=is_currency_kpi, currency_symbol=currency_symbol)
                         numbered_summary = _build_numbered_metric_summary(
                             nl2sql_result.get("data", []),
                             nl2sql_result.get("columns", []),
@@ -1069,7 +1160,7 @@ async def send_message(
                             "term": term,
                             "candidates": candidates,
                             "question": question,
-                            "original_query": request.content,
+                            "original_query": query_text,
                         },
                         "timing": nl2sql_result.get("timing", {}),
                         "detected_intent": intent_label,
@@ -1087,12 +1178,12 @@ async def send_message(
                         dataset_version_id=chat_session.dataset_version_id,
                         user_id=UUID(current_user.user_id),
                         role=current_user.role,
-                        query=request.content,
+                        query=query_text,
                     )
 
                     assistant_content, intent_type, output_data = _normalize_orchestrator_response(result)
 
-                    if _explicitly_requests_visual(request.content) and intent_type in {"text_query", "retrieval"}:
+                    if _explicitly_requests_visual(query_text) and intent_type in {"text_query", "retrieval"}:
                         intent_type = "analysis"
 
                     # Attach diagnostics for the frontend to optionally display
@@ -1104,12 +1195,45 @@ async def send_message(
 
         else:
             # No dataset - do not replay or generate analytics values.
-            if _is_simple_chat_query(request.content):
-                assistant_content = _build_simple_chat_response(request.content, has_dataset=False)
+            if _is_simple_chat_query(query_text):
+                assistant_content = _build_simple_chat_response(query_text, has_dataset=False)
             else:
                 assistant_content = "Please select and attach a dataset to this conversation before running analytics queries."
             output_data = None
             intent_type = None
+
+        # Component 3: Search mode / context-aware suggestions
+        if request.enable_suggestions and has_dataset_attached:
+            try:
+                contract = session.exec(
+                    select(AnalysisContract).where(
+                        AnalysisContract.dataset_version_id == chat_session.dataset_version_id,
+                        AnalysisContract.is_active == True,
+                    )
+                ).first()
+                schema_dict = {}
+                if contract:
+                    schema_dict = {
+                        "allowed_metrics": contract.allowed_metrics,
+                        "allowed_dimensions": contract.allowed_dimensions,
+                        "target_column": getattr(contract, 'target_column', None)
+                    }
+                recent_messages = chat_service.get_recent_context(
+                    session=session,
+                    session_id=session_id,
+                    max_messages=5,
+                )
+                from app.services.llm.suggestion_generator import generate_contextual_suggestions
+                suggestions = await generate_contextual_suggestions(
+                    schema=schema_dict,
+                    conversation_history=recent_messages,
+                    latest_result=output_data,
+                )
+                if not isinstance(output_data, dict):
+                    output_data = {}
+                output_data["followup_suggestions"] = suggestions
+            except Exception as sug_err:
+                logger.error(f"Failed to generate contextual suggestions in send_message: {sug_err}")
 
         # Add assistant message
         assistant_msg = chat_service.add_assistant_message(
@@ -1131,5 +1255,243 @@ async def send_message(
         raise HTTPException(status_code=403, detail=e.message)
     except InvalidOperation as e:
         raise HTTPException(status_code=400, detail=e.message)
+
+
+@router.post(
+    "/sessions/{session_id}/messages/stream",
+    summary="Send a message and stream progress events",
+)
+async def send_message_stream(
+    session_id: UUID,
+    request: SendMessageRequest,
+    session: DBSession,
+    current_user: RateLimitedUser,
+):
+    """
+    SSE stream message response. Works concurrently to push steps and diagnostics 
+    while computing.
+    """
+    from fastapi.responses import StreamingResponse
+    import json
+    import asyncio
+
+    try:
+        chat_session = chat_service.get_chat_session(
+            session=session,
+            session_id=session_id,
+            user_id=UUID(current_user.user_id),
+        )
+    except ResourceNotFound as e:
+        raise HTTPException(status_code=404, detail=e.message)
+    except AuthorizationError as e:
+        raise HTTPException(status_code=403, detail=e.message)
+
+    async def event_generator():
+        queue = asyncio.Queue()
+
+        async def progress_callback(progress_data: dict):
+            await queue.put(("progress", progress_data))
+
+        task = None
+        try:
+            async def run_pipeline():
+                try:
+                    # 1. Add user message
+                    user_msg = chat_service.add_user_message(
+                        session=session,
+                        session_id=session_id,
+                        user_id=UUID(current_user.user_id),
+                        content=request.content,
+                    )
+                    
+                    if chat_session.message_count == 1:
+                        chat_service.auto_generate_title(
+                            session=session,
+                            session_id=session_id,
+                            first_message=request.content,
+                        )
+
+                    # 2. Run analysis orchestration
+                    has_dataset_attached = bool(chat_session.dataset_version_id)
+                    assistant_content = ""
+                    intent_type = None
+                    output_data = None
+
+                    if has_dataset_attached:
+                        result = await run_analysis_orchestration(
+                            session=session,
+                            dataset_version_id=chat_session.dataset_version_id,
+                            user_id=UUID(current_user.user_id),
+                            role=current_user.role,
+                            query=request.content,
+                            force_deep_analysis=request.force_deep_analysis,
+                            progress_callback=progress_callback,
+                        )
+
+                        if result.get("refused"):
+                            assistant_content = result["message"]
+                            output_data = {
+                                "refused": True,
+                                "followup_suggestions": result.get("suggestions", [])
+                            }
+                            intent_type = "error"
+                        else:
+                            default_intent = "interpretive" if request.force_deep_analysis else "analysis"
+                            assistant_content, intent_type, orch_output = _normalize_orchestrator_response(result, default_intent=default_intent)
+                            
+                            if request.force_deep_analysis:
+                                assistant_content = _ensure_point_style(assistant_content, min_points=6, max_points=8)
+                                output_data = {
+                                    "type": "interpretive_text",
+                                    "response_type": "text",
+                                    "detected_intent": "interpretive",
+                                    "source": "orchestrator_interpretive",
+                                }
+                                if isinstance(orch_output, dict):
+                                    for k in ["diagnostics_count", "grounding_mode", "evidence_quality", "insufficient_evidence"]:
+                                        if k in orch_output:
+                                            output_data[k] = orch_output[k]
+                                    diagnostic_sql_queries = _extract_diagnostic_sql_queries(orch_output)
+                                    if diagnostic_sql_queries:
+                                        output_data["diagnostic_sql_queries"] = diagnostic_sql_queries
+                            else:
+                                output_data = orch_output
+
+                            if result.get("staleness_warning") and isinstance(output_data, dict):
+                                output_data["staleness_warning"] = result.get("staleness_warning")
+                    else:
+                        if _is_simple_chat_query(request.content):
+                            assistant_content = _build_simple_chat_response(request.content, has_dataset=False)
+                        else:
+                            assistant_content = "Please select and attach a dataset to this conversation before running analytics queries."
+                        output_data = None
+                        intent_type = None
+
+                    # Suggestions for Search mode
+                    if request.enable_suggestions and has_dataset_attached:
+                        try:
+                            contract = session.exec(
+                                select(AnalysisContract).where(
+                                    AnalysisContract.dataset_version_id == chat_session.dataset_version_id,
+                                    AnalysisContract.is_active == True,
+                                )
+                            ).first()
+                            
+                            schema_dict = {}
+                            if contract:
+                                schema_dict = {
+                                    "allowed_metrics": contract.allowed_metrics,
+                                    "allowed_dimensions": contract.allowed_dimensions,
+                                    "target_column": getattr(contract, 'target_column', None)
+                                }
+                            
+                            recent_messages = chat_service.get_recent_context(
+                                session=session,
+                                session_id=session_id,
+                                max_messages=5,
+                            )
+                            from app.services.llm.suggestion_generator import generate_contextual_suggestions
+                            suggestions = await generate_contextual_suggestions(
+                                schema=schema_dict,
+                                conversation_history=recent_messages,
+                                latest_result=output_data,
+                            )
+                            if not isinstance(output_data, dict):
+                                output_data = {}
+                            output_data["followup_suggestions"] = suggestions
+                        except Exception as sug_err:
+                            logger.error(f"Failed to generate contextual suggestions in stream: {sug_err}")
+
+                    # 3. Add assistant message
+                    assistant_msg = chat_service.add_assistant_message(
+                        session=session,
+                        session_id=session_id,
+                        content=assistant_content,
+                        output_data=output_data,
+                        intent_type=intent_type,
+                    )
+
+                    complete_payload = {
+                        "user_message": MessageResponse.model_validate(user_msg).model_dump(mode="json"),
+                        "assistant_message": MessageResponse.model_validate(assistant_msg).model_dump(mode="json"),
+                    }
+                    await queue.put(("complete", complete_payload))
+                except Exception as task_err:
+                    logger.error(f"Error in stream task execution: {task_err}")
+                    await queue.put(("error", str(task_err)))
+
+            task = asyncio.create_task(run_pipeline())
+
+            while True:
+                event_type, payload = await queue.get()
+                if event_type == "error":
+                    yield f"event: error\ndata: {json.dumps({'detail': payload})}\n\n"
+                    break
+                elif event_type == "progress":
+                    yield f"event: progress\ndata: {json.dumps(payload)}\n\n"
+                elif event_type == "complete":
+                    yield f"event: complete\ndata: {json.dumps(payload)}\n\n"
+                    break
+                queue.task_done()
+        except asyncio.CancelledError:
+            logger.info("Streaming connection cancelled by client")
+            if task:
+                task.cancel()
+        except Exception as e:
+            logger.error(f"Unexpected streaming route error: {e}")
+            yield f"event: error\ndata: {json.dumps({'detail': str(e)})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@router.get(
+    "/sessions/{session_id}/suggestions",
+    summary="Get initial dataset-aware suggestions for a session",
+)
+async def get_initial_suggestions(
+    session_id: UUID,
+    session: DBSession,
+    current_user: RateLimitedUser,
+):
+    """
+    lightweight initial suggestions generator
+    """
+    try:
+        chat_session = chat_service.get_chat_session(
+            session=session,
+            session_id=session_id,
+            user_id=UUID(current_user.user_id),
+        )
+        
+        has_dataset_attached = bool(chat_session.dataset_version_id)
+        if not has_dataset_attached:
+            return {"suggestions": ["What is total revenue?", "Compare metrics by category"]}
+            
+        contract = session.exec(
+            select(AnalysisContract).where(
+                AnalysisContract.dataset_version_id == chat_session.dataset_version_id,
+                AnalysisContract.is_active == True,
+            )
+        ).first()
+        
+        schema_dict = {}
+        if contract:
+            schema_dict = {
+                "allowed_metrics": contract.allowed_metrics,
+                "allowed_dimensions": contract.allowed_dimensions,
+                "target_column": getattr(contract, 'target_column', None)
+            }
+        
+        from app.services.llm.suggestion_generator import generate_contextual_suggestions
+        suggestions = await generate_contextual_suggestions(
+            schema=schema_dict,
+            conversation_history=[],
+            latest_result=None,
+        )
+        return {"suggestions": suggestions}
+    except ResourceNotFound as e:
+        raise HTTPException(status_code=404, detail=e.message)
+    except AuthorizationError as e:
+        raise HTTPException(status_code=403, detail=e.message)
 
 

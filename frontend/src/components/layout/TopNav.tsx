@@ -1,15 +1,14 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
-  Bell,
   Sparkles,
-  Settings,
   ChevronDown,
   LogOut,
   Layers,
   Save,
   Loader2,
   User,
+  Settings,
 } from "lucide-react";
 import ThemeToggle from "../ui/ThemeToggle";
 import { useAuthStore } from "@/lib/store/authStore";
@@ -128,22 +127,13 @@ export function TopNav() {
             <Layers className="h-3.5 w-3.5" strokeWidth={2.5} />
           </div>
           <span className="text-[13px] font-semibold tracking-tight">Helix</span>
-          <span className="rounded-md border border-border bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-            Enterprise
-          </span>
         </Link>
 
         <div className="mx-2 h-4 w-px bg-border" />
 
         <div className="ml-auto flex items-center gap-1.5">
-          <IconButton ariaLabel="AI Assistant">
+          <IconButton ariaLabel="AI Assistant" onClick={() => navigate("/user/chat")}>
             <Sparkles className="h-3.5 w-3.5" />
-          </IconButton>
-          <IconButton ariaLabel="Notifications" badge>
-            <Bell className="h-3.5 w-3.5" />
-          </IconButton>
-          <IconButton ariaLabel="Settings">
-            <Settings className="h-3.5 w-3.5" />
           </IconButton>
           <IconButton ariaLabel="Log out" onClick={handleLogout}>
             <LogOut className="h-3.5 w-3.5" />
@@ -313,14 +303,6 @@ export function TopNav() {
             </Link>
           );
         })}
-        <div className="ml-auto flex items-center gap-2 text-[11px] text-muted-foreground">
-          <span className="flex items-center gap-1.5">
-            <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
-            All systems operational
-          </span>
-          <span className="text-border">.</span>
-          <span>v4.12.0</span>
-        </div>
       </div>
     </header>
   );

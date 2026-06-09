@@ -54,12 +54,6 @@ export default function SettingsDropdown() {
                             {theme === 'dark' ? '☀️' : '🌙'}
                         </span>
                     </Button>
-
-                    <div className="border-t border-gray-100 dark:border-gray-800">
-                        <Button type="button" variant="ghost" className="w-full text-left px-4 py-2.5 text-xs text-[#5a5c5c] dark:text-[#a3a8b3] hover:text-[#2d2f2f] dark:hover:text-[#eceff4] transition-colors">
-                            System Preferences
-                        </Button>
-                    </div>
                 </div>
             )}
         </div>
