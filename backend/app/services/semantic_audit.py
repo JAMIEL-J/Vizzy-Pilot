@@ -51,8 +51,40 @@ ROLE_TAXONOMY: Dict[str, Dict[str, Any]] = {
     "foreign_key": {"affinity": "identifier", "execution_slot": None},
     "name_label": {"affinity": "label", "execution_slot": None},
 
+    "profit": {"affinity": "measure_y", "execution_slot": "duckdb"},
+    "target": {"affinity": "filter_only", "execution_slot": "duckdb"},
+    "tenure": {"affinity": "measure_y", "execution_slot": "duckdb"},
+
     # Fallback
     "unclassified": {"affinity": "none", "execution_slot": None},
+}
+
+
+# LLM-friendly descriptions derived from ROLE_TAXONOMY — used by SemanticMapper prompt
+ROLE_VOCABULARY_FOR_LLM: Dict[str, str] = {
+    "date": "Date, timestamp, or temporal period (transaction date, event date)",
+    "datetime": "Date + time combined values (created_at, login_time)",
+    "year_month": "Monthly period or year-month strings (2024-01, Jan 2024)",
+    "fiscal_period": "Fiscal quarter/period labels (Q1 2024, FY23)",
+    "category": "Dimension for grouping — product line, segment, department",
+    "sub_category": "More granular category level (product sub-type)",
+    "geography": "Geographic dimension — country, state, city, territory, region, market",
+    "entity_id": "Entity identifier used for filtering (customer ID, order ID)",
+    "boolean_flag": "True/False, Yes/No, or binary 0/1 indicator",
+    "target": "Goal metric or outcome — churn status, conversion flag, success/fail label",
+    "revenue": "Financial gain — total sales, amount, turnover, income",
+    "cost": "Expenses — spending, COGS, outflow",
+    "profit": "Net profit, margin, earnings after costs",
+    "quantity": "Volume — units sold, count of items, order quantity",
+    "count": "Aggregated counts or totals",
+    "ratio_pct": "Derived percentage or ratio metric (margin %, conversion rate)",
+    "score": "Scores, ratings, or index values",
+    "duration_seconds": "Time duration in seconds or milliseconds",
+    "primary_key": "Unique row identifier — UUID, auto-increment ID",
+    "foreign_key": "Reference to another entity (customer_id on an orders table)",
+    "name_label": "Human-readable label or name (customer name, product name)",
+    "tenure": "Numeric time-duration NOT suitable for time-series X axis — tenure months, years of service, age, experience years. This is a MEASURE, not a temporal axis.",
+    "unclassified": "No clear semantic role fits the data",
 }
 
 
@@ -108,6 +140,7 @@ async def run_semantic_audit(
     version_id: str,
     schema: List[Dict[str, Any]],
     llm_router,
+    corrections_text: str = "",
 ) -> List[Dict[str, Any]]:
     """
     Run the semantic audit against a dataset using DuckDB for sampling + stats,
@@ -151,13 +184,16 @@ async def run_semantic_audit(
                 samples = _fetch_column_samples(conn, table, col, limit=20)
                 stats = _fetch_column_stats(conn, table, col)
             else:
-                # Schema-only fallback: no samples or stats available
                 samples = []
                 stats = {"null_pct": None, "unique_count": None, "min": None, "max": None}
 
+            dtype = schema_dtype.get(col, "string")
+
+            # Build a ColumnProfile-compatible payload for the profiler
+            # When DuckDB is available, use its samples; otherwise schema-only
             payload = {
                 "name": col,
-                "dtype": schema_dtype.get(col, "string"),
+                "dtype": dtype,
                 "sample_values": samples,
                 "null_pct": stats["null_pct"],
                 "unique_count": stats["unique_count"],
@@ -172,12 +208,16 @@ async def run_semantic_audit(
 
         async def classify_batch(batch: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             roles = list(ROLE_TAXONOMY.keys())
+            
+            corrections_block = f"\n\n### HISTORICAL CORRECTIONS FOR CONTEXT\nThe user previously corrected the AI on this dataset:\n{corrections_text}\n" if corrections_text else ""
+            
             prompt = (
                 "You are a data classification expert. Classify each column into exactly one role from this taxonomy:\n"
                 f"{roles}\n\n"
                 "For each column return JSON: {\"column\": \"...\", \"role\": \"...\", "
                 "\"confidence\": 0.0-1.0, \"reasoning\": \"...\"}\n"
                 "Return only a JSON array. No preamble.\n\n"
+                f"{corrections_block}"
                 f"Columns:\n{batch}"
             )
             try:

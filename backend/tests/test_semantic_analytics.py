@@ -112,3 +112,21 @@ def test_chart_recommender_find_col():
     
     assert mock_find_col(['country', 'state', 'city'], pd_cols) == "CustState"
     assert mock_find_col(['product', 'item', 'sku'], pd_cols) == "Prod_Nm"
+
+
+def test_safe_groupby_mean_rounds_lifecycle_metrics_to_whole_numbers():
+    df = pd.DataFrame({
+        "segment": ["A", "A", "B", "B"],
+        "age": [31.2, 32.2, 44.6, 45.6],
+    })
+
+    result = chart_recommender._safe_groupby_mean(df, "segment", "age")
+    values_by_segment = {row["name"]: row["value"] for row in result}
+
+    assert values_by_segment["A"] == 32
+    assert values_by_segment["B"] == 45
+
+
+def test_infer_time_value_label_uses_age_for_age_metrics():
+    assert chart_recommender._infer_time_value_label("avg age by segment") == "Age"
+    assert chart_recommender._infer_time_value_label("avg tenure by segment") == "Months"

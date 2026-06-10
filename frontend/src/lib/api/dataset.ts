@@ -43,11 +43,27 @@ export interface DatasetMetadata {
     cleaned_size?: number | null;
 }
 
+export interface ColumnProfileData {
+    dtype: string;
+    samples: any[];
+    is_numeric: boolean;
+    is_datetime: boolean;
+    cardinality: number | null;
+    unique_count: number | null;
+    min?: number | string | null;
+    max?: number | string | null;
+    mean?: number | null;
+    is_currency_pattern?: boolean;
+    top_values?: string[] | null;
+}
+
 export interface MappingProposalItem {
     column_name: string;
     role: string;
     evidence: string;
     confidence: number;
+    status?: string;
+    profile?: ColumnProfileData | null;
 }
 
 export interface MappingProposalResponse {
@@ -137,6 +153,12 @@ export const uploadService = {
     }
 };
 
+export interface MappingCorrectionItem {
+    column: string;
+    proposed_role: string;
+    corrected_role: string;
+}
+
 export const semanticMappingService = {
     proposeMapping: async (datasetId: string, versionId: string) => {
         const response = await apiClient.post<MappingProposalResponse>(
@@ -152,10 +174,10 @@ export const semanticMappingService = {
         return response.data;
     },
 
-    confirmMapping: async (datasetId: string, versionId: string, mappings: Record<string, string>) => {
+    confirmMapping: async (datasetId: string, versionId: string, mappings: Record<string, string>, corrections?: MappingCorrectionItem[]) => {
         const response = await apiClient.post<DatasetVersionSummary>(
             `/datasets/${datasetId}/versions/${versionId}/confirm-mapping`,
-            { mappings }
+            { mappings, corrections }
         );
         return response.data;
     },

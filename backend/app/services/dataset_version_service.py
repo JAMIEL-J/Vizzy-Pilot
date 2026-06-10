@@ -159,6 +159,96 @@ def get_version_by_id(
     return version
 
 
+def _fetch_column_profiles_for_ui(
+    dataset_id: str,
+    version_id: str,
+    schema: list,
+) -> Dict[str, Dict[str, Any]]:
+    """Fetch column profile data (samples, stats) for the MappingReviewPanel UI."""
+    from app.services.semantic_audit import _table_name, _fetch_column_samples, _fetch_column_stats
+    from app.core.storage import get_duckdb_path
+    import duckdb
+
+    profiles = {}
+    duckdb_path = get_duckdb_path(dataset_id, version_id)
+
+    if not duckdb_path.exists():
+        return profiles
+
+    try:
+        conn = duckdb.connect(str(duckdb_path), read_only=True)
+        table = _table_name(dataset_id)
+        schema_dtype = {c["name"]: c.get("dtype", "string") for c in schema}
+        # Fetch total row count for cardinality calculation
+        total_rows = conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0] or 1
+
+        for col_info in schema:
+            col = col_info["name"]
+            samples = _fetch_column_samples(conn, table, col, limit=5)
+            stats = _fetch_column_stats(conn, table, col)
+            dtype = schema_dtype.get(col, "string")
+
+            # Detect column type flags from dtype string
+            is_numeric = dtype in ("int64", "float64", "int32", "float32", "number")
+            is_datetime = "datetime" in dtype.lower() or "date" in dtype.lower()
+
+            # Compute mean for numeric columns
+            mean_val = None
+            if is_numeric:
+                try:
+                    raw_mean = conn.execute(f'SELECT AVG("{col}") FROM "{table}"').fetchone()[0]
+                    mean_val = round(float(raw_mean), 4) if raw_mean is not None else None
+                except Exception:
+                    pass
+
+            profiles[col] = {
+                "dtype": dtype,
+                "samples": samples[:5],
+                "is_numeric": is_numeric,
+                "is_datetime": is_datetime,
+                "cardinality": round(stats["unique_count"] / max(1, total_rows), 4) if stats["unique_count"] else None,
+                "unique_count": stats["unique_count"],
+                "min": stats["min"],
+                "max": stats["max"],
+                "mean": mean_val,
+                "is_currency_pattern": False,
+                "top_values": None,
+            }
+
+        conn.close()
+    except Exception as e:
+        logger.warning(f"Failed to fetch column profiles for UI: {e}")
+
+    return profiles
+
+
+def _fetch_historical_corrections(session: Session, dataset_id: UUID) -> str:
+    """Fetch past user corrections for this dataset to feed into the LLM prompt."""
+    try:
+        from app.models.mapping_correction import MappingCorrection
+        from sqlmodel import select
+        
+        statement = (
+            select(MappingCorrection)
+            .where(MappingCorrection.dataset_id == dataset_id)
+            .order_by(MappingCorrection.created_at.desc())
+            .limit(20)
+        )
+        corrections = session.exec(statement).all()
+        
+        if not corrections:
+            return ""
+            
+        text_lines = []
+        for c in corrections:
+            dtype_str = f" (dtype: {c.column_dtype})" if c.column_dtype else ""
+            text_lines.append(f"- Column '{c.column_name}'{dtype_str} was proposed as '{c.proposed_role}', but corrected to '{c.corrected_role}'.")
+            
+        return "\n".join(text_lines)
+    except Exception as e:
+        logger.warning(f"Failed to fetch historical corrections: {e}")
+        return ""
+
 async def propose_semantic_mapping(
     session: Session,
     version_id: UUID,
@@ -178,6 +268,9 @@ async def propose_semantic_mapping(
 
     schema = json.loads(version.schema_metadata)
 
+    # Fetch past user corrections
+    corrections_text = _fetch_historical_corrections(session, version.dataset_id)
+
     try:
         llm_client = get_llm_client()
         results = await run_semantic_audit(
@@ -185,6 +278,7 @@ async def propose_semantic_mapping(
             version_id=str(version.id),
             schema=schema,
             llm_router=llm_client,
+            corrections_text=corrections_text,
         )
     except Exception as audit_err:
         # Fallback: if LLM or DuckDB sampling fails, return a deterministic default proposal
@@ -194,6 +288,13 @@ async def propose_semantic_mapping(
             exc_info=True,
         )
         results = []
+
+    # Fetch profile data for UI enrichment
+    column_profiles = _fetch_column_profiles_for_ui(
+        dataset_id=str(version.dataset_id),
+        version_id=str(version.id),
+        schema=schema,
+    )
 
     # 2. Structure proposal for MappingReviewPanel
     proposals = []
@@ -221,6 +322,7 @@ async def propose_semantic_mapping(
                 "confidence": confidence,
                 "evidence": evidence,
                 "status": status,
+                "profile": column_profiles.get(column_name, None),
             })
     else:
         # Deterministic fallback based on schema only
@@ -234,6 +336,7 @@ async def propose_semantic_mapping(
                 "confidence": 0.0,
                 "evidence": "LLM unavailable; defaulted to unclassified",
                 "status": "unclassified",
+                "profile": column_profiles.get(column_name, None),
             })
 
     return {
@@ -250,6 +353,7 @@ def confirm_semantic_mapping(
     session: Session,
     version_id: UUID,
     confirmed_map: Dict[str, str],
+    corrections: Optional[List[Dict[str, str]]] = None,
     approved_by: Optional[UUID] = None,
 ) -> DatasetVersion:
     """
@@ -275,6 +379,29 @@ def confirm_semantic_mapping(
     version.change_type = version.change_type or "initial_approval"
 
     session.add(version)
+
+    # Save corrections if provided
+    if corrections:
+        from app.models.mapping_correction import MappingCorrection
+        import uuid
+        
+        # Get schema to find dtype
+        schema = json.loads(version.schema_metadata) if version.schema_metadata else []
+        schema_dtype = {c["name"]: c.get("dtype", "string") for c in schema}
+        
+        for c in corrections:
+            correction = MappingCorrection(
+                id=str(uuid.uuid4()),
+                dataset_id=version.dataset_id,
+                version_id=version.id,
+                column_name=c["column"],
+                proposed_role=c["proposed_role"],
+                corrected_role=c["corrected_role"],
+                column_dtype=schema_dtype.get(c["column"]),
+                corrected_by=approved_by
+            )
+            session.add(correction)
+
     session.commit()
     session.refresh(version)
 

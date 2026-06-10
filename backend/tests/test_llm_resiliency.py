@@ -4,33 +4,69 @@ from unittest.mock import AsyncMock, patch
 from app.services.llm.llm_router import LLMRouter
 from app.services.llm.memory_manager import MemoryManager
 
-@pytest.mark.asyncio
-async def test_llm_router_fallback():
-    """Test that the router falls back to Gemini if Groq fails."""
-    router = LLMRouter()
-    
-    # Mock _call_groq to raise an exception
-    with patch.object(router, '_call_groq', side_effect=Exception("Groq Failed")):
-        # Mock _call_gemini to succeed
-        with patch.object(router, '_call_gemini', new_callable=AsyncMock) as mock_gemini:
-            mock_gemini.return_value = {"sql": "SELECT 1", "explanation": "Fallback worked"}
-            
-            result = await router.generate_sql("query", "schema")
-            
-            assert result["sql"] == "SELECT 1"
-            mock_gemini.assert_called_once()
+import pytest
+import asyncio
+from unittest.mock import AsyncMock, patch, MagicMock
+from app.services.llm.llm_router import LLMRouter
+from app.services.llm.memory_manager import MemoryManager
+from app.core.llm_client import LLMResponse, LLMProvider
+
+import pytest
+import asyncio
+from unittest.mock import AsyncMock, patch, MagicMock
+from app.core.llm_client import LLMClient, LLMResponse, LLMProvider
+from app.services.llm.memory_manager import MemoryManager
 
 @pytest.mark.asyncio
-async def test_llm_router_timeout():
-    """Test router handles timeouts correctly."""
-    router = LLMRouter()
+async def test_llm_client_fallback():
+    """Test that LLMClient falls back to secondary provider if primary fails."""
+    client = LLMClient()
     
-    # Patch asyncio.wait_for inside the module
-    # First call to wait_for (Groq) will raise TimeoutError
-    # Second call to wait_for (Gemini) will return the success dictionary
-    with patch('app.services.llm.llm_router.asyncio.wait_for', side_effect=[asyncio.TimeoutError(), {"sql": "SELECT 2"}]):
-        result = await router.generate_sql("query", "schema")
-        assert result["sql"] == "SELECT 2"
+    # We need to mock the internal provider call methods
+    # For purpose="sql", providers are [GROQ_CHAT, GROQ_DASHBOARD_NARRATIVE]
+    with patch.object(client, '_call_groq_chat', side_effect=Exception("Groq Chat Failed")), \
+         patch.object(client, '_call_groq_dashboard_narrative', new_callable=AsyncMock) as mock_fallback:
+        
+        mock_fallback.return_value = LLMResponse(
+            content='{"sql": "SELECT 1"}', 
+            provider=LLMProvider.GROQ_DASHBOARD_NARRATIVE, 
+            model="llama-3"
+        )
+        
+        response = await client.complete(
+            system_prompt="sys", 
+            user_prompt="user", 
+            purpose="sql"
+        )
+        
+        assert response.provider == LLMProvider.GROQ_DASHBOARD_NARRATIVE
+        assert "SELECT 1" in response.content
+        mock_fallback.assert_called_once()
+
+@pytest.mark.asyncio
+async def test_llm_client_timeout_fallback():
+    """Test that LLMClient handles timeouts by falling back."""
+    client = LLMClient()
+    
+    with patch.object(client, '_call_groq_chat', side_effect=asyncio.TimeoutError("Timeout")), \
+         patch.object(client, '_call_groq_dashboard_narrative', new_callable=AsyncMock) as mock_fallback:
+        
+        mock_fallback.return_value = LLMResponse(
+            content='{"sql": "SELECT 2"}', 
+            provider=LLMProvider.GROQ_DASHBOARD_NARRATIVE, 
+            model="llama-3"
+        )
+        
+        response = await client.complete(
+            system_prompt="sys", 
+            user_prompt="user", 
+            purpose="sql"
+        )
+        
+        assert response.provider == LLMProvider.GROQ_DASHBOARD_NARRATIVE
+        assert "SELECT 2" in response.content
+        mock_fallback.assert_called_once()
+
 
 @pytest.mark.asyncio
 async def test_memory_manager_summarization():

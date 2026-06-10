@@ -30,8 +30,15 @@ class VersionCreateRequest(BaseModel):
     row_count: Optional[int] = None
 
 
+class MappingCorrectionRequest(BaseModel):
+    column: str
+    proposed_role: str
+    corrected_role: str
+
+
 class MappingConfirmRequest(BaseModel):
     mappings: Dict[str, str]
+    corrections: Optional[List[MappingCorrectionRequest]] = None
 
 
 class VersionResponse(BaseModel):
@@ -185,6 +192,7 @@ def confirm_mapping(
             session=session,
             version_id=version_id,
             confirmed_map=request.mappings,
+            corrections=[c.model_dump() for c in request.corrections] if request.corrections else None,
             approved_by=UUID(current_user.user_id),
         )
         return VersionResponse.model_validate(version)
@@ -197,7 +205,6 @@ def confirm_mapping(
     except Exception as e:
         logger.exception("Unhandled error in confirm_mapping")
         raise HTTPException(status_code=500, detail=str(e))
-
 
 
 @router.post("/{version_id}/remap")

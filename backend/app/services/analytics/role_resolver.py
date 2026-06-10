@@ -16,14 +16,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Canonical role names — used to detect map format
-_KNOWN_ROLES = {
-    "date", "datetime", "year_month", "fiscal_period",
-    "category", "sub_category", "geography", "entity_id", "boolean_flag",
-    "revenue", "cost", "quantity", "count", "ratio_pct", "score", "duration_seconds",
-    "primary_key", "foreign_key", "name_label",
-    "unclassified",
-}
+from app.services.semantic_audit import ROLE_TAXONOMY
+_KNOWN_ROLES = set(ROLE_TAXONOMY.keys())
 
 
 def detect_map_format(raw_map: Dict[str, str]) -> str:

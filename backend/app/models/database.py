@@ -57,6 +57,36 @@ def init_db() -> None:
     _ensure_dataset_versions_approved_by_column()
     _ensure_dataset_versions_approved_at_column()
     _ensure_dataset_versions_chart_configs_json_column()
+    _ensure_mapping_corrections_table()
+
+
+def _ensure_mapping_corrections_table() -> None:
+    """Ensure mapping_corrections table exists for SQLite/legacy deployments."""
+    inspector = inspect(engine)
+    if "mapping_corrections" in inspector.get_table_names():
+        return
+
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE mapping_corrections (
+                    id VARCHAR(36) NOT NULL PRIMARY KEY,
+                    dataset_id VARCHAR(36) NOT NULL,
+                    version_id VARCHAR(36) NOT NULL,
+                    column_name VARCHAR(255) NOT NULL,
+                    proposed_role VARCHAR(100) NOT NULL,
+                    corrected_role VARCHAR(100) NOT NULL,
+                    column_dtype VARCHAR(100),
+                    corrected_by VARCHAR(36) NOT NULL,
+                    created_at DATETIME NOT NULL,
+                    updated_at DATETIME NOT NULL
+                )
+                """
+            )
+        )
+        # Create index on dataset_id
+        conn.execute(text("CREATE INDEX ix_mapping_corrections_dataset_id ON mapping_corrections (dataset_id)"))
 
 
 def _ensure_users_llm_settings_column() -> None:

@@ -12,6 +12,7 @@ from dataclasses import dataclass, asdict
 from app.services.analytics.data_profiler import ColumnProfile
 from app.services.llm.llm_router import LLMRouter
 from app.services.analytics.pre_mapper import PreMapper
+from app.services.semantic_audit import ROLE_TAXONOMY, ROLE_VOCABULARY_FOR_LLM
 import re
 
 logger = logging.getLogger(__name__)
@@ -31,20 +32,8 @@ class SemanticMap:
     metadata: Dict[str, Any]
 
 class SemanticMapper:
-    # The constrained vocabulary of roles the LLM is allowed to use.
-    # These roles are used by the ChartRecommender and KPIEngine.
-    ROLE_VOCABULARY = {
-        "revenue": "Financial gain, total sales, amount, turnover",
-        "cost": "Expenses, spending, cost of goods sold, outflow",
-        "profit": "Net profit, margin, earnings after costs",
-        "date": "Time dimension, transaction date, event date, period",
-        "category": "Dimension for grouping, product line, segment",
-        "region": "Geographic dimension, country, state, city, territory, market",
-        "quantity": "Volume, units sold, count of items, order quantity",
-        "identifier": "Unique ID, Customer ID, Order ID, Transaction ID",
-        "target": "The goal metric, churn status, conversion flag, success/fail",
-        "generic": "No clear semantic role fits"
-    }
+    # Vocabulary is imported from semantic_audit.py (single source of truth)
+    ROLE_VOCABULARY = ROLE_VOCABULARY_FOR_LLM
 
     SYSTEM_PROMPT = (
         "You are an expert data analyst specializing in dataset profiling and semantic column classification. "
@@ -91,50 +80,79 @@ class SemanticMapper:
                 profile_context.append(json.dumps(signal))
 
             context_str = "\n".join(profile_context)
-            vocab_str = json.dumps(self.ROLE_VOCABULARY, indent=2)
+
+            # Group roles for the LLM prompt
+            grouped_roles = """### ROLE VOCABULARY (Grouped — pick EXACTLY ONE per column)
+**Temporal** (use for time-series X axis ONLY):
+  date, datetime, year_month, fiscal_period
+
+**Dimension** (use for group-by / categorical axis):
+  category, sub_category, geography
+
+**Identity** (no chart output — filtering/reference only):
+  entity_id, primary_key, foreign_key, name_label
+
+**Flag/Target** (binary or outcome indicators):
+  boolean_flag, target
+
+**Measure** (numeric Y axis values):
+  revenue, cost, profit, quantity, count, score, ratio_pct, duration_seconds, tenure
+
+**Fallback**:
+  unclassified — use ONLY when no other role fits after examining samples
+
+### CRITICAL: TENURE vs DATE
+Columns like Tenure_Months, Years_Experience, Age, Seniority are NUMERIC MEASURES (role="tenure"), NOT temporal dimensions.
+Only assign date/datetime if the column contains actual calendar dates (e.g., 2024-01-15, 01/15/2024).
+"""
+            vocab_descriptions = json.dumps(self.ROLE_VOCABULARY, indent=2)
 
             prompt = f"""
 You are a Senior Data Architect. Your task is to perform a Semantic Audit of a dataset.
 You must map each column to exactly ONE role from the provided vocabulary.
 
-### ROLE VOCABULARY
-{vocab_str}
+{grouped_roles}
+
+### ROLE DESCRIPTIONS
+{vocab_descriptions}
 
 ### COLUMN PROFILES (Actual Data Samples & Stats)
 {context_str}
 
 ### AUDIT GUIDELINES
-1. **Evidence-First Approach**: You MUST justify your choice by citing specific values from the 'samples' list.
+1. **Evidence-First Approach**: You MUST justify your choice by citing at least 2 specific values from the 'samples' list.
 2. **Strict Role Mapping**:
-   - **Revenue/Cost**: Look for currency symbols, 2-decimal floats, and positive ranges.
-   - **Date**: Look for ISO formats, timestamps, or date-like strings.
+   - **Revenue/Cost/Profit**: Look for currency symbols, 2-decimal floats, positive ranges.
+   - **Date/DateTime**: Look for ISO formats (YYYY-MM-DD), timestamps, or date-like strings. NOT numeric counters.
+   - **Tenure**: Look for numeric values representing duration (months, years) where the column name suggests tenure, experience, age, seniority. These are MEASURES.
    - **Category**: Look for repeating strings with low-to-medium cardinality (e.g., "North", "South").
+   - **Geography**: Look for location names (countries, states, cities, regions).
    - **Identifier**: Look for high-cardinality alphanumeric strings or unique integers (UUIDs, IDs).
    - **Target**: Look for binary indicators (0/1, Yes/No) or specific status labels (Churned/Active).
-3. **No Hallucinations**: If the samples and stats provide zero evidence for a role, you MUST use 'generic'. Do not invent a role.
+3. **No Hallucinations**: If the samples and stats provide zero evidence for a role, you MUST use 'unclassified'. Do not invent a role.
 4. **Confidence Scoring**:
-   - 0.9-1.0: Exact match (e.g., column named 'Revenue' with float samples).
+   - 0.9-1.0: Exact match (e.g., column named 'Revenue' with currency float samples).
    - 0.6-0.8: Strong profile match but generic name (e.g., 'C_01' with float samples).
    - 0.1-0.5: Weak match, based on a "best guess" of the data pattern.
 
 ### OUTPUT FORMAT (STRICT JSON)
-Return a single JSON object (not a list, not markdown) where keys are column names and values are nested objects.
-You MUST map EVERY SINGLE ONE of the provided columns. Do not omit any column. Do not use "..." or summarize!
+Return a single JSON object where keys are column names and values are nested objects.
+Map EVERY provided column. Do not omit any. Do not use "..." or summarize.
 Example:
 {{
   "sales_per_order": {{
     "role": "revenue",
-    "evidence": "Brief reasoning (max 15 words)",
+    "evidence": "Values $129.95, $54.20 — 2-decimal currency pattern",
     "confidence": 0.95
   }},
-  "customer_id": {{
-    "role": "identifier",
-    "evidence": "Brief reasoning",
-    "confidence": 1.0
+  "tenure_months": {{
+    "role": "tenure",
+    "evidence": "Values 12, 24, 36 — numeric months, not calendar dates",
+    "confidence": 0.90
   }}
 }}
 
-IMPORTANT: Return ONLY raw JSON enclosed in {{}}. No markdown bullets, no asterisks, no explanation.
+IMPORTANT: Return ONLY raw JSON enclosed in {{}}. No markdown, no explanation.
 """
             try:
                 llm_response = await self.client.complete(
@@ -188,11 +206,11 @@ IMPORTANT: Return ONLY raw JSON enclosed in {{}}. No markdown bullets, no asteri
         # Fallback: Ensure all original columns are present
         for col_name in columns_profiles.keys():
             if col_name not in pre_mappings and col_name not in structured["mappings"]:
-                structured["mappings"][col_name] = "generic"
+                structured["mappings"][col_name] = "unclassified"
                 structured["metadata"]["proposals"].append(asdict(ColumnMapping(
                     column_name=col_name,
-                    role="generic",
-                    evidence="LLM extraction failed or skipped column; defaulted to generic",
+                    role="unclassified",
+                    evidence="LLM extraction failed or skipped column; defaulted to unclassified",
                     confidence=0.0
                 )))
 
@@ -283,8 +301,8 @@ IMPORTANT: Return ONLY raw JSON enclosed in {{}}. No markdown bullets, no asteri
             # ONLY use the key as the column name if it's NOT a known role.
             if isinstance(key, str) and key.strip().lower() not in self.ROLE_VOCABULARY:
                 normalized[key] = {
-                    "role": "generic",
-                    "evidence": f"Unsupported output shape for {key}; defaulted to generic",
+                    "role": "unclassified",
+                    "evidence": f"Unsupported output shape for {key}; defaulted to unclassified",
                     "confidence": 0.0,
                 }
 
@@ -361,10 +379,10 @@ IMPORTANT: Return ONLY raw JSON enclosed in {{}}. No markdown bullets, no asteri
         normalized = self._normalize_response(response)
 
         for col, data in normalized.items():
-            role = data.get("role", "generic") if isinstance(data, dict) else "generic"
+            role = data.get("role", "unclassified") if isinstance(data, dict) else "unclassified"
             # Force role into vocabulary
-            if role not in self.ROLE_VOCABULARY:
-                role = "generic"
+            if role not in ROLE_TAXONOMY:
+                role = "unclassified"
 
             valid_mappings[col] = role # Correct: Map column -> role for the UI
 

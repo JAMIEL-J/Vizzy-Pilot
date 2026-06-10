@@ -1,5 +1,6 @@
 import sys
 import os
+import json
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -16,7 +17,7 @@ if parent_dir not in sys.path:
 try:
     from app.services.llm.refusal_service import RefusalService
     from app.services.llm.intent_classifier import classify_intent
-    from app.services.llm.intent_schema import Intent, IntentType
+    from app.services.llm.intent_schema import AnalysisIntent, IntentType
     print("✅ Successfully imported LLM services.")
 except ImportError as e:
     print(f"⚠️ Import failed: {e}")
@@ -37,7 +38,7 @@ def test_llm_refusal_logic():
     
     result = service.check_refusal(vague_query, mock_contract, intent_type)
     
-    if result and result["refused"]:
+    if result and result["refusal"]:
         print(f"✅ Refusal Service: Correctly refused '{vague_query}'")
         print(f"   Message: {result['message']}")
         print(f"   Suggestions: {result['suggestions']}")
@@ -74,21 +75,22 @@ def test_live_llm_intent_classification_simulation():
     query = "Show me revenue by category"
     schema = {"columns": [{"name": "revenue", "dtype": "float"}, {"name": "category", "dtype": "string"}]}
     
-    # We mock the `call_llm` or `classifier` internals to return a prediction
-    # This verifies the *schema* passed to the LLM is correct.
-    
-    with patch("app.services.llm.intent_classifier.call_llm_api") as mock_llm:
-        mock_llm.return_value = {
+    # We mock the LLM client to return a prediction
+    with patch("app.services.llm.intent_classifier.get_llm_client") as mock_get_client:
+        mock_client = MagicMock()
+        mock_client.complete.return_value.content = json.dumps({
             "intent_type": "analysis",
             "metric": "revenue",
             "group_by": ["category"],
             "operation": "sum"
-        }
+        })
+        mock_get_client.return_value = mock_client
         
         # We invoke the wrapper (async so we'd need pytest-asyncio or loop, doing manual mock for concept)
         # For this script we just verify the mock setup works
-        print("✅ Intent Classification: Schema structure valid (Simulated)")
+        print("✅ Intent Classification: LLM client mock setup valid (Simulated)")
         return
+
 
 if __name__ == "__main__":
     test_llm_refusal_logic()

@@ -241,3 +241,42 @@ class TestRecommendations:
         # Should have no recommendations for clean data
         assert len(result) == 0
 
+
+class TestExecuteCleaningTracker:
+    """Tests for change tracking inside execute_cleaning."""
+
+    def test_execute_cleaning_tracks_cell_diffs_and_drops(self):
+        """
+        TEST: execute_cleaning records modified cells and dropped rows.
+        """
+        from app.services.cleaning_execution.planner import execute_cleaning
+
+        df = pd.DataFrame({
+            "name": [" Alice", "Bob", "Alice", "Charlie"],  # Alice is duplicate, Alice has spaces
+            "age": [25, np.nan, 25, 35],
+        })
+
+        proposed_actions = {
+            "steps": [
+                {"rule": "trim_string_columns", "params": {"columns": ["name"]}},
+                {"rule": "fill_missing_mean", "params": {"columns": ["age"]}},
+                {"rule": "remove_duplicates", "params": {}},
+            ]
+        }
+
+        result = execute_cleaning(df, proposed_actions)
+        summary = result["execution_summary"]
+
+        assert summary["steps_executed"] == 3
+        assert summary["rows_dropped"] == 1  # Alice duplicate dropped
+        assert summary["cells_modified"] > 0
+        
+        # Should contain cell-level changes
+        changes = summary["changes"]
+        assert len(changes) > 0
+        
+        # Verify specific details of a change (e.g. trim spaces in name or fill mean age)
+        column_changes = [ch["column"] for ch in changes]
+        assert "name" in column_changes or "age" in column_changes
+
+
