@@ -44,10 +44,26 @@ class DashboardJSONEncoder(json.JSONEncoder):
             return None
         return super().default(obj)
 
+import math
+
+def sanitize_nan(obj: Any) -> Any:
+    """Recursively replace float NaN and Inf with None."""
+    if isinstance(obj, dict):
+        return {k: sanitize_nan(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [sanitize_nan(x) for x in obj]
+    elif isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+    elif isinstance(obj, np.floating):
+        if np.isnan(obj) or np.isinf(obj):
+            return None
+    return obj
+
 
 def _dumps(obj: Any) -> str:
-    """json.dumps shortcut using our custom encoder."""
-    return json.dumps(obj, cls=DashboardJSONEncoder)
+    """json.dumps shortcut using our custom encoder and NaN sanitization."""
+    return json.dumps(sanitize_nan(obj), cls=DashboardJSONEncoder)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)

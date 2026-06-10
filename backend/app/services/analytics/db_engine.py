@@ -228,12 +228,10 @@ class DBEngine:
             logger.error(f"Failed to extract schema for '{table_name}': {str(e)}")
             return {"error": str(e)}
 
-    async def execute_query(self, query: str, timeout_seconds: int = 30) -> pd.DataFrame:
+    async def execute_query(self, query: str, table_name: str = "data", timeout_seconds: int = 30) -> pd.DataFrame:
         """Execute a query using the security sandbox."""
         if self._read_con is None:
             raise ValueError("No data loaded. Call load_dataframe() first.")
-        
-        table_name = "data"
         
         try:
             return await execute_sandboxed(self._read_con, query, table_name, timeout_seconds=timeout_seconds)

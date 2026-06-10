@@ -33,6 +33,7 @@ export default function DataCleaning() {
     const navigate = useNavigate();
     const [datasets, setDatasets] = useState<Dataset[]>([]);
     const [executionReport, setExecutionReport] = useState<any | null>(null);
+    const [lastCleanedVersionId, setLastCleanedVersionId] = useState<string | null>(null);
     const [selectedDatasetId, setSelectedDatasetId] = useState("");
     const [inspection, setInspection] = useState<InspectionReport | null>(null);
     const [isLoading, setIsLoading] = useState(false);
@@ -303,6 +304,7 @@ export default function DataCleaning() {
                 `Cleaned successfully. ${result.rows_before} to ${result.rows_after} rows`
             );
 
+            setLastCleanedVersionId(result.version_id || versionId);
             setExecutionReport(result);
         } catch (error) {
             console.error("Failed to execute cleaning:", error);
@@ -369,7 +371,16 @@ export default function DataCleaning() {
                                 <ChevronLeft className="h-3 w-3" />
                                 Clean another dataset
                             </BtnSecondary>
-                            <BtnPrimary onClick={() => navigate("/user/dashboard")} className="bg-accent text-accent-foreground hover:opacity-90 rounded-none">
+                            <BtnPrimary onClick={() => {
+                                if (selectedDatasetId) {
+                                    sessionStorage.setItem('vizzy.dashboard.selectedDatasetId', selectedDatasetId);
+                                }
+                                if (lastCleanedVersionId) {
+                                    sessionStorage.setItem('vizzy.dashboard.selectedVersionId', lastCleanedVersionId);
+                                }
+                                sessionStorage.removeItem('vizzy.dashboard.analyticsCache.v2');
+                                navigate("/user/dashboard");
+                            }} className="bg-accent text-accent-foreground hover:opacity-90 rounded-none">
                                 Go to Dashboard
                                 <ArrowRight className="h-3 w-3" />
                             </BtnPrimary>
@@ -483,7 +494,16 @@ export default function DataCleaning() {
                                     </div>
                                 </div>
 
-                                <BtnAccent className="w-full justify-center rounded-none bg-accent text-accent-foreground hover:opacity-90" onClick={() => navigate("/user/dashboard")}>
+                                <BtnAccent className="w-full justify-center rounded-none bg-accent text-accent-foreground hover:opacity-90" onClick={() => {
+                                    if (selectedDatasetId) {
+                                        sessionStorage.setItem('vizzy.dashboard.selectedDatasetId', selectedDatasetId);
+                                    }
+                                    if (lastCleanedVersionId) {
+                                        sessionStorage.setItem('vizzy.dashboard.selectedVersionId', lastCleanedVersionId);
+                                    }
+                                    sessionStorage.removeItem('vizzy.dashboard.analyticsCache.v2');
+                                    navigate("/user/dashboard");
+                                }}>
                                     View on dashboard
                                     <ArrowRight className="h-3 w-3" />
                                 </BtnAccent>

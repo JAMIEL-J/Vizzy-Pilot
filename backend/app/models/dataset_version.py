@@ -11,6 +11,7 @@ from .base import BaseModel
 class SourceType(str, Enum):
     UPLOAD = "upload"
     SQL = "sql"
+    CLEAN = "clean"
 
 
 class DatasetVersion(BaseModel, table=True):

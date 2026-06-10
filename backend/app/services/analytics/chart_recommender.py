@@ -4837,8 +4837,21 @@ def recommend_charts(df: pd.DataFrame, domain: DomainType, classification: Colum
         if not sanitized_data:
             continue
         
+        # Override title with beautified semantic roles if present
+        title = chart.title
+        if overrides:
+            from app.services.semantic_audit import ROLE_TAXONOMY
+            valid_roles = set(ROLE_TAXONOMY.keys())
+            for role, col in overrides.items():
+                if role in valid_roles and isinstance(col, str) and role not in ('unclassified', 'generic', 'none'):
+                    role_beautified = role.replace('_', ' ').replace('-', ' ').title()
+                    col_beautified = _beautify_column_name(col)
+                    import re
+                    title = re.sub(re.escape(col_beautified), role_beautified, title, flags=re.IGNORECASE)
+                    title = re.sub(re.escape(col), role_beautified, title, flags=re.IGNORECASE)
+
         result[slot] = {
-            "title": chart.title,
+            "title": title,
             "type": chart.chart_type,
             "data": sanitized_data,
             "confidence": chart.confidence,

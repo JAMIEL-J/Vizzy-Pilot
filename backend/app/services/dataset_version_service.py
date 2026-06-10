@@ -391,7 +391,7 @@ def confirm_semantic_mapping(
         
         for c in corrections:
             correction = MappingCorrection(
-                id=str(uuid.uuid4()),
+                id=uuid.uuid4(),
                 dataset_id=version.dataset_id,
                 version_id=version.id,
                 column_name=c["column"],

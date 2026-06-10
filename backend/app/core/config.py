@@ -83,7 +83,7 @@ class StorageSettings(BaseSettings):
 
     data_dir: str = Field(default="data/uploads")
     duckdb_path: str = Field(default="data/vizzy_analytics.duckdb")
-    max_file_size_mb: int = Field(default=100, ge=1, le=1000)
+    max_file_size_mb: int = Field(default=500, ge=1, le=1000)
 
 
 class LLMSettings(BaseSettings):

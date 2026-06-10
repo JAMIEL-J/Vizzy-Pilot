@@ -81,10 +81,14 @@ class TestFileValidation:
         """TEST: Files exceeding size limit are rejected."""
         from app.services.ingestion_execution.file_loader import validate_file
         from app.core.exceptions import InvalidOperation
+        from app.core.config import get_settings
         
-        # 200 MB should fail (over 100 MB default)
+        settings = get_settings()
+        limit_bytes = settings.storage.max_file_size_mb * 1024 * 1024
+        
+        # Limit + 100 MB should fail
         with pytest.raises(InvalidOperation) as exc_info:
-            validate_file(filename="data.csv", file_size=200 * 1024 * 1024)
+            validate_file(filename="data.csv", file_size=limit_bytes + 100 * 1024 * 1024)
         
         assert "size" in str(exc_info.value.message).lower() or "maximum" in str(exc_info.value.message).lower()
 

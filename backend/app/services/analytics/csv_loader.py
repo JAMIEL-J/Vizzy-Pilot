@@ -53,7 +53,7 @@ def _safe_read_csv_impl(file_path: str) -> pd.DataFrame:
     return df
 
 
-@lru_cache(maxsize=8)
+@lru_cache(maxsize=2)
 def _cached_read_csv(file_path: str, mtime: float) -> pd.DataFrame:
     """LRU-cached CSV reader keyed by (path, mtime)."""
     return _safe_read_csv_impl(file_path)

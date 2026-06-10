@@ -148,7 +148,7 @@ class TestDashboardGenerator:
         )
         
         widgets = result["dashboard"]["widgets"]
-        bar_widgets = [w for w in widgets if w["type"] == "bar"]
+        bar_widgets = [w for w in widgets if w["type"] in ("bar", "hbar")]
         
         # 'region' and 'name' are categorical
         assert len(bar_widgets) >= 1

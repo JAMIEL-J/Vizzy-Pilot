@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { semanticMappingService } from '../../lib/api/dataset';
-
-import { ColumnProfileData } from '../../lib/api/dataset';
+import type { ColumnProfileData } from '../../lib/api/dataset';
 
 type MappingStatus = 'auto_accepted' | 'flagged' | 'unclassified';
 

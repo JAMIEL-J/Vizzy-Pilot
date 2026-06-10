@@ -452,6 +452,15 @@ def filter_columns(df: pd.DataFrame, domain: DomainType) -> ColumnClassification
     # Phase 1: The Expert Sanitizer
     for col in df_typed.select_dtypes(include=['object']).columns:
         try:
+            # Quick precheck on first 100 rows to avoid expensive full-series regex/numeric parsing on text columns
+            sample = df_typed[col].head(100).dropna()
+            if sample.empty:
+                continue
+            sample_clean = sample.astype(str).str.replace(r'[$,% ]', '', regex=True)
+            sample_converted = pd.to_numeric(sample_clean, errors='coerce')
+            if len(sample) > 0 and (sample_converted.notna().sum() / len(sample)) < 0.5:
+                continue
+
             # Clean dirty strings (spaces, currencies, percentages)
             clean_str = df_typed[col].astype(str).str.replace(r'[$,% ]', '', regex=True)
             converted = pd.to_numeric(clean_str, errors='coerce')

@@ -38,7 +38,7 @@ async def test_nl2sql_e2e_pipeline(mock_generate_sql, mock_df):
 
     # 2. Setup the DBEngine and Load Data
     db = DBEngine(":memory:")
-    db.load_dataframe("df", mock_df)
+    await db.load_dataframe("df", mock_df)
 
     # 3. Setup the Executor
     executor = Executor()
@@ -100,7 +100,7 @@ async def test_nl2sql_pipeline_error_handling(mock_generate_sql, mock_df):
     }
 
     db = DBEngine(":memory:")
-    db.load_dataframe("df", mock_df)
+    await db.load_dataframe("df", mock_df)
     
     executor = Executor()
     payload = await executor.run_query("Do something weird", db, "df")

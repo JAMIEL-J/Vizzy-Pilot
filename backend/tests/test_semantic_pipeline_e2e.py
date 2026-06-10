@@ -55,25 +55,30 @@ async def test_semantic_pipeline_e2e(db_session, mock_dataset_file):
         schema_hash="test_hash",
         created_by=user_id,
         role="ADMIN",
-        row_count=30
+        row_count=30,
+        schema_metadata=json.dumps([
+            {"name": "C_01", "dtype": "datetime"},
+            {"name": "C_02", "dtype": "float64"},
+            {"name": "C_03", "dtype": "object"}
+        ])
     )
     db_session.commit()
 
-    # 2. Propose Mapping (Mocking the LLM)
+    # 2. Propose Mapping (Mocking the LLM audit)
     # We simulate the LLM discovering that C_02 is revenue, C_01 is date, and C_03 is category
-    with patch.object(SemanticMapper, 'propose_mapping', new_callable=AsyncMock) as mock_map:
-        mock_map.return_value = {
-            "mappings": {
-                "revenue": "C_02",
-                "date": "C_01",
-                "category": "C_03"
-            },
-            "metadata": {"proposals": []}
-        }
+    with patch('app.services.semantic_audit.run_semantic_audit', new_callable=AsyncMock) as mock_audit:
+        mock_audit.return_value = [
+            {"column": "C_01", "role": "date", "confidence": 0.95, "reasoning": "date column"},
+            {"column": "C_02", "role": "revenue", "confidence": 0.95, "reasoning": "revenue column"},
+            {"column": "C_03", "role": "category", "confidence": 0.95, "reasoning": "category column"},
+        ]
 
         # Simulate the API call to propose mapping
         proposal = await dataset_version_service.propose_semantic_mapping(db_session, version.id)
-        assert proposal["proposal"]["mappings"]["revenue"] == "C_02"
+        proposals_list = proposal["proposal"]["metadata"]["proposals"]
+        c02_proposal = next((p for p in proposals_list if p["column_name"] == "C_02"), None)
+        assert c02_proposal is not None
+        assert c02_proposal["role"] == "revenue"
 
     # 3. Confirm Mapping (The Human-in-the-Loop step)
     # New format: {column: role}

@@ -2467,12 +2467,27 @@ def _generate_generic_kpis(df: pd.DataFrame, classification: ColumnClassificatio
     # 2. Primary Metric Sum (first metric column)
     if classification.metrics:
         primary_metric = classification.metrics[0]
+        
+        role = None
+        if semantic_map_json:
+            try:
+                from .role_resolver import normalize_to_col_role
+                col_role_map = normalize_to_col_role(semantic_map_json)
+                role = col_role_map.get(primary_metric)
+            except Exception:
+                pass
+        
+        if role and role not in ('unclassified', 'generic', 'none'):
+            title_name = role.replace('_', ' ').replace('-', ' ').title()
+        else:
+            title_name = primary_metric.replace('_', ' ').title()
+
         total = _safe_sum(df, primary_metric)
         kpis.append(KPI(
             key="primary_total",
-            title=f"Total {primary_metric.replace('_', ' ').title()}",
+            title=f"Total {title_name}",
             value=total,
-            format="currency" if any(kw in primary_metric.lower() for kw in ['amount', 'price', 'revenue', 'cost']) else "number",
+            format="currency" if any(kw in primary_metric.lower() or (role and kw in role.lower()) for kw in ['amount', 'price', 'revenue', 'cost']) else "number",
             icon="bar-chart",
             confidence="MEDIUM",
             reason=f"Sum of {primary_metric}"
@@ -2482,7 +2497,7 @@ def _generate_generic_kpis(df: pd.DataFrame, classification: ColumnClassificatio
         avg = _safe_mean(df, primary_metric)
         kpis.append(KPI(
             key="primary_avg",
-            title=f"Avg {primary_metric.replace('_', ' ').title()}",
+            title=f"Avg {title_name}",
             value=round(avg, 2),
             format="number",
             icon="trending-up",

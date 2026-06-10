@@ -277,7 +277,7 @@ def preview_cleaning_plan(
     status_code=status.HTTP_200_OK,
     summary="Execute an approved cleaning plan",
 )
-def execute_cleaning_plan(
+async def execute_cleaning_plan(
     version_id: UUID,
     plan_id: UUID,
     session: DBSession,
@@ -286,9 +286,15 @@ def execute_cleaning_plan(
     """
     Execute an approved cleaning plan.
     Loads raw data, applies cleaning rules, saves cleaned CSV,
-    and updates DatasetVersion.cleaned_reference.
+    creates a new DatasetVersion with source_type = "clean",
+    and sets parent_version_id to the input version.
     """
     try:
+        import uuid
+        from app.models.dataset_version import SourceType
+        from app.services.analytics.duckdb_builder import build_duckdb_from_csv
+        from app.services.dataset_version_service import _get_next_version_number
+
         plan = cleaning_plan_service.get_plan_by_id(session, plan_id)
 
         if not plan.approved:
@@ -308,54 +314,77 @@ def execute_cleaning_plan(
         # Convert frontend actions → rule-engine steps format
         normalized_actions = _convert_actions_to_steps(plan.proposed_actions)
 
+        # Generate new version ID
+        new_version_id = uuid.uuid4()
+        new_version_number = _get_next_version_number(session, version.dataset_id)
+
+        # Save cleaned CSV in new version folder
+        cleaned_path = get_cleaned_data_path(
+            dataset_id=version.dataset_id,
+            version_id=new_version_id,
+        )
+
         if not normalized_actions.get("steps"):
-            cleaned_path = get_cleaned_data_path(
-                dataset_id=version.dataset_id,
-                version_id=version.id,
-            )
             df.to_csv(str(cleaned_path), index=False)
-            
-            # Persist reference on version
-            version.cleaned_reference = str(cleaned_path)
-            session.add(version)
-            session.commit()
-            
-            now_str = datetime.now(timezone.utc).isoformat()
-            return {
-                "success": True,
-                "cleaned_path": str(cleaned_path),
-                "rows_before": len(df),
-                "rows_after": len(df),
+            rows_after = len(df)
+            summary = {
                 "steps_executed": 0,
-                "started_at": now_str,
-                "completed_at": now_str,
                 "rows_dropped": 0,
                 "cells_modified": 0,
                 "changes": [],
             }
+        else:
+            # Execute cleaning
+            result = execute_cleaning(df, normalized_actions)
+            cleaned_df: pd.DataFrame = result["cleaned_df"]
+            cleaned_df.to_csv(str(cleaned_path), index=False)
+            rows_after = len(cleaned_df)
+            summary = result["execution_summary"]
 
-        # Execute cleaning
-        result = execute_cleaning(df, normalized_actions)
-        cleaned_df: pd.DataFrame = result["cleaned_df"]
-
-        # Save cleaned CSV
-        cleaned_path = get_cleaned_data_path(
+        # Create new dataset version
+        new_version = DatasetVersion(
+            id=new_version_id,
             dataset_id=version.dataset_id,
-            version_id=version.id,
+            version_number=new_version_number,
+            source_type=SourceType.CLEAN,
+            source_reference=version.source_reference,
+            cleaned_reference=str(cleaned_path),
+            row_count=rows_after,
+            schema_hash=version.schema_hash,
+            schema_metadata=version.schema_metadata,
+            semantic_map_json=version.semantic_map_json,
+            parent_version_id=version.id,
+            change_type="clean",
+            created_by=UUID(current_user.user_id),
+            is_active=True,
+            status="ready",
+            approved_by=UUID(current_user.user_id),
+            approved_at=datetime.now(timezone.utc),
+            chart_configs_json=version.chart_configs_json,
         )
-        cleaned_df.to_csv(str(cleaned_path), index=False)
 
-        # Persist reference on version
-        version.cleaned_reference = str(cleaned_path)
-        session.add(version)
+        # Build DuckDB for the new cleaned version
+        await build_duckdb_from_csv(
+            dataset_id=new_version.dataset_id,
+            version_id=new_version.id,
+            csv_path=str(cleaned_path),
+            force_rebuild=True
+        )
+
+        session.add(new_version)
         session.commit()
+        session.refresh(new_version)
 
+        now_str = datetime.now(timezone.utc).isoformat()
         return {
             "success": True,
+            "version_id": str(new_version.id),
             "cleaned_path": str(cleaned_path),
             "rows_before": len(df),
-            "rows_after": len(cleaned_df),
-            **result["execution_summary"],
+            "rows_after": rows_after,
+            "started_at": summary.get("started_at", now_str),
+            "completed_at": summary.get("completed_at", now_str),
+            **{k: v for k, v in summary.items() if k not in ("started_at", "completed_at")},
         }
 
     except ResourceNotFound as e:

@@ -383,7 +383,7 @@ class Executor:
 
                 # ── DB Execution (timed) ──
                 t_exec = time.perf_counter()
-                result_df = await db.execute_query(raw_sql, timeout_seconds=timeout_sec)
+                result_df = await db.execute_query(raw_sql, table_name=table_name, timeout_seconds=timeout_sec)
                 execution_time_ms = round((time.perf_counter() - t_exec) * 1000)
 
                 result_json = result_df.to_json(orient="records", date_format="iso")

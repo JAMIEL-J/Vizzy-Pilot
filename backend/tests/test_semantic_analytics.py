@@ -24,11 +24,12 @@ def test_find_column_with_semantic_resolver():
 
 def test_column_filter_prioritization():
     # Test that _get_column_priority uses semantic scoring correctly
+    df = pd.DataFrame({"Tot_Rev": [100.0], "DiscountAmt": [10.0]})
     
     # "Rev" should get top tier metrics priority (100)
-    score_rev = column_filter._get_column_priority("Tot_Rev", DomainType.SALES)
+    score_rev = column_filter._get_column_priority(df, "Tot_Rev", DomainType.SALES)
     # "Discount" is usually further down
-    score_discount = column_filter._get_column_priority("DiscountAmt", DomainType.SALES)
+    score_discount = column_filter._get_column_priority(df, "DiscountAmt", DomainType.SALES)
     
     # Priority should be higher for primary metric
     assert score_rev > 0 
