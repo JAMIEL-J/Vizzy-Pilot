@@ -1,207 +1,338 @@
-# <div align="center">✨ Vizzy Analytics</div>
-
 <div align="center">
 
-**Turn raw tabular data into conversational insights, automated KPIs, and explainable visualizations.**
+<h1>⚡ Vizzy Analytics</h1>
 
-[![License](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](LICENSE)
-[![Backend](https://img.shields.io/badge/Backend-FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![Frontend](https://img.shields.io/badge/Frontend-React_19-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
-[![Database](https://img.shields.io/badge/Engine-DuckDB-FEE200?style=for-the-badge&logo=duckdb&logoColor=black)](https://duckdb.org/)
-[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+<p><strong>Natural language to validated SQL. Hybrid execution engine. Immutable audit trail.</strong><br>
+Ask your data a question. Get a chart. Every transformation tracked.</p>
 
-[🚀 Quick Start](#-getting-started) • [🧩 Architecture](#-system-blueprint) • [🛠️ Tech Stack](#️-the-tech-stack) • [🗺️ Roadmap](#-product-roadmap)
+<p>
+  <img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" alt="License"/>
+  <img src="https://img.shields.io/badge/Live%20Demo-Online-brightgreen?style=flat-square&logo=vercel&logoColor=white" alt="Live Demo"/>
+  <img src="https://img.shields.io/github/last-commit/JAMIEL-J/Vizzy-Analytics?style=flat-square&logo=github" alt="Last Commit"/>
+  <img src="https://img.shields.io/github/repo-size/JAMIEL-J/Vizzy-Analytics?style=flat-square" alt="Repo Size"/>
+</p>
+
+<p>
+  <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python"/>
+  <img src="https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI"/>
+  <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black" alt="React"/>
+  <img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript"/>
+  <img src="https://img.shields.io/badge/DuckDB-FFF000?style=flat-square&logo=duckdb&logoColor=black" alt="DuckDB"/>
+  <img src="https://img.shields.io/badge/Tailwind_CSS-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white" alt="Tailwind CSS"/>
+  <img src="https://img.shields.io/badge/Deployed%20on-Vercel-000000?style=flat-square&logo=vercel&logoColor=white" alt="Vercel"/>
+</p>
+
+<p>
+  <a href="https://vizzy-ai-dqgw.vercel.app">🚀 Live Demo</a> &nbsp;·&nbsp;
+  <a href="https://github.com/JAMIEL-J/Vizzy-Analytics">📂 GitHub</a> &nbsp;·&nbsp;
+  <a href="#%EF%B8%8F-how-it-works">⚙️ How It Works</a> &nbsp;·&nbsp;
+  <a href="#-performance-numbers">🔖 Benchmarks</a>
+</p>
 
 </div>
 
 ---
 
-## 🌟 The Vision
+## The Problem
 
-Vizzy is a **trust-first analytics platform** designed to bridge the gap between raw data and decision-making. Instead of wrestling with SQL or complex BI tools, Vizzy allows users to interact with their data using **natural language**, providing a conversational interface that generates accurate KPIs, charts, and insights with deterministic guardrails.
+Data teams face a severe workflow bottleneck when non-technical stakeholders require custom aggregations or transformations, forcing analysts to manually write and debug SQL. When transformations are performed ad-hoc without structured tracking, data trust degrades as there is no record of how metrics were generated. Furthermore, when underlying database schemas change or files are re-uploaded, existing static dashboards break, leading to silent reporting errors and outdated visualizations.
 
-### ⚡ Key Value Propositions
+## What Vizzy Does
 
-- 💬 **Conversational Intelligence**: Ask questions in plain English. No SQL knowledge required.
-- 📈 **Smart Visualizations**: Auto-suggests the best chart type based on data dimensions and metrics.
-- 🧼 **Transparent Data Cleaning**: Guided remediation for nulls, duplicates, and outliers with a full audit trail.
-- 🧠 **Session Context**: Maintains conversational memory for deep-dive, multi-turn analysis.
-- 🔒 **Enterprise Foundation**: Built with an immutable versioning model and explicit approval workflows.
+Vizzy translates natural language queries into validated database operations, executing them against a versioned dataset while preserving a full audit trail of every transformation. It establishes an immutable lineage of data states by generating verifiable cleaning plans and re-mapping rules whenever dataset schemas or column mappings change. Stakeholders interact with auto-generated charts that immediately recalculate during client-side filter changes without corrupting the underlying dataset.
 
 ---
 
-## 🎯 Feature Matrix
+## 📊 Performance Numbers
 
-| Feature | Description | Impact |
-| :--- | :--- | :--- |
-| **NL $\to$ SQL Engine** | Maps natural language intent to optimized DuckDB queries. | ⏱️ Zero-SQL Analysis |
-| **Visualization Studio** | Generates dashboard-ready charts (Pie, Bar, Line, Donut). | 📊 Instant Reporting |
-| **Cleaning Studio** | Profiling & remediation of tabular datasets. | 🧽 High Data Trust |
-| **Conversation Memory** | Retains state across multiple analytical queries. | 🔄 Fluid Exploration |
-| **Version Control** | Immutable snapshots of datasets and cleaning plans. | 🛡️ Full Auditability |
+> Benchmarked on: Intel i-series · 7.75GB RAM · Python 3.14 · [`run_benchmarks.py`](backend/benchmarks/run_benchmarks.py)
+
+On this configuration the analytics engine achieves under 65ms p95 across all query types on a 1M row dataset, rendering a simple filter at p95 of 2.77ms and a complex multi-aggregation at p95 of 55ms. Query routing depends on dataset size: pandas is up to 2.24x faster below 100K rows, whereas DuckDB takes over at 100K rows and executes 3.34x faster than pandas at 1M rows. Caching reduces query latency from a cold state of ~27ms to under 1ms on warm hits. File ingestion processes a 10MB CSV in 371ms at 377K rows/second, scaling to 2.3 seconds for a 100MB CSV at 610K rows/second, with non-UTF-8 encoding fallbacks introducing ~70% execution overhead. Concurrent dashboard loading displays the first chart in 55ms, with all 5 slots completing in 67ms.
+
+| Metric | Value |
+|:---|:---|
+| Simple filter · 1M rows | **2.77ms p95** |
+| Complex multi-aggregation · 1M rows | **55ms p95** |
+| DuckDB vs Pandas at 1M rows | **3.34x faster** |
+| Routing crossover point | **~100K rows** |
+| Cache cold → warm | **~27ms → <1ms** |
+| Time to first chart (SSE) | **55ms** |
+| All 5 dashboard slots complete | **67ms** |
+| 100MB CSV ingestion | **2.3s · 610K rows/sec** |
+
+**Bar = DuckDB execution time (ms) &nbsp;|&nbsp; Line = Pandas execution time (ms)**
+
+```mermaid
+xychart-beta
+    title "DuckDB vs Pandas — Execution Time by Row Count"
+    x-axis ["1K", "10K", "50K", "100K", "250K", "500K", "1M"]
+    y-axis "Execution Time (ms)"
+    bar [4.16, 5.11, 7.25, 10.20, 12.90, 16.80, 26.70]
+    line [1.86, 2.28, 6.26, 10.50, 23.90, 44.70, 89.30]
+```
+
+> Pandas is faster below 100K rows. DuckDB scales efficiently, becoming 3.34x faster at 1M rows.
 
 ---
 
-## 🧩 System Blueprint
+## ⚙️ How It Works
 
-Vizzy employs a decoupled architecture to ensure scalability and reliability.
+The request lifecycle begins when the user enters a natural language query in the React interface (`ChatInterface.tsx`). The frontend sends this query to the FastAPI backend (`POST /api/v1/chat`), where it is parsed by the LLM routing service (`app/services/llm/llm_router.py`). The router coordinates either a Groq or Gemini model to generate a valid SQL query based on constraints in `config.py` (timeout: 30 seconds, maximum token budget: 512). The generated SQL passes through SQLGlot validation guardrails to prevent injection or invalid syntax before proceeding.
+
+Once validated, the query router (`app/services/analytics/execution_router.py`) evaluates execution size. For datasets under 100K rows, it routes to `pandas_pipeline.py` because pandas is up to 2.24x faster at small scale. For 100K rows or more, it routes to `duckdb_pipeline.py`, scaling to 3.34x faster than pandas at 1M rows. Before executing, the router checks the query cache (`app/services/analytics/query_cache.py`) using a cache key structured as `f"{dataset_id}:{version_id}:{chart_id}:{filters_json}"`. Cold cache executes in ~27ms; warm hits resolve under 1ms.
 
 ```mermaid
 flowchart TD
-    User[👤 User] --> Frontend[🖥️ React Frontend]
-    Frontend --> Gateway[🌐 FastAPI Gateway]
-    
-    subgraph "Intelligence Core"
-        Gateway --> Orchestrator[🧠 Analysis Orchestrator]
-        Gateway --> Cleaner[🧼 Cleaning Service]
-        Orchestrator --> LLM[🔌 LLM Providers]
-        Orchestrator --> Guardrails[🛡️ SQL Guardrails]
-    end
-    
-    subgraph "Data Persistence"
-        Orchestrator --> DuckDB[(🦆 DuckDB)]
-        Cleaner --> DuckDB
-        DuckDB --> Storage[📂 Dataset Storage]
-    end
-    
-    Guardrails --> DuckDB
-    DuckDB --> Output[📤 Insights & Visuals]
+    Q([Incoming Natural Language Query]) --> C{Cache Hit?}
+    C -- Yes --> R([Return Cached Result — under 1ms])
+    C -- No --> S{Row Count}
+    S -- Less than 100K rows --> P([Pandas Pipeline\nup to 2.24x faster at small scale])
+    S -- 100K rows or more --> D([DuckDB Pipeline\n3.34x faster at 1M rows])
+    P --> CS([Write to Cache])
+    D --> CS
+    CS --> SS([Stream via SSE to Client])
 ```
 
-### 🏗️ Layer Breakdown
-- **Frontend**: A high-performance React 19 application utilizing **Zustand** for state and **TanStack Query** for async synchronization.
-- **API Gateway**: A robust FastAPI layer handling authentication, request validation, and rate limiting.
-- **Intelligence Core**: A modular service layer that orchestrates LLM-generated SQL, validates it against security constraints, and executes it via DuckDB.
-- **Data Layer**: Leverages **DuckDB** for blazing-fast in-memory analytical processing of tabular data.
+> Queries are cache-checked first, then routed by dataset size — minimising redundant database execution.
+
+Results are yielded to the client via Server-Sent Events (`StreamingResponse` in `app/api/dashboard_load_routes.py`). The React hook `useDashboardStream` opens a persistent SSE connection (`GET /dashboard/load/{version_id}`), extracting token authorizations from query parameters since `EventSource` does not support custom headers. Streamed data updates the Zustand store (`useFilterStore`), which coordinates local filtering. Local filters apply directly to the in-memory sample (`rawData`), recalculating chart aggregates dynamically so that the database is not queried on simple filter changes.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant React as React Frontend (ChatInterface)
+    participant API as FastAPI Gateway
+    participant LLM as LLM — Groq/Gemini Router
+    participant Guard as SQL Guardrails (SQLGlot)
+    participant Cache as query_cache.py
+    participant DB as DuckDB / Pandas Pipeline
+    participant SSE as SSE Stream (load_dashboard)
+
+    User->>React: Enter query in natural language input field
+    React->>API: POST /api/v1/chat — JWT Auth
+    API->>LLM: Request SQL generation
+    LLM-->>API: Raw SQL response
+    API->>Guard: Validate SQL security and syntax
+    Guard-->>API: Validated query
+    API->>Cache: Check cache key
+    alt Cache Hit
+        Cache-->>API: Return results — under 1ms
+    else Cache Miss
+        API->>DB: Execute on slotted pipeline
+        DB-->>API: Query results — approximately 27ms
+        API->>Cache: Store result
+    end
+    API->>SSE: Stream event packets via GET /dashboard/load/{version_id}
+    SSE-->>React: Yield JSON chunk — useDashboardStream hook
+    React-->>User: Render updated ChartRenderer
+```
+
+> Server-side validation and cache-check run before results stream via EventSource to the client.
+
+```mermaid
+sequenceDiagram
+    participant API as Streaming Response
+    participant UI as Dashboard View
+
+    Note over API: Concurrent Slot Processing Begins
+    API->>UI: Stream Open — 0ms
+    API->>UI: First Slot Result — simple_filter — 55ms
+    Note over UI: First Chart Visible to User
+    API->>UI: Final Slot Result — complex_query — 67ms
+    Note over UI: All 5 Charts Complete
+```
+
+> All 5 dashboard slots execute concurrently. First chart visible in 55ms. Full dashboard complete in 67ms.
 
 ---
 
-## 🛠️ The Tech Stack
+## 🧩 Feature Matrix
 
-### 🎨 Frontend Experience
-- **Framework**: `React 19` + `TypeScript` + `Vite`
-- **Styling**: `Tailwind CSS` (Custom design system)
-- **State Management**: `Zustand`
-- **Data Fetching**: `TanStack Query`
-- **Visuals**: `Chart.js` + `react-chartjs-2`
+| Feature | What It Does | Measurable Behavior / Impact |
+|:---|:---|:---|
+| **Natural Language Querying** | Translates plain text to validated SQL using Groq or Gemini models. | A non-technical stakeholder retrieves a grouped KPI without writing or reviewing a single line of SQL. |
+| **Hybrid Execution Routing** | Switches dynamically between Pandas and DuckDB based on a 100K row threshold. | Executes small datasets under 3ms (p95). Executes 1M-row datasets under 55ms (p95). |
+| **Immutable Versioning** | Chains dataset changes using parent version IDs and approved semantic mapping states. | A cleaning operation applied at 2pm is fully reversible and auditable at 4pm with exact diff visibility. |
+| **SSE Streaming** | Broadcasts dashboard slot results as each execution slot completes. | First chart visible in 55ms. Full 5-chart dashboard resolves in 67ms. |
+| **Data Profiling & Schema Inference** | Evaluates data types, unique values, and cardinality ratios from a 50-row sample. | Identifies semantic column roles and blocks false positives like "percentage" or "usage" from misclassification. |
+| **Data Cleaning Pipeline** | Performs outlier capping, string trimming, missing value interpolation, and duplicate removal. | Resolves NaT errors and scales parsing to 610K rows/sec on clean UTF-8 ingestion. |
 
-### ⚙️ Backend Powerhouse
-- **Language**: `Python 3.10+`
-- **API Framework**: `FastAPI`
-- **Analytics Engine**: `DuckDB`
-- **Data Modeling**: `SQLModel`
-- **LLM Integration**: Groq / Gemini (Unified Client)
+```mermaid
+flowchart TD
+    O([Original Dataset Version]) --> C([Create Cleaning Plan])
+    C --> P([proposed_actions JSON])
+    P --> A{Approval Gate\napproved_by and approved_at}
+    A -- Approved --> E([execute_cleaning])
+    E --> V([New Immutable DatasetVersion\nparent_version_id assigned])
+    V --> L([Log AuditEvent\nFILE_INGESTED / DATASET_CREATED])
+    V --> R([Rollback Path\nvia parent_version_id])
+```
+
+> Versions chain through `parent_version_id` — every cleaning operation is reversible with full diff visibility at any point.
 
 ---
 
-<div align="center">
+## 🏗️ Architecture
 
-### 🛠️ Powered By
-<a href="https://skillicons.dev">
-  <img src="https://skillicons.dev/icons?i=react,ts,vite,tailwind,py,fastapi" />
-</a>
+```mermaid
+graph TD
+    classDef frontend fill:transparent,stroke:#01579b,stroke-width:2px;
+    classDef api fill:transparent,stroke:#2e7d32,stroke-width:2px;
+    classDef service fill:transparent,stroke:#ef6c00,stroke-width:2px;
+    classDef engine fill:transparent,stroke:#7b1fa2,stroke-width:2px;
+    classDef storage fill:transparent,stroke:#455a64,stroke-width:2px;
+    classDef ext fill:transparent,stroke:#333,stroke-dasharray: 5 5;
 
-<div style="margin-top: 10px;">
-  <img src="https://img.shields.io/badge/DuckDB-FEE200?style=flat-square&logo=duckdb&logoColor=black" />
-  <img src="https://img.shields.io/badge/Zustand-4433FF?style=flat-square&logo=react&logoColor=white" />
-  <img src="https://img.shields.io/badge/TanStack_Query-FF4154?style=flat-square&logo=react&logoColor=white" />
-  <img src="https://img.shields.io/badge/Chart.js-FFCD56?style=flat-square&logo=chartdotjs&logoColor=black" />
-</div>
+    subgraph Client ["Frontend — React / Vite"]
+        UI[User Interface]:::frontend
+        ConnectDB[Connect Database]:::frontend
+        CleaningStudio[Cleaning Studio]:::frontend
+        Dashboard[Dashboard View]:::frontend
+        Chat[Chat Interface]:::frontend
+    end
 
-</div>
+    subgraph API ["FastAPI API Gateway"]
+        AuthAPI[Auth Routes]:::api
+        UploadAPI[Upload Routes]:::api
+        InspectAPI[Inspection Routes]:::api
+        CleanAPI[Cleaning Routes]:::api
+        AnalysisAPI[Analysis Routes]:::api
+    end
+
+    subgraph Services ["Business Services Layer"]
+        AuthSvc[Auth Service]:::service
+        DatasetSvc[Dataset Service]:::service
+        InspectSvc[Inspection Service]:::service
+        CleanSvc[Cleaning Service]:::service
+        AnalysisOrch[Analysis Orchestrator]:::service
+    end
+
+    subgraph Engines ["Slotted Execution Pipelines"]
+        IngestEng[Ingestion Engine]:::engine
+        InspectEng[Inspection Engine]:::engine
+        CleanEng[Cleaning Engine]:::engine
+
+        subgraph NLP_Pipeline ["LLM / NLP Pipeline"]
+            IntentClass[Intent Classifier]:::engine
+            IntentValid[Intent Validator]:::engine
+            ChartRec[Chart Recommender]:::engine
+            TextGen[Text Answer Generator]:::engine
+        end
+
+        AnalysisExec[Analysis Executor]:::engine
+    end
+
+    subgraph Infrastructure ["Persistent Storage and LLM APIs"]
+        DB[(PostgreSQL / SQLite)]:::storage
+        FS[File System — Parquet / CSV]:::storage
+        LLM[LLM Provider — Gemini / Groq]:::ext
+    end
+
+    UI --> AuthAPI
+    ConnectDB --> UploadAPI
+    CleaningStudio --> CleanAPI
+    CleaningStudio --> InspectAPI
+    Dashboard --> AnalysisAPI
+    Chat --> AnalysisAPI
+
+    AuthAPI --> AuthSvc
+    UploadAPI --> DatasetSvc
+    InspectAPI --> InspectSvc
+    CleanAPI --> CleanSvc
+    AnalysisAPI --> AnalysisOrch
+
+    DatasetSvc --> IngestEng
+    IngestEng --> FS
+    IngestEng --> DB
+
+    InspectSvc --> InspectEng
+    InspectEng --> FS
+    InspectEng --> DB
+
+    CleanSvc --> CleanEng
+    CleanEng --> FS
+    CleanEng --> DB
+
+    AnalysisOrch --> IntentClass
+    IntentClass --> LLM
+    IntentClass --> IntentValid
+    IntentValid --> AnalysisExec
+    AnalysisExec --> FS
+    AnalysisExec --> AnalysisOrch
+
+    AnalysisOrch --> ChartRec
+    ChartRec --> AnalysisOrch
+
+    AnalysisOrch --> TextGen
+    TextGen --> LLM
+    TextGen --> AnalysisOrch
+
+    AnalysisOrch --> AnalysisAPI
+```
+
+> Each UI page routes through a dedicated FastAPI handler → service → execution engine → storage. No cross-layer shortcuts.
 
 ---
 
 ## 🚀 Getting Started
 
-### 📋 Prerequisites
-- Python 3.10+
-- Node.js 18+
-- An LLM API Key (Groq/Gemini)
+**Prerequisites:** Python 3.10+ · Node.js 18+ · Groq or Gemini API key
 
-### 🧭 Fresh Laptop Setup
-1. Clone the repository and open the workspace root.
-2. Set up the backend first, because the frontend points at the API.
-3. Set up the frontend `.env` with `VITE_API_URL=http://localhost:8000/api/v1`.
-4. Start the backend on port `8000`, then start the frontend on port `5173`.
+**Backend**
 
-### 🛠️ Backend Installation
 ```bash
-# Navigate to backend
 cd backend
-
-# Setup virtual environment
-python -m venv .venv
-# Windows: .\\.venv\\Scripts\\activate
-# Mac/Linux: source .venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Environment configuration
 cp .env.example .env
-# Edit .env and add your API keys
-
-# Start the server
-python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+pip install -r requirements.txt
+uvicorn app.main:app --reload
 ```
-**API Base**: `http://localhost:8000/api/v1` | **Docs**: `http://localhost:8000/docs`
 
-### 💻 Frontend Installation
+API at `http://localhost:8000` · Docs at `http://localhost:8000/docs`
+
+**Frontend**
+
 ```bash
-# Navigate to frontend
 cd frontend
-
-# Install packages
 npm install
-
-# Environment configuration
-# Create frontend/.env (or copy frontend/.env.example if available) and set:
-#   VITE_API_URL=http://localhost:8000/api/v1
-
-# Launch development server
 npm run dev
 ```
-**App URL**: `http://localhost:5173`  
-**API URL**: `http://localhost:8000/api/v1`
 
-### 📦 Chart Library Notes
-- The frontend charts now use `Chart.js` and `react-chartjs-2`.
-- Run `npm install` in `frontend/` to ensure the Chart.js packages from `package.json` are present on the new laptop.
+App at `http://localhost:5173`
 
----
+**Benchmarks**
 
-## 🗺️ Product Roadmap
+```bash
+python backend/benchmarks/run_benchmarks.py
+# --quick flag for 5-iteration rapid run
+```
 
-- [ ] **⚡ Ultra-Low Latency**: Implementation of optimized caching layers for common queries.
-- [ ] **🔮 Predictive Analytics**: Integrating forecasting models for time-series data.
-- [ ] **🤝 Collaboration**: Shared workspaces and collaborative dashboard editing.
-- [ ] **📄 Advanced Export**: One-click export to PDF, Excel, and professional report formats.
-- [ ] **🏷️ Data Catalog**: Comprehensive metadata management and data lineage tracking.
+Results saved to `backend/benchmarks/results.json`
 
 ---
 
-## 🤝 Contributing
+## 🛠️ Tech Stack
 
-We welcome contributions to make Vizzy even more powerful. Please follow these steps:
-1. Fork the repository.
-2. Create a feature branch (`git checkout -b feature/AmazingFeature`).
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`).
-4. Push to the branch (`git push origin feature/AmazingFeature`).
-5. Open a Pull Request.
+<div align="center">
+  <img src="https://skillicons.dev/icons?i=react,ts,vite,tailwind,py,fastapi" />
+</div>
 
----
+<br>
 
-## 📄 License
-
-This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for details.
+| Layer | Technologies |
+|:---|:---|
+| **Frontend** | React 19, TypeScript, Vite, Tailwind CSS, Zustand, Chart.js (react-chartjs-2) |
+| **Backend** | Python 3.10+, FastAPI, SQLModel, Python-jose |
+| **Execution** | DuckDB, Pandas, SQLGlot |
+| **LLM** | Groq API, Gemini API |
+| **Deployment** | Vercel (frontend), Uvicorn (backend) |
 
 ---
 
 <div align="center">
-
-### 💡 Make analytics feel effortless.
-
-If you find this project useful, consider giving it a ⭐ on GitHub to support its development!
-
+  <a href="https://vizzy-ai-dqgw.vercel.app">
+    <img src="https://img.shields.io/badge/Try%20it%20Live-vizzy--ai--dqgw.vercel.app-brightgreen?style=for-the-badge&logo=vercel&logoColor=white" alt="Live Demo"/>
+  </a>
+  <br><br>
+  <sub>Benchmarked on Intel i-series · 7.75GB RAM · Python 3.14 · All numbers reproducible via <code>run_benchmarks.py</code></sub>
 </div>
