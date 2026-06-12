@@ -308,3 +308,79 @@ def _count_csv_rows(file_path: Path) -> int:
     """Count rows in CSV file (excluding header)."""
     with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
         return max(sum(1 for _ in f) - 1, 0)
+
+
+async def generate_initial_dashboard(
+    *,
+    session: Session,
+    dataset_id: UUID,
+    version_id: UUID,
+    user_id: UUID,
+    schema: List[Dict[str, Any]],
+    raw_path: str,
+) -> Dict[str, Any]:
+    """
+    Generate initial dashboard with auto semantic mapping after file upload.
+    
+    This provides "Zero-Input First Render" - immediate dashboard without
+    requiring manual semantic audit.
+    
+    Steps:
+    1. Run semantic audit (LLM-based column classification)
+    2. Generate dashboard using the semantic map
+    3. Save semantic map to version
+    4. Return dashboard data
+    """
+    from app.services.semantic_audit import run_semantic_audit
+    from app.services.visualization.dashboard_generator import generate_overview_dashboard
+    from app.services.analytics.csv_loader import safe_read_csv
+    from app.core.llm_client import get_llm_client
+    import json
+    
+    # Load data for semantic mapping and dashboard generation
+    df = safe_read_csv(raw_path)
+    
+    # Get LLM client for semantic mapping
+    llm_client = get_llm_client()
+    
+    # Run semantic audit to get column mappings
+    try:
+        mappings = await run_semantic_audit(
+            dataset_id=str(dataset_id),
+            version_id=str(version_id),
+            schema=schema,
+            llm_router=llm_client,
+        )
+        
+        # Convert mappings to semantic_map_json format
+        semantic_map = {m["column"]: m["role"] for m in mappings if "column" in m and "role" in m}
+        semantic_map_json = json.dumps(semantic_map)
+        
+        # Update version with semantic map
+        version = session.get(DatasetVersion, version_id)
+        if version:
+            version.semantic_map_json = semantic_map_json
+            session.add(version)
+            session.commit()
+    except Exception as e:
+        # If semantic mapping fails, continue without it
+        semantic_map_json = None
+    
+    # Generate dashboard
+    try:
+        dashboard_result = generate_overview_dashboard(
+            df=df,
+            schema={"columns": schema},
+            semantic_map_json=semantic_map_json,
+        )
+        
+        return {
+            "dashboard": dashboard_result.get("dashboard"),
+            "semantic_map": semantic_map_json,
+        }
+    except Exception as e:
+        return {
+            "dashboard": None,
+            "semantic_map": semantic_map_json,
+            "error": str(e),
+        }

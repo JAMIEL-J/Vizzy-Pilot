@@ -5,6 +5,8 @@ import pandas as pd
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Tuple
 
+from app.services.analytics.query_utils import execute, build_in_clause, safe_identifier
+
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -85,22 +87,21 @@ def coerce_column(
         if original_type != 'VARCHAR':
             return None
 
-        # Step 1: Handle null strings
-        conn.execute(f"""
+        # Step 1: Handle null strings — parameterized IN clause
+        in_clause, null_params = build_in_clause(list(NULL_STRINGS))
+        execute(conn, f"""
             UPDATE "{table_name}"
             SET "{column}" = NULL
-            WHERE LOWER(TRIM("{column}")) IN ({
-                ','.join(f"'{s}'" for s in NULL_STRINGS)
-            })
-        """)
+            WHERE LOWER(TRIM("{column}")) {in_clause}
+        """, params=null_params)
 
-        # Step 2: Detect patterns from a sample
-        sample_df = conn.execute(f"""
+        # Step 2: Detect patterns from a sample — parameterized LIMIT
+        sample_df = execute(conn, f"""
             SELECT "{column}"
             FROM "{table_name}"
             WHERE "{column}" IS NOT NULL
-            LIMIT {sample_size}
-        """).df()
+            LIMIT ?
+        """, params=[sample_size]).df()
 
         if sample_df.empty:
             return None
@@ -183,7 +184,7 @@ def coerce_column(
 def run_coercion_pipeline(conn: duckdb.DuckDBPyConnection, table_name: str) -> List[ColumnCoercionResult]:
     """Run coercion on all VARCHAR columns in a table."""
     results = []
-    schema_df = conn.execute(f'DESCRIBE "{table_name}"').df()
+    schema_df = execute(conn, f'DESCRIBE "{table_name}"').df()
     varchar_cols = schema_df[schema_df['column_type'] == 'VARCHAR']['column_name'].tolist()
     
     for col in varchar_cols:

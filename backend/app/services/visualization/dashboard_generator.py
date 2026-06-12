@@ -40,7 +40,7 @@ def generate_overview_dashboard(
     if semantic_map_json:
         try:
             from app.services.analytics.role_resolver import normalize_to_col_role, invert_to_role_map
-            from app.services.semantic_audit import ROLE_TAXONOMY
+            from app.services.role_taxonomy import ROLE_TAXONOMY
 
             # Normalize to {column: role} regardless of stored format
             col_role_map = normalize_to_col_role(semantic_map_json)

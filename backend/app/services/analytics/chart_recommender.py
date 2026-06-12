@@ -8,7 +8,7 @@ Uses BI dashboard best practices to prioritize business-critical metrics.
 import logging
 import json
 from typing import Dict, Any, List, Optional, Set
-from app.services.semantic_audit import ROLE_TAXONOMY
+from app.services.role_taxonomy import ROLE_TAXONOMY
 from dataclasses import dataclass
 import warnings
 import re
@@ -672,44 +672,47 @@ def _create_smart_title(metric_col: Optional[str], dimension_col: str, chart_pur
 
 
 def _deduplicate_charts(charts: List['ChartRecommendation']) -> List['ChartRecommendation']:
-    """Remove duplicate/similar charts to avoid repetition."""
+    """Remove duplicate/similar charts to avoid repetition.
+    
+    Rules:
+    1. No duplicate titles
+    2. No duplicate (dimension, metric, aggregation) fingerprints 
+    3. For trend charts: only one trend per metric (different dates are still duplicates semantically)
+    4. Preserve variance_score ordering when deduplicating
+    """
     seen_combos: Set[str] = set()
     seen_titles: Set[str] = set()
+    seen_trend_metrics: Set[str] = set()  # Track which metrics have trend charts
     unique_charts = []
     
     for chart in charts:
         title_lower = chart.title.lower()
+        
+        # Rule 1: Skip if we've seen this exact title
         if title_lower in seen_titles:
             continue
             
-        # Dimension + Metric + Aggregation is the fingerprint of the chart's intelligence
-        # We allow the same data to be shown in different types (e.g. Bar vs Donut) 
-        # ONLY if the user explicitly overrides it, but the recommender should pick just one.
-        # Fingerprint: dim + metric + agg
         dim = chart.dimension or ""
         met = chart.metric or ""
         agg = chart.aggregation or "sum"
-        
-        # If both dim and metric are missing, we fall back to title-based deduplication
-        if not dim and not met:
-            seen_titles.add(title_lower)
-            unique_charts.append(chart)
-            continue
-            
-        data_fingerprint = f"{dim}|{met}|{agg}"
-        
-        # If we already have a chart for this data, skip it
-        # UNLESS it's a completely different category of chart (e.g. a time trend vs a categorical bar)
         type_ = chart.chart_type
+        
+        # Rule 3: For trend charts, only allow ONE per metric
+        # (different date columns showing same metric are semantic duplicates)
         is_trend = type_ in ('line', 'area')
+        if is_trend and met:
+            if met in seen_trend_metrics:
+                continue  # Already have a trend for this metric
+            seen_trend_metrics.add(met)
         
-        # Unique key: data + whether it's a trend
-        key = f"{data_fingerprint}|{is_trend}"
+        # Rule 2: Skip if both dim and metric exist and we've seen this combo
+        if dim and met:
+            data_fingerprint = f"{dim}|{met}|{agg}"
+            if data_fingerprint in seen_combos:
+                continue
+            seen_combos.add(data_fingerprint)
         
-        if key in seen_combos:
-            continue
-            
-        seen_combos.add(key)
+        # Rule 1: Track title
         seen_titles.add(title_lower)
         unique_charts.append(chart)
     
@@ -4648,7 +4651,448 @@ def _generate_templated_charts(df: pd.DataFrame, classification: ColumnClassific
 
     return charts
 
-def recommend_charts(df: pd.DataFrame, domain: DomainType, classification: ColumnClassification, overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+# =============================================================================
+# Exhaustive Column Coverage
+# =============================================================================
+
+def _generate_all_columns_charts(
+    df: pd.DataFrame,
+    classification: ColumnClassification,
+    curated_titles: Optional[Set[str]] = None,
+    curated_pairs: Optional[Set[Tuple[str, str]]] = None,
+) -> List[ChartRecommendation]:
+    """
+    Generate meaningful column-coverage charts for EVERY column in the dataset.
+    
+    Unlike the original naive approach (one raw distribution per column), this
+    builds SMART PAIRINGS: each column is shown in the context of its best
+    analytical partner, producing actual business-intelligence charts.
+    
+    Strategy:
+      - Metrics   → bar/hbar aggregated by the best available dimension
+                     (e.g. "MonthlyCharges by Contract Type")
+      - Dimensions → paired with a metric (e.g. "Avg MonthlyCharges by Region")
+      - Dates     → trend line paired with a metric (e.g. "Revenue Over Time")
+      - Last resort → meaningful percentile-tier bins (never raw numeric ranges)
+      
+    Deduplication (no repeated charts across tabs):
+      *curated_titles* — set of chart titles from the Key Insights tab.
+      When a metric×dimension pair already exists in curated charts,
+      the function automatically picks a **different** dimension for
+      the All Columns variant. The (2)/(3) suffix is never used for
+      partial-duplicate titles — only for truly identical titles
+      within All Columns.
+      
+    Coverage guarantee: every non-trivial column participates in at least 1 chart.
+    6 charts per page via frontend pagination keeps scroll under control.
+    """
+    charts: List[ChartRecommendation] = []
+    seen_titles: Set[str] = set()
+    if curated_titles is None:
+        curated_titles = set()
+    if curated_pairs is None:
+        curated_pairs = set()
+    # Normalise to lowercase for case-insensitive matching
+    curated_pairs_norm: Set[Tuple[str, str]] = {(m.lower(), d.lower()) for m, d in curated_pairs}
+
+    def _unique_title(base: str, max_attempts: int = 20) -> str:
+        if base not in seen_titles and base not in curated_titles:
+            seen_titles.add(base)
+            return base
+        for i in range(2, max_attempts + 1):
+            candidate = f"{base} ({i})"
+            if candidate not in seen_titles and candidate not in curated_titles:
+                seen_titles.add(candidate)
+                return candidate
+        return base
+
+    # --------------------------------------------------------------------------
+    #  HELPERS — meaningful / tiered bins (never raw number ranges)
+    # --------------------------------------------------------------------------
+    def _build_tier_chart(column: str, n_tiers: int = 5) -> Optional[ChartRecommendation]:
+        """Create a chart using percentile-based tier bins with descriptive labels.
+        
+        Tier labels describe the segment (e.g. "Low", "Medium", "High")
+        so the chart communicates *which* tier customers fall into, not
+        a meaningless numeric range.
+        """
+        vals = df[column].dropna()
+        if len(vals) < 6:
+            return None
+        # Tier labels — concise, business-meaningful
+        tier_labels_map = {
+            2: ["Low", "High"],
+            3: ["Low", "Medium", "High"],
+            4: ["Low", "Medium-Low", "Medium-High", "High"],
+            5: ["Very Low", "Low", "Medium", "High", "Very High"],
+        }
+        labels = tier_labels_map.get(n_tiers, [f"Tier {i+1}" for i in range(n_tiers)])
+        try:
+            vals_clean = vals.reset_index(drop=True)
+            # Use qcut for equal-frequency tiers
+            cats = pd.qcut(vals_clean, q=len(labels), labels=labels, duplicates='drop')
+            count_data = cats.value_counts().reset_index()
+            count_data.columns = ['tier', 'count']
+            tier_data = [{"name": str(r['tier']), "value": int(r['count'])} for _, r in count_data.iterrows()]
+        except Exception:
+            # If qcut fails (e.g. too many duplicates), use cut with equal-width tiers
+            try:
+                bins = pd.cut(vals_clean, bins=len(labels), labels=labels)
+                count_data = bins.value_counts().reset_index()
+                count_data.columns = ['tier', 'count']
+                tier_data = [{"name": str(r['tier']), "value": int(r['count'])} for _, r in count_data.iterrows()]
+            except Exception:
+                return None
+
+        fmt = _metric_format_type(column) or 'number'
+        return ChartRecommendation(
+            slot='',
+            title=_unique_title(f"{_beautify_column_name(column)} Tier Distribution"),
+            chart_type='hbar',
+            data=tier_data,
+            confidence='LOW',
+            reason=f'Full coverage: {_beautify_column_name(column)} value tiers',
+            dimension=column,
+            metric=column,
+            aggregation='count',
+            format_type=fmt,
+        )
+
+    def _make_pairing_chart(
+        dim: str,
+        metric: str,
+        used_dims: set,
+        used_metrics: set,
+    ) -> Optional[ChartRecommendation]:
+        """Build a metric×dimension bar/hbar chart and register both columns."""
+        if _should_average_metric(metric):
+            data = _safe_groupby_mean(df, dim, metric, limit=10)
+            agg = 'mean'
+            prefix = 'Avg'
+        else:
+            data = _safe_groupby_sum(df, dim, metric, limit=10)
+            agg = 'sum'
+            prefix = 'Total'
+        if not data:
+            return None
+        fmt = _metric_format_type(metric) or 'number'
+        nunique = df[dim].nunique()
+        title = _unique_title(f"{prefix} {_beautify_column_name(metric)} by {_beautify_column_name(dim)}")
+        rec = ChartRecommendation(
+            slot='', title=title,
+            chart_type='hbar' if nunique > 5 else 'bar',
+            data=data, confidence='MEDIUM',
+            reason=f'Full coverage: {_beautify_column_name(metric)} across {_beautify_column_name(dim)}',
+            dimension=dim, metric=metric, aggregation=agg,
+            format_type=fmt,
+        )
+        used_dims.add(dim)
+        used_metrics.add(metric)
+        return rec
+
+    # ------------------------------------------------------------------
+    # 1.  BUILD CLEAN COLUMN POOLS
+    # ------------------------------------------------------------------
+    dims_all = [c for c in (classification.dimensions or []) if c in df.columns and not _is_low_value_column(c)]
+    metrics_all = [c for c in (classification.metrics or []) if c in df.columns and not _is_low_value_column(c)]
+    dates_all = [c for c in (classification.dates or []) if c in df.columns and not _is_low_value_column(c)]
+
+    # Also grab any column present in df that is numeric or has low-enough cardinality
+    extra_cols = []
+    for col in df.columns:
+        if col not in dims_all and col not in metrics_all and col not in dates_all:
+            if not _is_low_value_column(col):
+                extra_cols.append(col)
+
+    # Prioritise metrics by BI importance
+    pm = _prioritize_metrics(metrics_all)
+
+    # ------------------------------------------------------------------
+    # 2.  HELPERS: find best dimension / metric partners
+    # ------------------------------------------------------------------
+    def _best_dim_for_metric(
+        metric: str,
+        used_dims: set,
+        strict: bool = True,
+        allow_used: bool = False,
+        forbidden_pairs: Optional[Set[Tuple[str, str]]] = None,
+    ) -> Optional[str]:
+        """Pick the dimension that best complements *metric*.
+        
+        *strict* (default True):
+            cardinality 3-30, prefer 5-12.
+        *strict=False*:
+            cardinality 2-200, equal scoring — catches edge cases
+            where no dimension fits the strict criteria.
+        *allow_used*:
+            also consider dimensions already used in previous pairings.
+        *forbidden_pairs*:
+            (metric, dimension) pairs that already exist in the curated
+            Key Insights tab — skip these to avoid exact duplicates.
+        """
+        if forbidden_pairs is None:
+            forbidden_pairs = set()
+        best = None
+        best_score = -1
+        for d in dims_all:
+            if not allow_used and d in used_dims:
+                continue
+            if d == metric:
+                continue
+            # Skip if this exact (metric, dim) pair already exists in Key Insights
+            if (metric.lower(), d.lower()) in forbidden_pairs:
+                continue
+            try:
+                n = df[d].nunique()
+            except Exception:
+                continue
+            if strict:
+                if n < 3 or n > 30:
+                    continue
+                score = 10 if 5 <= n <= 12 else (8 if 3 <= n <= 5 else 5)
+            else:
+                if n < 2 or n > 200:
+                    continue
+                score = 6 if 2 <= n <= 5 else (8 if 5 < n <= 15 else (5 if 15 < n <= 50 else 3))
+            if score > best_score:
+                best_score = score
+                best = d
+        return best
+
+    def _best_metric_for_dim(
+        dim: str,
+        used_metrics: set,
+        allow_reuse: bool = False,
+        forbidden_pairs: Optional[Set[Tuple[str, str]]] = None,
+    ) -> Optional[str]:
+        """Pick the highest-priority metric for *dim*.
+        
+        When *allow_reuse* is True, metrics already used in earlier pairings
+        can still be used — charts focus on different primary columns,
+        so metric reuse across charts is fine.
+        """
+        if forbidden_pairs is None:
+            forbidden_pairs = set()
+        pool = pm + [m for m in metrics_all if m not in pm]
+        for m in pool:
+            if m == dim:
+                continue
+            if (m.lower(), dim.lower()) in forbidden_pairs:
+                continue
+            if allow_reuse or m not in used_metrics:
+                if m in df.columns and pd.api.types.is_numeric_dtype(df[m]):
+                    return m
+        # Ultimate fallback: any numeric column
+        for m in df.columns:
+            if m != dim and pd.api.types.is_numeric_dtype(df[m]):
+                if (m.lower(), dim.lower()) not in forbidden_pairs:
+                    return m
+        return None
+
+    # ------------------------------------------------------------------
+    #   PHASE A — Pair each metric with its best dimension
+    # ------------------------------------------------------------------    
+    used_dims_global: set = set()
+    used_metrics_global: set = set()
+    paired_dims: set = set()       # dimensions already paired with SOME metric in A
+
+    for metric in pm:
+        if metric in used_metrics_global:
+            continue
+
+        # Try up to 3 strategies to find a dimension partner,
+        # always avoiding (metric, dim) pairs already in Key Insights.
+        for strategy in [
+            (True,  False),   # 1: strict + fresh dims
+            (False, False),   # 2: relaxed + fresh dims
+            (False, True),    # 3: relaxed + ANY dim (even already paired)
+        ]:
+            dim = _best_dim_for_metric(metric, used_dims_global,
+                                        strict=strategy[0],
+                                        allow_used=strategy[1],
+                                        forbidden_pairs=curated_pairs_norm)
+            if dim is not None:
+                break
+
+        if dim is not None:
+            rec = _make_pairing_chart(dim, metric, used_dims_global, used_metrics_global)
+            if rec is not None:
+                charts.append(rec)
+                paired_dims.add(dim)
+                continue
+
+        # Absolute last resort — meaningful tier bins
+        tier = _build_tier_chart(metric)
+        if tier is not None:
+            charts.append(tier)
+            used_metrics_global.add(metric)
+
+    # ------------------------------------------------------------------
+    #   PHASE B — Cover remaining dimensions with a metric pairing
+    # ------------------------------------------------------------------
+    for dim in dims_all:
+        if dim in used_dims_global:
+            continue
+        try:
+            nunique = df[dim].nunique()
+        except Exception:
+            continue
+        if nunique < 2 or nunique > 200:
+            continue
+
+        metric = _best_metric_for_dim(dim, used_metrics_global, allow_reuse=True, forbidden_pairs=curated_pairs_norm)
+        if metric is not None:
+            rec = _make_pairing_chart(dim, metric, used_dims_global, used_metrics_global)
+            if rec is not None:
+                charts.append(rec)
+                continue
+
+        # Fallback: try pairing with first available metric (direct call, no pre-check)
+        fallback_metric = next((m for m in pm if m != dim), None) or next(
+            (m for m in metrics_all if m != dim), None
+        )
+        if fallback_metric is not None:
+            rec = _make_pairing_chart(dim, fallback_metric, used_dims_global, used_metrics_global)
+            if rec is not None:
+                charts.append(rec)
+                continue
+
+        # No metric found at all — distribution
+        rec = _distribution_chart(
+            df, dim,
+            title=_unique_title(f"{_beautify_column_name(dim)} Distribution"),
+            confidence='MEDIUM' if nunique <= 20 else 'LOW',
+            reason=f'Full coverage: distribution of {_beautify_column_name(dim)}',
+            value_label='Records',
+        )
+        if rec:
+            charts.append(rec)
+            used_dims_global.add(dim)
+
+    # ------------------------------------------------------------------
+    #   PHASE C — Cover remaining metrics (unpaired)
+    # ------------------------------------------------------------------
+    for metric in metrics_all:
+        if metric in used_metrics_global:
+            continue
+        # Try tier distribution first (more meaningful than total KPI)
+        tier = _build_tier_chart(metric)
+        if tier is not None:
+            charts.append(tier)
+            used_metrics_global.add(metric)
+            continue
+
+        # Then simple total KPI
+        if pd.api.types.is_numeric_dtype(df[metric]):
+            try:
+                total_val = pd.to_numeric(df[metric], errors='coerce').sum()
+                if pd.notna(total_val) and total_val != 0:
+                    fmt = _metric_format_type(metric) or 'number'
+                    title = _unique_title(f"Total {_beautify_column_name(metric)}")
+                    charts.append(ChartRecommendation(
+                        slot='', title=title, chart_type='kpi',
+                        data=[{"name": _beautify_column_name(metric), "value": round(float(total_val), 2)}],
+                        confidence='LOW',
+                        reason=f'Full coverage: total {_beautify_column_name(metric)}',
+                        metric=metric, aggregation='sum',
+                        format_type=fmt,
+                    ))
+                    used_metrics_global.add(metric)
+                    continue
+            except Exception:
+                pass
+        # On truly nothing: distribution
+        rec = _distribution_chart(
+            df, metric,
+            title=_unique_title(f"{_beautify_column_name(metric)} Distribution"),
+            confidence='LOW',
+            reason=f'Full coverage: distribution of {_beautify_column_name(metric)}',
+            value_label='Records',
+        )
+        if rec:
+            charts.append(rec)
+            used_metrics_global.add(metric)
+
+    # ------------------------------------------------------------------
+    #   PHASE D — Cover date columns (trend with best metric)
+    #   IMPORTANT: Only generate ONE trend per metric (not per date column)
+    #   to avoid "Revenue Over Time" duplicates on different date columns.
+    # ------------------------------------------------------------------
+    used_trends: Set[str] = set()  # Track metrics already used in trend charts
+    
+    for date_col in dates_all:
+        if date_col in used_dims_global:
+            continue
+        
+        # Try to pair with the best metric available (allow reuse)
+        # BUT skip if this metric already has a trend chart
+        metric = _best_metric_for_dim(date_col, used_metrics_global, allow_reuse=True, forbidden_pairs=curated_pairs_norm)
+        if metric is not None and metric not in used_trends:
+            trend_data = _get_time_trend(df, date_col, metric, aggregation=_trend_aggregation_for_metric(metric))
+            if trend_data:
+                fmt = _metric_format_type(metric) or 'number'
+                title = _unique_title(f"{_beautify_column_name(metric)} Over Time")
+                charts.append(ChartRecommendation(
+                    slot='', title=title, chart_type='line',
+                    data=trend_data, confidence='MEDIUM',
+                    reason=f'Full coverage: {_beautify_column_name(metric)} trend over time',
+                    dimension=date_col, metric=metric,
+                    aggregation=_trend_aggregation_for_metric(metric),
+                    format_type=fmt,
+                ))
+                used_trends.add(metric)  # Mark this metric as having a trend chart
+                used_metrics_global.add(metric)
+                continue
+        
+        # Fallback: record count trend
+        try:
+            df_temp = df.copy()
+            df_temp[date_col] = _safe_to_datetime(df_temp[date_col])
+            df_temp = df_temp.dropna(subset=[date_col])
+            trend = df_temp.groupby(pd.Grouper(key=date_col, freq='MS')).size()
+            trend_data = []
+            for k, v in trend.items():
+                ts_label, ts_date = _to_trend_point_key(k)
+                if ts_label is None: continue
+                trend_data.append({"timestamp": ts_label, "date": ts_date, "value": int(v)})
+            if trend_data:
+                title = _unique_title(f"Records Over Time")
+                charts.append(ChartRecommendation(
+                    slot='', title=title, chart_type='line',
+                    data=trend_data, confidence='LOW',
+                    reason=f'Full coverage: record count over time',
+                    dimension=date_col, value_label='Records', aggregation='count',
+                ))
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
+    #   PHASE E — Cover extra / unclassified columns
+    # ------------------------------------------------------------------
+    for col in extra_cols:
+        if col in used_dims_global or col in used_metrics_global:
+            continue
+        try:
+            n = df[col].nunique()
+        except Exception:
+            continue
+        if n < 2 or n > 100:
+            continue
+        
+        rec = _distribution_chart(
+            df, col,
+            title=_unique_title(f"{_beautify_column_name(col)} Distribution"),
+            confidence='LOW',
+            reason=f'Full coverage: distribution of {_beautify_column_name(col)}',
+            value_label='Records',
+        )
+        if rec:
+            charts.append(rec)
+
+    return charts
+
+
+def recommend_charts(df: pd.DataFrame, domain: DomainType, classification: ColumnClassification, overrides: Optional[Dict[str, Any]] = None, all_columns: bool = False) -> Dict[str, Any]:
     """
     Recommend charts based on domain and data classification.
     
@@ -4789,6 +5233,62 @@ def recommend_charts(df: pd.DataFrame, domain: DomainType, classification: Colum
     # Allow up to 25 charts — churn domain produces 15 analytically distinct charts
     charts = charts[:25]
     
+    # ========================================
+    # ALL COLUMNS MODE: exhaustive coverage
+    # ========================================
+    all_columns_result = {}
+    if all_columns:
+        curated_chart_titles = {c.title for c in charts if c.title}
+        curated_pairs = {(c.metric, c.dimension) for c in charts if c.metric and c.dimension}
+        all_col_charts = _generate_all_columns_charts(
+            df, classification,
+            curated_titles=curated_chart_titles,
+            curated_pairs=curated_pairs,
+        )
+        all_col_charts = _deduplicate_charts(all_col_charts)
+        for i, chart in enumerate(all_col_charts):
+            slot = f"col_{i + 1}"
+            sanitized_data = _sanitize_chart_data(chart.data)
+            if not sanitized_data:
+                continue
+            
+            format_type = getattr(chart, "format_type", None)
+            if not format_type:
+                title_lower = chart.title.lower()
+                percentage_keywords = ["rate", "margin", "percent", "%", "ratio", "proportion"]
+                if any(kw in title_lower for kw in percentage_keywords):
+                    format_type = "percentage"
+                elif any(kw in title_lower for kw in ['tenure', 'age', 'duration', 'months', 'years', 'days']):
+                    format_type = "number"
+                    if not getattr(chart, "value_label", None):
+                        chart.value_label = _infer_time_value_label(title_lower, getattr(chart, "metric", None), getattr(chart, "dimension", None))
+
+            all_columns_result[slot] = {
+                "title": chart.title,
+                "type": chart.chart_type,
+                "data": sanitized_data,
+                "confidence": chart.confidence,
+                "reason": chart.reason,
+                "section": "All Columns",
+            }
+            if chart.dimension:
+                all_columns_result[slot]["dimension"] = chart.dimension
+            if chart.metric:
+                all_columns_result[slot]["metric"] = chart.metric
+            if chart.aggregation:
+                all_columns_result[slot]["aggregation"] = chart.aggregation
+            if chart.value_label:
+                all_columns_result[slot]["value_label"] = chart.value_label
+            if format_type:
+                all_columns_result[slot]["format_type"] = format_type
+                if format_type == "percentage":
+                    all_columns_result[slot]["data"] = _normalize_percentage_chart_values(all_columns_result[slot].get("data"))
+            if getattr(chart, "outliers", None):
+                all_columns_result[slot]["outliers"] = chart.outliers
+                all_columns_result[slot]["data_without_outliers"] = _sanitize_chart_data(chart.data_without_outliers)
+                if format_type == "percentage":
+                    all_columns_result[slot]["data_without_outliers"] = _normalize_percentage_chart_values(all_columns_result[slot].get("data_without_outliers"))
+    
     # Convert to dict format for API
     result = {}
     for i, chart in enumerate(charts):
@@ -4840,7 +5340,7 @@ def recommend_charts(df: pd.DataFrame, domain: DomainType, classification: Colum
         # Override title with beautified semantic roles if present
         title = chart.title
         if overrides:
-            from app.services.semantic_audit import ROLE_TAXONOMY
+            from app.services.role_taxonomy import ROLE_TAXONOMY
             valid_roles = set(ROLE_TAXONOMY.keys())
             for role, col in overrides.items():
                 if role in valid_roles and isinstance(col, str) and role not in ('unclassified', 'generic', 'none'):
@@ -4883,5 +5383,11 @@ def recommend_charts(df: pd.DataFrame, domain: DomainType, classification: Colum
         if chart.granularity:
             result[slot]["granularity"] = chart.granularity
     
+    if all_columns:
+        return {
+            "charts": result,
+            "all_columns_charts": all_columns_result,
+            "all_columns_count": len(all_columns_result),
+        }
     return result
 

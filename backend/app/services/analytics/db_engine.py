@@ -6,6 +6,8 @@ import pandas as pd
 from typing import Dict, Any, List, Optional
 from app.services.security.sandbox import execute_sandboxed, QueryExecutionError
 from app.services.analytics.coercion import run_coercion_pipeline, ColumnCoercionResult
+from app.services.analytics.index_manager import create_performance_indices
+from app.services.analytics.query_utils import execute, safe_identifier
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +71,7 @@ class DBEngine:
             self._write_con.unregister(f"_tmp_{table_name}")
 
             self.coercion_results = run_coercion_pipeline(self._write_con, table_name)
+            create_performance_indices(self._write_con, table_name)
             self._lock_down_read_con()
 
     async def load_csv(self, table_name: str, file_path: str):
@@ -128,6 +131,8 @@ class DBEngine:
             except Exception as coercion_err:
                 logger.warning(f"Coercion pipeline failed (non-fatal): {coercion_err}")
                 self.coercion_results = []
+
+            create_performance_indices(self._write_con, table_name)
 
             self._lock_down_read_con()
 

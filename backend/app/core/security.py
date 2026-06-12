@@ -78,9 +78,16 @@ def create_access_token(
         "type": "access",
     }
 
+    secret = settings.auth.secret_key.get_secret_value() if settings.auth.secret_key else None
+    if not secret:
+        if settings.is_production:
+            raise AuthenticationError("JWT secret key not configured. Set AUTH_SECRET_KEY env var.")
+        # Fallback for development only (tests, local dev without .env)
+        secret = "dev-only-insecure-fallback-secret-do-not-use-in-production"
+
     return jwt.encode(
         payload,
-        settings.auth.secret_key.get_secret_value(),
+        secret,
         algorithm=settings.auth.algorithm,
     )
 
@@ -105,9 +112,15 @@ def create_refresh_token(
         "type": "refresh",
     }
 
+    secret = settings.auth.secret_key.get_secret_value() if settings.auth.secret_key else None
+    if not secret:
+        if settings.is_production:
+            raise AuthenticationError("JWT secret key not configured. Set AUTH_SECRET_KEY env var.")
+        secret = "dev-only-insecure-fallback-secret-do-not-use-in-production"
+
     return jwt.encode(
         payload,
-        settings.auth.secret_key.get_secret_value(),
+        secret,
         algorithm=settings.auth.algorithm,
     )
 
@@ -118,10 +131,16 @@ def verify_token(token: str, token_type: str = "access") -> TokenData:
     """
     settings = get_settings()
 
+    secret = settings.auth.secret_key.get_secret_value() if settings.auth.secret_key else None
+    if not secret:
+        if settings.is_production:
+            raise AuthenticationError("JWT secret key not configured. Set AUTH_SECRET_KEY env var.")
+        secret = "dev-only-insecure-fallback-secret-do-not-use-in-production"
+
     try:
         payload = jwt.decode(
             token,
-            settings.auth.secret_key.get_secret_value(),
+            secret,
             algorithms=[settings.auth.algorithm],
         )
     except JWTError as e:

@@ -12,7 +12,7 @@ from dataclasses import dataclass, asdict
 from app.services.analytics.data_profiler import ColumnProfile
 from app.services.llm.llm_router import LLMRouter
 from app.services.analytics.pre_mapper import PreMapper
-from app.services.semantic_audit import ROLE_TAXONOMY, ROLE_VOCABULARY_FOR_LLM
+from app.services.role_taxonomy import ROLE_TAXONOMY, ROLE_VOCABULARY_FOR_LLM
 import re
 
 logger = logging.getLogger(__name__)

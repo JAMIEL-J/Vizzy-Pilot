@@ -2,7 +2,7 @@ from typing import List, Dict, Any, Optional
 import json
 from pydantic import BaseModel, Field
 
-from app.services.semantic_audit import ROLE_TAXONOMY
+from app.services.role_taxonomy import ROLE_TAXONOMY
 
 class ChartConfig(BaseModel):
     chart_id: str

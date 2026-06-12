@@ -16,7 +16,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from app.services.semantic_audit import ROLE_TAXONOMY
+from app.services.role_taxonomy import ROLE_TAXONOMY
 _KNOWN_ROLES = set(ROLE_TAXONOMY.keys())
 
 

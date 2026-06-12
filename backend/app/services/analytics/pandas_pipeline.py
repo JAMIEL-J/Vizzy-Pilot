@@ -4,16 +4,17 @@ import pandas as pd
 import duckdb
 
 from .duckdb_chart_builder import build_filter_where_clause, get_parsed_date_expr
+from .query_utils import safe_identifier
 
 logger = logging.getLogger(__name__)
 
-def build_preagg_sql(config: Dict[str, Any], dataset_id: str, filters: Dict[str, List[str]], target_column: Optional[str] = None, target_value: str = "all") -> str:
+def build_preagg_sql(config: Dict[str, Any], dataset_id: str, filters: Dict[str, List[str]], target_column: Optional[str] = None, target_value: str = "all") -> Tuple[str, List[Any]]:
     """
     Build pre-aggregation query for ratio_pct derived metrics.
-    Returns a query that fetches numerator and denominator for each time period.
+    Returns (query_sql, params) that fetches numerator and denominator.
     """
     table = f"dataset_{dataset_id}"
-    where_clause, _ = build_filter_where_clause(filters, target_column, target_value)
+    where_clause, params = build_filter_where_clause(filters, target_column, target_value)
     
     # We assume the config has numerator_col and denominator_col
     # If not provided, we use defaults or raise error
@@ -24,18 +25,24 @@ def build_preagg_sql(config: Dict[str, Any], dataset_id: str, filters: Dict[str,
     if not num_col or not den_col or not x_col:
         raise ValueError("Missing numerator_col, denominator_col, or dimension in chart config")
 
+    # Validate SQL identifiers to prevent injection
+    num_col_quoted = safe_identifier(num_col)
+    den_col_quoted = safe_identifier(den_col)
+    safe_identifier(x_col)  # Validate column format
+
     parsed_date_expr = get_parsed_date_expr(x_col)
     # Use date_trunc for time series consistency
-    return f'''
+    sql = f'''
         SELECT 
             DATE_TRUNC('month', {parsed_date_expr}) as period,
-            SUM(TRY_CAST("{num_col}" AS DOUBLE)) as numerator,
-            SUM(TRY_CAST("{den_col}" AS DOUBLE)) as denominator
+            SUM(TRY_CAST({num_col_quoted} AS DOUBLE)) as numerator,
+            SUM(TRY_CAST({den_col_quoted} AS DOUBLE)) as denominator
         FROM "{table}"
         WHERE {where_clause}
         GROUP BY 1
         ORDER BY 1
     '''
+    return sql, params
 
 def apply_formula(config: Dict[str, Any], df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -74,8 +81,8 @@ async def run_pandas_pipeline(
             continue
             
         try:
-            sql = build_preagg_sql(config, dataset_id, filters, target_column, target_value)
-            df = conn.execute(sql).df()
+            sql, params = build_preagg_sql(config, dataset_id, filters, target_column, target_value)
+            df = conn.execute(sql, params).df()
             
             final_df = apply_formula(config, df)
             
