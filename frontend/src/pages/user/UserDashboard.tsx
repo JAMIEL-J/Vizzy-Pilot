@@ -2456,6 +2456,11 @@ export default function UserDashboard() {
     // inline column display removed — use side panel classifier instead
     const totalColumnsCount = analytics?.columns ? (Object.values(analytics.columns).reduce((s: any, arr: any) => s + (Array.isArray(arr) ? arr.length : 0), 0)) : 0;
 
+    // Tab state for Key Insights vs All Columns view
+    const [allColumnsTab, setAllColumnsTab] = useState(false);
+    const [allColumnsPage, setAllColumnsPage] = useState(0);
+    const ALL_COLUMNS_PAGE_SIZE = 6;
+
     // Dynamic Chart Colors
     const chartColors = {
         grid: isDark ? '#262626' : '#E5E2DE',
@@ -2747,6 +2752,11 @@ export default function UserDashboard() {
                         initial[key] = chart.data;
                     });
                 }
+                if (cachedData.all_columns_charts) {
+                    Object.entries(cachedData.all_columns_charts).forEach(([key, chart]: [string, any]) => {
+                        initial[key] = chart.data;
+                    });
+                }
                 setDashboardData(
                     cachedData.raw_data,
                     cachedData.chart_configs,
@@ -2847,6 +2857,11 @@ export default function UserDashboard() {
                                 initial[key] = chart.data;
                             });
                         }
+                        if (sessionCached.all_columns_charts) {
+                            Object.entries(sessionCached.all_columns_charts).forEach(([key, chart]: [string, any]) => {
+                                initial[key] = chart.data;
+                            });
+                        }
                         setDashboardData(sessionCached.raw_data, sessionCached.chart_configs, initial, sessionCached.total_rows, sessionCached.target_column, selectedDatasetId);
                     }
 
@@ -2868,7 +2883,8 @@ export default function UserDashboard() {
                 {},
                 classification_overrides,
                 selected_domain,
-                signal
+                signal,
+                true // Always fetch All Columns data for tab toggle
             );
             setAnalytics(data);
             cacheRef.current.analytics.set(cacheKey, data);
@@ -2878,6 +2894,11 @@ export default function UserDashboard() {
                 const initial: Record<string, any> = {};
                 if (data.charts) {
                     Object.entries(data.charts).forEach(([key, chart]: [string, any]) => {
+                        initial[key] = chart.data;
+                    });
+                }
+                if (data.all_columns_charts) {
+                    Object.entries(data.all_columns_charts).forEach(([key, chart]: [string, any]) => {
                         initial[key] = chart.data;
                     });
                 }
@@ -2904,7 +2925,8 @@ export default function UserDashboard() {
                 serverChartOverrides,
                 classification_overrides,
                 selected_domain,
-                signal
+                signal,
+                true
             );
 
             if (data.charts) {
@@ -2912,6 +2934,11 @@ export default function UserDashboard() {
                 Object.entries(data.charts).forEach(([key, chart]: [string, any]) => {
                     refreshedCharts[key] = chart.data;
                 });
+                if (data.all_columns_charts) {
+                    Object.entries(data.all_columns_charts).forEach(([key, chart]: [string, any]) => {
+                        refreshedCharts[key] = chart.data;
+                    });
+                }
                 syncServerChartData(refreshedCharts);
             }
 
@@ -2923,6 +2950,8 @@ export default function UserDashboard() {
                     charts: data.charts ?? prev.charts,
                     target_column: data.target_column ?? prev.target_column,
                     target_values: data.target_values ?? prev.target_values,
+                    all_columns_charts: data.all_columns_charts ?? prev.all_columns_charts,
+                    all_columns_count: data.all_columns_count ?? prev.all_columns_count,
                 };
             });
         } catch (err: any) {
@@ -3807,8 +3836,94 @@ export default function UserDashboard() {
                             </div>
                         </Panel>
 
-                        {/* Charts */}
+                        {/* Tab Switcher: Key Insights / All Columns */}
                         {chartSections.length > 0 && (
+                            <div className="flex items-center gap-1 mb-2 px-1">
+                                <button
+                                    onClick={() => { setAllColumnsTab(false); setAllColumnsPage(0); }}
+                                    className={`px-4 py-1.5 text-[13px] font-semibold rounded-full transition-colors ${!allColumnsTab ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-surface'}`}
+                                >
+                                    Key Insights
+                                </button>
+                                <button
+                                    onClick={() => { setAllColumnsTab(true); setAllColumnsPage(0); }}
+                                    className={`px-4 py-1.5 text-[13px] font-semibold rounded-full transition-colors ${allColumnsTab ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-surface'}`}
+                                >
+                                    All Columns
+                                    {analytics?.all_columns_count ? (
+                                        <span className="ml-1.5 text-[11px] opacity-70">({analytics.all_columns_count})</span>
+                                    ) : null}
+                                </button>
+                            </div>
+                        )}
+
+                        {/* All Columns View (paginated grid of mini-charts) */}
+                        {allColumnsTab && analytics?.all_columns_charts && (
+                            <div className="space-y-4">
+                                {(() => {
+                                    const allColEntries = Object.entries(analytics.all_columns_charts);
+                                    const totalPages = Math.max(1, Math.ceil(allColEntries.length / ALL_COLUMNS_PAGE_SIZE));
+                                    const safePage = Math.min(allColumnsPage, totalPages - 1);
+                                    const pageItems = allColEntries.slice(safePage * ALL_COLUMNS_PAGE_SIZE, (safePage + 1) * ALL_COLUMNS_PAGE_SIZE);
+                                    return (
+                                        <>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                                {pageItems.map(([id, chart]: [string, any]) => (
+                                                    <Panel key={id}>
+                                                        <PanelHeader title={chart.title || `Column ${id}`} actions={renderChartActions({ ...chart, id })} />
+                                                        <div className="p-3">
+                                                            <ChartRenderer
+                                                                chart={{
+                                                                    ...chart,
+                                                                    id,
+                                                                    data: chartData?.[id] || chart.data,
+                                                                    type: chart_overrides[id]?.type || chart.type
+                                                                }}
+                                                                chartColors={chartColors}
+                                                                isDark={isDark}
+                                                                onFilterClick={handleChartFilterClick}
+                                                                targetColumn={analytics?.target_column}
+                                                                quickReact={quickReactCharts}
+                                                            />
+                                                        </div>
+                                                    </Panel>
+                                                ))}
+                                            </div>
+                                            {totalPages > 1 && (
+                                                <div className="flex items-center justify-center gap-2 pt-2 pb-6">
+                                                    <button
+                                                        onClick={() => setAllColumnsPage(p => Math.max(0, p - 1))}
+                                                        disabled={safePage === 0}
+                                                        className="px-3 py-1.5 text-[12px] font-medium rounded-lg border border-border disabled:opacity-30 disabled:cursor-not-allowed hover:bg-surface transition-colors"
+                                                    >
+                                                        Previous
+                                                    </button>
+                                                    {Array.from({ length: totalPages }, (_, i) => (
+                                                        <button
+                                                            key={i}
+                                                            onClick={() => setAllColumnsPage(i)}
+                                                            className={`w-8 h-8 text-[12px] font-semibold rounded-lg transition-colors ${i === safePage ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-surface'}`}
+                                                        >
+                                                            {i + 1}
+                                                        </button>
+                                                    ))}
+                                                    <button
+                                                        onClick={() => setAllColumnsPage(p => Math.min(totalPages - 1, p + 1))}
+                                                        disabled={safePage >= totalPages - 1}
+                                                        className="px-3 py-1.5 text-[12px] font-medium rounded-lg border border-border disabled:opacity-30 disabled:cursor-not-allowed hover:bg-surface transition-colors"
+                                                    >
+                                                        Next
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </>
+                                    );
+                                })()}
+                            </div>
+                        )}
+
+                        {/* Key Insights View (curated domain-specific charts) */}
+                        {!allColumnsTab && chartSections.length > 0 && (
                             <div className="space-y-10">
                                 {chartSections.map(({ title, charts }) => (
                                     <div key={title} className="space-y-4">

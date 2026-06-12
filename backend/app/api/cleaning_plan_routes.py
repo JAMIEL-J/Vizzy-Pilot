@@ -3,10 +3,10 @@ from typing import Dict, Any
 from uuid import UUID
 
 import pandas as pd
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel
 
-from app.api.deps import DBSession, RateLimitedUser
+from app.api.deps import DBSession, RateLimitedUser, DatasetVersionOwner
 from app.services import cleaning_plan_service
 from app.services.ingestion_execution.file_loader import _read_csv_with_encodings
 from app.services.cleaning_execution.planner import execute_cleaning
@@ -53,7 +53,7 @@ class CleaningPlanResponse(BaseModel):
     status_code=status.HTTP_201_CREATED,
 )
 def create_cleaning_plan(
-    version_id: UUID,
+    version: DatasetVersionOwner,
     request: CleaningPlanCreateRequest,
     session: DBSession,
     current_user: RateLimitedUser,
@@ -65,12 +65,13 @@ def create_cleaning_plan(
     try:
         plan = cleaning_plan_service.create_cleaning_plan(
             session=session,
-            dataset_version_id=version_id,
+            dataset_version_id=version.id,
             proposed_actions=request.proposed_actions,
             user_id=UUID(current_user.user_id),
             role=current_user.role,
         )
         return CleaningPlanResponse.model_validate(plan)
+
 
     except ResourceNotFound as e:
         raise HTTPException(status_code=404, detail=e.message)
@@ -87,7 +88,7 @@ def create_cleaning_plan(
     response_model=CleaningPlanResponse,
 )
 def get_cleaning_plan(
-    version_id: UUID,
+    version: DatasetVersionOwner,
     session: DBSession,
     current_user: RateLimitedUser,
 ) -> CleaningPlanResponse:
@@ -95,11 +96,12 @@ def get_cleaning_plan(
     try:
         plan = cleaning_plan_service.get_cleaning_plan_for_version(
             session=session,
-            dataset_version_id=version_id,
+            dataset_version_id=version.id,
             user_id=UUID(current_user.user_id),
             role=current_user.role,
         )
         return CleaningPlanResponse.model_validate(plan)
+
 
     except ResourceNotFound as e:
         raise HTTPException(status_code=404, detail=e.message)
@@ -113,7 +115,7 @@ def get_cleaning_plan(
     response_model=CleaningPlanResponse,
 )
 def approve_cleaning_plan(
-    version_id: UUID,
+    version: DatasetVersionOwner,
     plan_id: UUID,
     session: DBSession,
     current_user: RateLimitedUser,
@@ -130,6 +132,7 @@ def approve_cleaning_plan(
             role=current_user.role,
         )
         return CleaningPlanResponse.model_validate(plan)
+
 
     except ResourceNotFound as e:
         raise HTTPException(status_code=404, detail=e.message)
@@ -206,7 +209,7 @@ def _convert_actions_to_steps(proposed_actions: Dict[str, Any]) -> Dict[str, Any
     summary="Preview a cleaning plan on a sample of raw data",
 )
 def preview_cleaning_plan(
-    version_id: UUID,
+    version: DatasetVersionOwner,
     request: CleaningPlanCreateRequest,
     session: DBSession,
     current_user: RateLimitedUser,
@@ -216,13 +219,10 @@ def preview_cleaning_plan(
     Does NOT save files or create versions.
     """
     try:
-        version = session.get(DatasetVersion, version_id)
-        if not version or not version.is_active:
-            raise ResourceNotFound("DatasetVersion", str(version_id))
-
-        # Load first 200 rows of raw data
+        # version is already validated by DatasetVersionOwner dependency
         raw_path = version.source_reference
         df = _read_csv_with_encodings(raw_path, nrows=200)
+
 
         # Convert actions
         normalized_actions = _convert_actions_to_steps(request.proposed_actions)
@@ -278,7 +278,7 @@ def preview_cleaning_plan(
     summary="Execute an approved cleaning plan",
 )
 async def execute_cleaning_plan(
-    version_id: UUID,
+    version: DatasetVersionOwner,
     plan_id: UUID,
     session: DBSession,
     current_user: RateLimitedUser,
@@ -294,22 +294,19 @@ async def execute_cleaning_plan(
         from app.models.dataset_version import SourceType
         from app.services.analytics.duckdb_builder import build_duckdb_from_csv
         from app.services.dataset_version_service import _get_next_version_number
-
+        
         plan = cleaning_plan_service.get_plan_by_id(session, plan_id)
-
+        
         if not plan.approved:
             raise InvalidOperation(
                 operation="execute_cleaning_plan",
                 reason="Cleaning plan must be approved before execution",
             )
-
-        version = session.get(DatasetVersion, plan.dataset_version_id)
-        if not version or not version.is_active:
-            raise ResourceNotFound("DatasetVersion", str(plan.dataset_version_id))
-
-        # Load raw data
+        
+        # version is already validated by DatasetVersionOwner dependency
         raw_path = version.source_reference
         df = _read_csv_with_encodings(raw_path)
+
 
         # Convert frontend actions → rule-engine steps format
         normalized_actions = _convert_actions_to_steps(plan.proposed_actions)

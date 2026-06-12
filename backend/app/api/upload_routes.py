@@ -1,10 +1,11 @@
 from uuid import UUID
 import json
+import re
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, status, BackgroundTasks
 
 from app.api.deps import DBSession, RateLimitedUser
-from app.services.ingestion_service import ingest_file_upload
+from app.services.ingestion_service import ingest_file_upload, generate_initial_dashboard
 from app.services.analytics.duckdb_builder import (
     build_duckdb_from_csv,
     mark_duckdb_building,
@@ -14,10 +15,123 @@ from app.services.analytics.duckdb_builder import (
 from app.services.dataset_version_service import get_latest_version
 from app.core.exceptions import InvalidOperation, ResourceNotFound, AuthorizationError
 from app.core.logger import get_logger
+from app.core.config import get_settings
 
 
 router = APIRouter()
 logger = get_logger(__name__)
+
+# --- File upload security constants ---
+
+ALLOWED_EXTENSIONS = {".csv", ".tsv", ".txt", ".json", ".parquet", ".xlsx", ".xls"}
+ALLOWED_CONTENT_TYPES = {
+    "text/csv",
+    "text/tab-separated-values",
+    "text/plain",
+    "application/json",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel",
+    "application/octet-stream",  # Some clients send this for binary files
+}
+
+# Magic bytes for common file types (first bytes)
+FILE_SIGNATURES = {
+    b"PK\x03\x04": "zip-based",      # xlsx, docx, etc.
+    b"%PDF": "pdf",
+    b"\xd0\xcf\x11\xe0": "ole",      # old xls format
+    b"RIFF": "wav",                  # not CSV but harmless
+}
+
+MAX_FILENAME_LENGTH = 255
+
+
+def _sanitize_filename(filename: str) -> str:
+    """Sanitize filename to prevent path traversal and dangerous names."""
+    if not filename:
+        return "uploaded_file"
+    # Remove path separators
+    filename = re.sub(r"[/\\]|\x00", "", filename)
+    # Remove potentially dangerous characters
+    filename = re.sub(r'[<>:"|?*]', "", filename)
+    # Limit length
+    filename = filename[:MAX_FILENAME_LENGTH]
+    if not filename or filename.startswith("."):
+        filename = "uploaded_file"
+    return filename
+
+
+def _validate_file_security(file: UploadFile, max_size_mb: int) -> None:
+    """
+    Validate file extension, content-type, size, and magic bytes.
+    Raises HTTPException if validation fails.
+    """
+    settings = get_settings()
+    
+    # 1. Validate filename
+    safe_name = _sanitize_filename(file.filename or "")
+    if safe_name != (file.filename or ""):
+        logger.warning(f"Filename sanitized: '{file.filename}' -> '{safe_name}'")
+        file.filename = safe_name
+    
+    # 2. Validate file extension
+    ext = ""
+    if "." in (file.filename or ""):
+        ext = "." + (file.filename or "").rsplit(".", 1)[-1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File type not allowed. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}",
+        )
+    
+    # 3. Validate content-type (advisory - don't block if client misreports)
+    content_type = file.content_type or ""
+    if content_type and content_type not in ALLOWED_CONTENT_TYPES:
+        logger.warning(
+            f"Unexpected content-type '{content_type}' for file '{file.filename}'. "
+            "Proceeding with upload but may fail during processing."
+        )
+    
+    # 4. Inspect magic bytes for signature check
+    try:
+        header = file.file.read(4)
+        file.file.seek(0)
+        
+        # Reject executable signatures
+        if header.startswith(b"MZ") or header.startswith(b"\x7fELF"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Malicious executable file signature detected.",
+            )
+            
+        # Reject binary signatures for text-based extensions
+        if ext in {".csv", ".tsv", ".txt", ".json"}:
+            for signature, sig_type in FILE_SIGNATURES.items():
+                if header.startswith(signature):
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Invalid file content. Expected a text-based format, but binary {sig_type} signature was detected.",
+                    )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error validating file signature: {e}")
+    
+    # 5. Validate file size
+    if max_size_mb > 0:
+        try:
+            file.file.seek(0, 2)
+            size = file.file.tell()
+            file.file.seek(0)
+            max_bytes = max_size_mb * 1024 * 1024
+            if size > max_bytes:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=f"File too large. Maximum size: {max_size_mb}MB",
+                )
+        except HTTPException:
+            raise
+        except Exception:
+            pass  # Size check is best-effort
 
 
 def _build_duckdb_background(dataset_id: UUID, version_id: UUID, csv_path: str):
@@ -82,6 +196,10 @@ async def upload_dataset_file(
     """
     logger.info(f"Upload started: dataset_id={dataset_id}, filename={file.filename}, content_type={file.content_type}")
     
+    # Security: validate file type, extension, and size
+    settings = get_settings()
+    _validate_file_security(file, settings.storage.max_file_size_mb)
+    
     try:
         # Stream file to ingestion service (avoid full memory load)
         try:
@@ -111,11 +229,28 @@ async def upload_dataset_file(
             file_size=file_size,
         )
         logger.info(f"Upload complete: version_id={result.get('version_id')}")
-
-        # Build DuckDB file in background (doesn't block response)
+        
+        # Generate initial dashboard with auto semantic mapping (Zero-Input First Render)
         version_id = result.get('version_id')
+        dashboard_data = None
         if version_id:
-            # ingestion_service returns raw_path for uploaded CSV storage location
+            csv_path = result.get('raw_path') or result.get('file_path') or result.get('source_reference')
+            if csv_path:
+                try:
+                    dashboard_data = await generate_initial_dashboard(
+                        session=session,
+                        dataset_id=dataset_id,
+                        version_id=UUID(version_id),
+                        user_id=UUID(current_user.user_id),
+                        schema=result.get('schema', []),
+                        raw_path=csv_path,
+                    )
+                    logger.info(f"Initial dashboard generated for version {version_id}")
+                except Exception as e:
+                    logger.warning(f"Failed to generate initial dashboard: {e}")
+        
+        # Build DuckDB file in background (doesn't block response)
+        if version_id:
             csv_path = result.get('raw_path') or result.get('file_path') or result.get('source_reference')
             if csv_path and background_tasks:
                 # Mark immediately so frontend can poll deterministic status right after upload.
@@ -133,7 +268,12 @@ async def upload_dataset_file(
                     f"version_id={version_id}, csv_path_present={bool(csv_path)}, "
                     f"background_tasks_present={background_tasks is not None}"
                 )
-
+        
+        # Include dashboard in response
+        if dashboard_data:
+            result["dashboard"] = dashboard_data.get("dashboard")
+            result["semantic_map"] = dashboard_data.get("semantic_map")
+        
         return result
 
     except ResourceNotFound as e:

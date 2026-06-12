@@ -9,6 +9,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+
 
 from app.core.config import get_settings
 from app.core.logger import get_logger
@@ -22,13 +26,63 @@ from app.core.exceptions import (
 from app.api.router import api_router
 
 
+
 logger = get_logger(__name__)
 settings = get_settings()
 
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """
+    Middleware to add security headers to all responses.
+    - CSP: Content Security Policy
+    - HSTS: HTTP Strict Transport Security
+    - X-Frame-Options: Prevent clickjacking
+    - X-Content-Type-Options: Prevent MIME sniffing
+    - Referrer-Policy: Control referrer information
+    """
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        
+        # Content Security Policy (CSP)
+        # Adjusted for a typical SPA + API setup. 
+        # In production, this should be more restrictive.
+        csp = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; "
+            "connect-src 'self' https://*.groq.com https://*.google.com; "
+            "frame-ancestors 'none';"
+        )
+        
+        response.headers["Content-Security-Policy"] = csp
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        
+        return response
+
+# Rate limiting — imported from core module to avoid circular imports with auth_routes
+from app.core.rate_limit import limiter
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
+    # Validate SQLite path at startup (fail-fast for security)
+    if settings.database.is_sqlite:
+        from app.core.config import _validate_sqlite_path
+        try:
+            validated_path = _validate_sqlite_path(
+                settings.database.sqlite_path,
+                settings.database.data_dir
+            )
+            # Log resolved path for debugging (only in non-production)
+            if not settings.is_production:
+                logger.debug(f"SQLite path validated: {validated_path}")
+        except Exception as e:
+            logger.error(f"FATAL: Invalid SQLite database path: {e}")
+            raise RuntimeError(f"Invalid SQLite database path: {e}") from e
+    
     # Initialize database tables
     from app.models.database import init_db
     init_db()
@@ -49,19 +103,19 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Security Headers Middleware
+app.add_middleware(SecurityHeadersMiddleware)
 
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:5173",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:5173",
-    ] if settings.is_development else [],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=settings.cors_origins_list,
+    allow_credentials=settings.cors_allow_credentials,
+    allow_methods=settings.cors_allow_methods,
+    allow_headers=settings.cors_allow_headers,
 )
 
 

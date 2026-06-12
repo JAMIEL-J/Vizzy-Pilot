@@ -6,11 +6,83 @@ Responsibility: Configuration management only
 Restrictions: No business logic, no datasets, no analytics
 """
 
+import os
+import re
+import urllib.parse
 from functools import lru_cache
-from typing import Literal
+from pathlib import Path
+from typing import Literal, Optional
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from .exceptions import SecurityError
+
+
+def _validate_sqlite_path(path: str, data_dir: str = "data") -> str:
+    """
+    Validate and sanitize SQLite database path to prevent path traversal attacks.
+    
+    Defense-in-depth approach:
+    1. URL-decode the path to catch encoded traversal sequences
+    2. Check for traversal sequences in the decoded path
+    3. Canonicalize the path and ensure it's within the allowed data directory
+    4. Check for symlink escapes via canonicalization
+    
+    Args:
+        path: The requested SQLite database path
+        data_dir: The allowed base directory (default: "data")
+        
+    Returns:
+        The validated and resolved path
+        
+    Raises:
+        SecurityError: If the path violates security constraints
+    """
+    # Step 1: URL-decode repeatedly to catch double-encoded traversal sequences
+    # Bounded to 5 iterations to prevent denial of service via deep encoding
+    decoded_path = path
+    for _ in range(5):
+        unquoted = urllib.parse.unquote(decoded_path)
+        if unquoted == decoded_path:
+            break
+        decoded_path = unquoted
+    
+    # Step 2: Check for traversal sequences in the decoded path
+    # This catches both forward and backward slash traversal, and encoded variants
+    if re.search(r"\.\.(?:[/\\]|$)", decoded_path):
+        raise SecurityError(
+            message="Invalid SQLite path: path traversal detected",
+            details=f"Path contains forbidden traversal sequences: {path}"
+        )
+    
+    # Step 3: Resolve the base data directory (canonical)
+    base_dir = Path(data_dir).resolve()
+    
+    # Step 4: Build the requested path
+    requested = Path(path)
+    if not requested.is_absolute():
+        requested = base_dir / path
+    
+    # Step 5: Canonicalize (resolves symlinks and relative components)
+    try:
+        resolved_path = requested.resolve(strict=False)
+    except (OSError, ValueError) as e:
+        raise SecurityError(
+            message="Invalid SQLite path: unable to resolve path",
+            details=f"Path resolution failed for {path}: {e}"
+        )
+    
+    # Step 6: Ensure resolved path is within the allowed directory
+    try:
+        resolved_path.relative_to(base_dir)
+    except ValueError:
+        raise SecurityError(
+            message="Invalid SQLite path: path escapes allowed directory",
+            details=f"Resolved path {resolved_path} is outside allowed directory {base_dir}"
+        )
+    
+    return str(resolved_path)
 
 
 class DatabaseSettings(BaseSettings):
@@ -23,7 +95,7 @@ class DatabaseSettings(BaseSettings):
     type: str = Field(default="sqlite")
     
     # SQLite settings
-    sqlite_path: str = Field(default="./data/vizzy.db")
+    sqlite_path: str = Field(default="data/vizzy.db")
     
     # PostgreSQL settings (used if type=postgresql)
     host: str = Field(default="localhost")
@@ -34,6 +106,20 @@ class DatabaseSettings(BaseSettings):
     pool_size: int = Field(default=5, ge=1, le=20)
     pool_max_overflow: int = Field(default=10, ge=0, le=50)
     echo: bool = Field(default=False)
+    
+    # Data directory for SQLite (used for path validation)
+    data_dir: str = Field(default="data")
+
+    @field_validator("sqlite_path", mode="after")
+    @classmethod
+    def validate_sqlite_path(cls, v: str, info) -> str:
+        """Validate SQLite path to prevent path traversal attacks."""
+        # Only validate if using SQLite
+        values = info.data
+        if values.get("type") == "sqlite" or values.get("type") is None:
+            data_dir = values.get("data_dir", "data")
+            return _validate_sqlite_path(v, data_dir)
+        return v
 
     @property
     def url(self) -> str:
@@ -61,10 +147,31 @@ class AuthSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="AUTH_")
 
-    secret_key: SecretStr = Field(default=SecretStr("change-me-in-production"))
+    secret_key: Optional[SecretStr] = Field(default=None)
     algorithm: str = Field(default="HS256")
     access_token_expire_minutes: int = Field(default=30, ge=1, le=1440)
     refresh_token_expire_days: int = Field(default=7, ge=1, le=30)
+
+    @field_validator("secret_key", mode="after")
+    @classmethod
+    def validate_secret_key(cls, v: Optional[SecretStr], info) -> Optional[SecretStr]:
+        """Ensure secret key is not the default insecure value when provided."""
+        if v is None:
+            # Will be validated in Settings.validate_auth_settings for production
+            return v
+
+        secret_value = v.get_secret_value()
+        if not secret_value:
+            # Empty string is also not acceptable
+            return v
+
+        default_val = "change-me-in-production"
+        if secret_value == default_val:
+            raise SecurityError(
+                message="Insecure JWT secret key",
+                details="The default 'change-me-in-production' key is still in use. Please set AUTH_SECRET_KEY in your environment."
+            )
+        return v
 
 
 class RateLimitSettings(BaseSettings):
@@ -167,6 +274,13 @@ class Settings(BaseSettings):
         default="INFO"
     )
     api_prefix: str = Field(default="/api/v1")
+    cors_origins: str = Field(
+        default="http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173",
+        description="Comma-separated list of allowed CORS origins. Empty in production.",
+    )
+    cors_allow_credentials: bool = Field(default=True)
+    cors_allow_methods: list[str] = Field(default=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
+    cors_allow_headers: list[str] = Field(default=["*"])
 
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     auth: AuthSettings = Field(default_factory=AuthSettings)
@@ -192,7 +306,32 @@ class Settings(BaseSettings):
         """Check if running in development."""
         return self.environment == "development"
 
+    @property
+    def cors_origins_list(self) -> list[str]:
+        """Parse comma-separated CORS origins into a list."""
+        if self.is_production:
+            # In production, require explicit CORS_ORIGINS env var
+            # If not set, return empty list (no cross-origin allowed)
+            if not os.environ.get("CORS_ORIGINS"):
+                return []
+        origins = [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        return origins
 
+    @field_validator("auth", mode="after")
+    @classmethod
+    def validate_auth_settings(cls, auth: AuthSettings, info) -> AuthSettings:
+        """Enforce secret key presence in production."""
+        env = info.data.get("environment", "development")
+        if env == "production" and (auth.secret_key is None or auth.secret_key.get_secret_value() == ""):
+            raise SecurityError(
+                message="Missing JWT secret key in production",
+                details="The AUTH_SECRET_KEY environment variable must be set when running in production mode."
+            )
+        return auth
+
+
+
+@lru_cache()
 def get_settings() -> Settings:
-    """Get application settings (uncached for debugging)."""
+    """Get application settings (cached)."""
     return Settings()

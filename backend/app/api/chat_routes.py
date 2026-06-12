@@ -6,7 +6,7 @@ Responsibility: HTTP interfaces for chat operations
 Restrictions: Thin controller - all logic delegated to services
 """
 from datetime import datetime
-from typing import List, Optional, Any, Tuple, Set
+from typing import Dict, List, Optional, Any, Tuple, Set
 import csv
 import re
 from uuid import UUID
@@ -739,7 +739,7 @@ def update_session(
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete a chat session",
 )
-def delete_session(
+async def delete_session(
     session_id: UUID,
     session: DBSession,
     current_user: AuthenticatedUser,
@@ -748,11 +748,21 @@ def delete_session(
     Delete (soft-delete) a chat session.
     """
     try:
-        chat_service.delete_chat_session(
+        chat_session = chat_service.get_chat_session(
             session=session,
             session_id=session_id,
             user_id=UUID(current_user.user_id),
         )
+        
+        # Dataset ownership verification (if session is tied to a dataset)
+        if chat_session.dataset_id:
+            from app.api.deps import verify_dataset_owner
+            await verify_dataset_owner(
+                dataset_id=chat_session.dataset_id,
+                session=session,
+                current_user=current_user
+            )
+
     except ResourceNotFound as e:
         raise HTTPException(status_code=404, detail=e.message)
     except AuthorizationError as e:
@@ -824,8 +834,18 @@ async def send_message(
             session_id=session_id,
             user_id=UUID(current_user.user_id),
         )
-
+        
+        # Dataset ownership verification (if session is tied to a dataset)
+        if chat_session.dataset_id:
+            from app.api.deps import verify_dataset_owner
+            await verify_dataset_owner(
+                dataset_id=chat_session.dataset_id,
+                session=session,
+                current_user=current_user
+            )
+        
         has_dataset_attached = bool(chat_session.dataset_version_id)
+
 
         # Pre-process query if it is a clarification sentence
         query_text = request.content
@@ -1493,5 +1513,129 @@ async def get_initial_suggestions(
         raise HTTPException(status_code=404, detail=e.message)
     except AuthorizationError as e:
         raise HTTPException(status_code=403, detail=e.message)
+
+
+# =============================================================================
+# NL-First Interaction Endpoints (Phase 3.3)
+# =============================================================================
+
+class NLQueryRequest(BaseModel):
+    """Request for natural language query (primary UI interaction)."""
+    query: str = Field(..., min_length=1, max_length=1000)
+    dataset_id: Optional[UUID] = None
+    context: Optional[Dict[str, Any]] = None
+
+
+class NLQueryResponse(BaseModel):
+    """Response for natural language query."""
+    answer: str
+    sql: Optional[str] = None
+    chart: Optional[Dict[str, Any]] = None
+    kpis: Optional[List[Dict[str, Any]]] = None
+    suggested_followups: List[str] = []
+    confidence: str = "high"
+
+
+@router.post(
+    "/nl/query",
+    response_model=NLQueryResponse,
+    summary="Natural language query (primary UI interaction)",
+)
+async def nl_query(
+    request: NLQueryRequest,
+    session: DBSession,
+    current_user: AuthenticatedUser,
+) -> NLQueryResponse:
+    """
+    Primary UI interaction endpoint for natural language queries.
+    
+    Accepts a natural language question and returns:
+    - A human-readable answer
+    - Optional SQL for transparency
+    - Optional chart data for visualization
+    - Suggested follow-up questions
+    """
+    from app.services.llm.sql_generator import SQLGenerator
+    from app.services.analytics.csv_loader import safe_read_csv
+    from app.services.dataset_version_service import get_latest_version
+    
+    if not request.dataset_id:
+        # General knowledge query without dataset
+        return NLQueryResponse(
+            answer="Please attach a dataset to ask questions about your data.",
+            suggested_followups=["Upload a dataset", "View existing datasets"],
+            confidence="high"
+        )
+    
+    # Verify ownership
+    from app.api.deps import verify_dataset_owner
+    await verify_dataset_owner(
+        dataset_id=request.dataset_id,
+        session=session,
+        current_user=current_user
+    )
+    
+    # Load dataset
+    latest_version = get_latest_version(session=session, dataset_id=request.dataset_id)
+    if not latest_version:
+        raise HTTPException(status_code=404, detail="Dataset version not found")
+    
+    file_path = (
+        latest_version.cleaned_reference
+        if latest_version.cleaned_reference
+        else latest_version.source_reference
+    )
+    df = safe_read_csv(file_path)
+    
+    # Generate SQL from natural language
+    try:
+        sql_result = SQLGenerator.generate_from_nl(
+            query=request.query,
+            schema=df.columns.tolist(),
+            sample_data=df.head(3).to_dict('records')
+        )
+        
+        # Execute the SQL
+        if sql_result and sql_result.get("sql"):
+            result_df = df.query(sql_result["sql"]) if "sql" in sql_result else df
+            
+            # Format the answer
+            answer = sql_result.get("explanation", f"Found {len(result_df)} results")
+            
+            # Generate chart if applicable
+            chart = None
+            if len(result_df) > 0 and len(result_df.columns) >= 2:
+                chart = {
+                    "type": "bar",
+                    "data": result_df.head(20).to_dict('records')
+                }
+            
+            # Generate suggested follow-ups
+            suggested_followups = [
+                f"Show me more details about {request.query}",
+                "Compare by different dimension",
+                "What are the trends over time?"
+            ]
+            
+            return NLQueryResponse(
+                answer=answer,
+                sql=sql_result.get("sql"),
+                chart=chart,
+                suggested_followups=suggested_followups,
+                confidence="high"
+            )
+    except Exception as e:
+        logger.warning(f"NL query processing failed: {e}")
+    
+    # Fallback: return a helpful message
+    return NLQueryResponse(
+        answer="I couldn't process that query. Try asking about specific metrics, trends, or comparisons.",
+        suggested_followups=[
+            "What are the top metrics?",
+            "Show trends over time",
+            "Compare categories"
+        ],
+        confidence="low"
+    )
 
 

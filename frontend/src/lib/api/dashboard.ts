@@ -94,6 +94,18 @@ export interface DashboardAnalytics {
     }>;
     data_quality?: { column: string; null_pct: number; null_count: number; dtype: string; action: string }[];
     dsl_layout?: any;
+    all_columns_charts?: Record<string, {
+        title: string;
+        data: any[];
+        type: string;
+        confidence?: string;
+        dimension?: string;
+        metric?: string;
+        aggregation?: string;
+        value_label?: string;
+        section?: string;
+    }>;
+    all_columns_count?: number;
 }
 
 export const analyticsService = {
@@ -105,13 +117,15 @@ export const analyticsService = {
         chartOverrides?: Record<string, any>,
         classificationOverrides?: Record<string, any>,
         selectedDomain?: string | null,
-        signal?: AbortSignal
+        signal?: AbortSignal,
+        allColumns?: boolean
     ) => {
         const payload: any = {
             active_filters: {},
             chart_overrides: chartOverrides || {},
             classification_overrides: classificationOverrides || {},
-            selected_domain: selectedDomain || null
+            selected_domain: selectedDomain || null,
+            all_columns: allColumns || false
         };
         if (datasetId) payload.dataset_id = datasetId;
         if (targetValue) payload.target_value = targetValue;

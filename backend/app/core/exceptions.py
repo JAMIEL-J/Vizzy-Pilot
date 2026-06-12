@@ -74,3 +74,13 @@ class RateLimitExceeded(VizzyException):
 
 class ValidationError(VizzyException):
     """Raised when input validation fails."""
+
+class SecurityError(VizzyException):
+    """Raised when a security constraint is violated."""
+
+    def __init__(
+        self,
+        message: str = "Security constraint violated",
+        details: Optional[str] = None,
+    ) -> None:
+        super().__init__(message, details)

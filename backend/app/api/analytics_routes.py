@@ -10,7 +10,7 @@ Version: 3.0 - Dynamic Analytics Engine with Domain Detection
 
 # pyright: reportGeneralTypeIssues=false
 
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, Optional, List, Tuple, Set
 from uuid import UUID
 from datetime import datetime, timezone
 import json
@@ -20,9 +20,9 @@ import os
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app.api.deps import DBSession, AuthenticatedUser
+from app.api.deps import DBSession, AuthenticatedUser, DatasetOwner
 from app.core.logger import get_logger
-from app.core.exceptions import AuthorizationError
+from app.core.exceptions import AuthorizationError, SecurityError
 from app.models.dataset import Dataset
 from app.models.dataset_version import DatasetVersion
 from app.models.analysis_contract import AnalysisContract
@@ -75,6 +75,8 @@ class DashboardAnalyticsResponse(BaseModel):
     chart_configs: Dict[str, Any] = {}
     data_quality: List[Dict[str, Any]] = []
     dsl_layout: Optional[Dict[str, Any]] = None
+    all_columns_charts: Dict[str, Any] = {}
+    all_columns_count: int = 0
 
 
 
@@ -86,6 +88,7 @@ class DashboardStateRequest(BaseModel):
     chart_overrides: Dict[str, Any] = {}
     classification_overrides: Dict[str, str] = {}
     selected_domain: Optional[str] = None
+    all_columns: bool = False
 
 
 # =============================================================================
@@ -567,7 +570,7 @@ def _backfill_date_trends_with_duckdb(
     response_model=DashboardAnalyticsResponse,
     summary="Get dashboard analytics",
 )
-def get_dashboard_analytics(  # pyright: ignore
+async def get_dashboard_analytics(  # pyright: ignore
     state: DashboardStateRequest,
     session: DBSession,
     current_user: AuthenticatedUser,
@@ -578,6 +581,17 @@ def get_dashboard_analytics(  # pyright: ignore
     Uses intelligent domain detection to generate appropriate KPIs and charts.
     """
     try:
+        # Ownership verification
+        if not state.dataset_id:
+            raise HTTPException(status_code=400, detail="Please provide a dataset_id")
+        
+        from app.api.deps import verify_dataset_owner
+        await verify_dataset_owner(
+            dataset_id=state.dataset_id,
+            session=session,
+            current_user=current_user
+        )
+
         logger.info(
             "[DASHBOARD REQUEST] dataset_id=%s target_value=%s active_filter_keys=%s active_filter_count=%s",
             state.dataset_id,
@@ -585,14 +599,12 @@ def get_dashboard_analytics(  # pyright: ignore
             list((state.active_filters or {}).keys()),
             sum(len(v) for v in (state.active_filters or {}).values() if isinstance(v, list)),
         )
-
-        if not state.dataset_id:
-            raise HTTPException(status_code=400, detail="Please provide a dataset_id")
         
         # Load dataset
         latest_version = get_latest_version(session=session, dataset_id=state.dataset_id)
         if not latest_version:
             raise HTTPException(status_code=404, detail="Version not found")
+
 
         # Prefer cleaned data when available, fall back to raw
         file_path = (
@@ -645,7 +657,7 @@ def get_dashboard_analytics(  # pyright: ignore
                 _protected_targets.add(t)
 
         if effective_overrides:
-            from app.services.semantic_audit import ROLE_TAXONOMY
+            from app.services.role_taxonomy import ROLE_TAXONOMY
             for col, role in effective_overrides.items():
                 if col in df.columns:
                     # Guard: Don't let the LLM semantic map override a column
@@ -788,7 +800,15 @@ def get_dashboard_analytics(  # pyright: ignore
         # Only DATA values are recomputed from df_filtered.
         # This prevents new charts appearing / old ones disappearing when a filter is applied,
         # which is how Power BI / Tableau / Looker behave.
-        charts_full = recommend_charts(df, domain, classification, overrides=state.chart_overrides)
+        charts_full_result = recommend_charts(df, domain, classification, overrides=state.chart_overrides, all_columns=state.all_columns)
+        
+        # When all_columns=True, recommend_charts returns {"charts": ..., "all_columns_charts": ..., "all_columns_count": ...}
+        if isinstance(charts_full_result, dict) and "charts" in charts_full_result:
+            all_columns_charts_data = charts_full_result.get("all_columns_charts", {})
+            charts_full = charts_full_result["charts"]
+        else:
+            charts_full = charts_full_result
+            all_columns_charts_data = {}
 
         is_filtered = len(df_filtered) < len(df)
 
@@ -814,7 +834,13 @@ def get_dashboard_analytics(  # pyright: ignore
         # If anything filtered the dataset, regenerate chart values from the filtered subset.
         # Chart structure is still anchored to charts_full; only data payloads are replaced.
         if is_filtered:
-            charts_filtered = recommend_charts(df_filtered, domain, classification, overrides=state.chart_overrides)
+            charts_filtered_result = recommend_charts(df_filtered, domain, classification, overrides=state.chart_overrides, all_columns=state.all_columns)
+            if isinstance(charts_filtered_result, dict) and "charts" in charts_filtered_result:
+                charts_filtered = charts_filtered_result["charts"]
+                all_columns_charts_filtered = charts_filtered_result.get("all_columns_charts", {})
+            else:
+                charts_filtered = charts_filtered_result
+                all_columns_charts_filtered = {}
 
             def _norm_chart_key_part(value: Any) -> str:
                 return str(value or "").strip().lower()
@@ -996,6 +1022,91 @@ def get_dashboard_analytics(  # pyright: ignore
                     except Exception as e:
                         print(f"Error handling no-dimension chart {title}: {e}")
                         charts[slot] = {**full_chart, "data": []}
+
+            if state.all_columns and all_columns_charts_filtered:
+                filtered_cols_by_identity = {}
+                for col_slot, col_chart in all_columns_charts_filtered.items():
+                    ident = (
+                        _norm_chart_key_part(col_chart.get("title")),
+                        _norm_chart_key_part(col_chart.get("type")),
+                        _norm_chart_key_part(col_chart.get("dimension")),
+                        _norm_chart_key_part(col_chart.get("metric")),
+                    )
+                    filtered_cols_by_identity[ident] = col_chart
+
+                for col_slot, original_chart in all_columns_charts_data.items():
+                    orig_ident = (
+                        _norm_chart_key_part(original_chart.get("title")),
+                        _norm_chart_key_part(original_chart.get("type")),
+                        _norm_chart_key_part(original_chart.get("dimension")),
+                        _norm_chart_key_part(original_chart.get("metric")),
+                    )
+                    matched_filtered = filtered_cols_by_identity.get(orig_ident)
+                    if matched_filtered:
+                        original_chart["data"] = matched_filtered["data"]
+                    else:
+                        dim = original_chart.get("dimension")
+                        met = original_chart.get("metric")
+                        agg = original_chart.get("aggregation", "sum")
+                        agg_norm = str(agg or "sum").strip().lower()
+                        ctype = original_chart.get("type")
+                        title = original_chart.get("title", "")
+                        
+                        try:
+                            manual_data = []
+                            if dim:
+                                if met == target_col or (not met and 'Churn' in title):
+                                    if ctype == 'stacked_bar' or ctype == 'stacked':
+                                        manual_data = _get_stacked_churn_counts(df_filtered, target_col, dim)
+                                    elif agg_norm == 'count' or 'Volume' in title or 'Count' in title:
+                                        manual_data = _get_churn_count_by_segment(df_filtered, target_col, dim)
+                                    else:
+                                        if pd.api.types.is_numeric_dtype(df_filtered[dim]) and df_filtered[dim].nunique() > 10:
+                                            manual_data = _get_lifecycle_cohorts(df_filtered, dim, target_col)
+                                        else:
+                                            manual_data = _get_churn_rate_by_segment(df_filtered, target_col, dim)
+                                elif ctype in ('line', 'area', 'area_bounds'):
+                                    if dim in classification.dates:
+                                        if met:
+                                            manual_data = _get_time_trend(df_filtered, dim, met, aggregation=str(agg))
+                                        else:
+                                            df_time = df_filtered[[dim]].copy()
+                                            df_time[dim] = _safe_to_datetime(df_time[dim])
+                                            df_time = df_time.dropna(subset=[dim]).sort_values(dim)
+                                            if not df_time.empty:
+                                                trend = df_time.groupby(pd.Grouper(key=dim, freq='MS')).size()
+                                                manual_data = [
+                                                    {
+                                                        "timestamp": k.strftime('%b %Y'),
+                                                        "date": str(k.date()),
+                                                        "value": int(v),
+                                                    }
+                                                    for k, v in trend.items()
+                                                ]
+                                    elif met:
+                                        manual_data = _safe_groupby_mean(df_filtered, dim, met)
+                                elif 'at Risk' in title and met:
+                                    manual_data = _get_value_at_risk(df_filtered, target_col, dim, met)
+                                elif ctype == 'scatter':
+                                    if dim and met:
+                                        from app.services.analytics.chart_recommender import _get_scatter_data
+                                        manual_data = _get_scatter_data(df_filtered, dim, met, limit=500)
+                                
+                                if not manual_data:
+                                    if met and pd.api.types.is_numeric_dtype(df[met]):
+                                        if agg_norm in {'mean', 'avg', 'average'}:
+                                            manual_data = _safe_groupby_mean(df_filtered, dim, met)
+                                        else:
+                                            manual_data = _safe_groupby_sum(df_filtered, dim, met)
+                                    else:
+                                        from app.services.analytics.chart_recommender import _format_categorical_value
+                                        manual_data = _safe_value_counts(df_filtered, dim, limit=15)
+                                        for d in manual_data:
+                                            d['name'] = _format_categorical_value(dim, d['name'])
+                            
+                            original_chart["data"] = manual_data or []
+                        except Exception as e:
+                            print(f"Error in manual re-aggregation for all_columns chart {title}: {e}")
         else:
             charts = charts_full
 
@@ -1005,6 +1116,17 @@ def get_dashboard_analytics(  # pyright: ignore
             version_id=latest_version.id,
             csv_path=file_path,
             charts=charts,
+            date_columns=classification.dates,
+            filters=state.active_filters or {},
+            target_col=target_col,
+            target_value=state.target_value or "all",
+        )
+
+        all_columns_charts_data = _backfill_date_trends_with_duckdb(
+            dataset_id=state.dataset_id,
+            version_id=latest_version.id,
+            csv_path=file_path,
+            charts=all_columns_charts_data,
             date_columns=classification.dates,
             filters=state.active_filters or {},
             target_col=target_col,
@@ -1056,9 +1178,20 @@ def get_dashboard_analytics(  # pyright: ignore
         # Final safety: Ensure no NaN/Infinity break the JSON response
         raw_data_payload = df_raw.replace([np.inf, -np.inf], np.nan).where(pd.notnull(df_raw), None).to_dict(orient="records")
 
-        # Prepare chart configs (extract structural info from charts_full)
+        # Prepare chart configs (extract structural info from charts_full and all_columns_charts_data)
         chart_configs = {}
         for slot, chart in charts_full.items():
+            dim = chart.get("dimension")
+            chart_configs[slot] = {
+                "title": chart["title"],
+                "type": chart["type"],
+                "dimension": dim,
+                "metric": chart.get("metric"),
+                "aggregation": chart.get("aggregation"),
+                "granularity": chart.get("granularity"),
+                "is_date": dim in classification.dates if dim else False
+            }
+        for slot, chart in all_columns_charts_data.items():
             dim = chart.get("dimension")
             chart_configs[slot] = {
                 "title": chart["title"],
@@ -1185,6 +1318,19 @@ def get_dashboard_analytics(  # pyright: ignore
             chart_dict=charts
         )
 
+        # Ensure EVERY column from the DataFrame appears in the panel.
+        # The classification pipeline sometimes silently drops columns;
+        # any column not assigned to a named bucket gets injected into
+        # 'excluded' so the user can see it and override the role.
+        classified_columns: Set[str] = set()
+        for bucket in (classification.dimensions, classification.metrics,
+                       classification.targets, classification.dates,
+                       classification.excluded):
+            classified_columns.update(bucket)
+        missing_columns = [c for c in df.columns if c not in classified_columns]
+        if missing_columns:
+            classification.excluded.extend(missing_columns)
+
         return DashboardAnalyticsResponse(
             dataset_name=dataset_name,
             total_rows=len(df),
@@ -1206,6 +1352,8 @@ def get_dashboard_analytics(  # pyright: ignore
             chart_configs=chart_configs,
             data_quality=data_quality,
             dsl_layout=dsl_layout,
+            all_columns_charts=all_columns_charts_data,
+            all_columns_count=len(all_columns_charts_data),
         )
         
     except HTTPException:
@@ -1221,7 +1369,7 @@ def get_dashboard_analytics(  # pyright: ignore
     "/analytics/pivot",
     summary="Get pivot table data",
 )
-def get_pivot_table(
+async def get_pivot_table(
     session: DBSession,
     current_user: AuthenticatedUser,
     dataset_id: Optional[UUID] = None,
@@ -1235,10 +1383,18 @@ def get_pivot_table(
         if not dataset_id:
             raise HTTPException(status_code=400, detail="Please provide a dataset_id")
         
+        from app.api.deps import verify_dataset_owner
+        await verify_dataset_owner(
+            dataset_id=dataset_id,
+            session=session,
+            current_user=current_user
+        )
+        
         # Load dataset
         latest_version = get_latest_version(session=session, dataset_id=dataset_id)
         if not latest_version:
             raise HTTPException(status_code=404, detail="Version not found")
+
             
         file_path = (
             latest_version.cleaned_reference
@@ -1278,7 +1434,7 @@ def get_pivot_table(
     "/analytics/correlation",
     summary="Get feature correlation matrix",
 )
-def get_correlation_matrix(
+async def get_correlation_matrix(
     session: DBSession,
     current_user: AuthenticatedUser,
     dataset_id: Optional[UUID] = None,
@@ -1286,7 +1442,7 @@ def get_correlation_matrix(
 ) -> Dict[str, Any]:
     """
     Compute Pearson correlation matrix for numeric columns.
-
+    
     Returns:
         labels:        original column names
         displayLabels: truncated display names
@@ -1297,10 +1453,18 @@ def get_correlation_matrix(
     try:
         if not dataset_id:
             raise HTTPException(status_code=400, detail="Please provide a dataset_id")
-
+        
+        from app.api.deps import verify_dataset_owner
+        await verify_dataset_owner(
+            dataset_id=dataset_id,
+            session=session,
+            current_user=current_user
+        )
+        
         latest_version = get_latest_version(session=session, dataset_id=dataset_id)
         if not latest_version:
             raise HTTPException(status_code=404, detail="Version not found")
+
 
         file_path = (
             latest_version.cleaned_reference
@@ -1502,18 +1666,18 @@ async def generate_narrative(
     current_user: AuthenticatedUser,
 ):
     """Generate an AI insight narrative for the current dashboard state."""
-    from app.core.llm_client import get_llm_client
-    from app.services.dataset_service import check_dataset_access
-
+    from app.api.deps import verify_dataset_owner
+    
     try:
-        # Authorization check
-        if not check_dataset_access(
-            session,
-            payload.dataset_id,
-            UUID(current_user.user_id),
-            ModelUserRole(current_user.role.value),
-        ):
-            raise HTTPException(status_code=403, detail="Unauthorized access to dataset.")
+        # Ownership verification
+        await verify_dataset_owner(
+            dataset_id=payload.dataset_id,
+            session=session,
+            current_user=current_user
+        )
+        
+        from app.core.llm_client import get_llm_client
+
 
         # Determine narrative currency symbol
         currency_symbol = _currency_symbol_from_code("USD")
@@ -1610,3 +1774,87 @@ Chart Breakdowns:
             status_code=500,
             detail=f"Error generating narrative: {str(e)}",
         )
+
+
+# =============================================================================
+# Causal Analytics Endpoints
+# =============================================================================
+
+class CausalAnalysisRequest(BaseModel):
+    """Request for causal analysis."""
+    dataset_id: UUID
+    target_column: Optional[str] = None
+
+
+class CausalAnalysisResponse(BaseModel):
+    """Response for causal analysis."""
+    annotations: List[Dict[str, Any]]
+    summary: str
+    total_drivers_found: int
+    strong_correlations: int
+
+
+@router.post(
+    "/analytics/causal",
+    response_model=CausalAnalysisResponse,
+    summary="Get causal analysis and driver annotations",
+)
+async def get_causal_analysis(
+    request: CausalAnalysisRequest,
+    session: DBSession,
+    current_user: AuthenticatedUser,
+) -> CausalAnalysisResponse:
+    """
+    Get "Why" driver annotations using Pearson/Spearman correlation.
+    
+    Analyzes the dataset to find what drives KPI movements and
+    generates human-readable explanations.
+    """
+    from app.services.analytics.causal_analysis import generate_why_annotations
+    from app.services.dataset_version_service import get_latest_version
+    from app.services.analytics.csv_loader import safe_read_csv
+    from app.services.analytics.column_filter import filter_columns
+    
+    # Verify ownership
+    from app.api.deps import verify_dataset_owner
+    await verify_dataset_owner(
+        dataset_id=request.dataset_id,
+        session=session,
+        current_user=current_user
+    )
+    
+    # Load dataset
+    latest_version = get_latest_version(session=session, dataset_id=request.dataset_id)
+    if not latest_version:
+        raise HTTPException(status_code=404, detail="Version not found")
+    
+    file_path = (
+        latest_version.cleaned_reference
+        if latest_version.cleaned_reference
+        else latest_version.source_reference
+    )
+    df = safe_read_csv(file_path)
+    
+    # Get classification for determining KPIs
+    from app.services.analytics.domain_detector import detect_domain
+    domain, _ = detect_domain(df)
+    classification = filter_columns(df, domain)
+    
+    # Generate causal analysis
+    result = generate_why_annotations(
+        df=df,
+        target_column=request.target_column,
+        classification={
+            "metrics": classification.metrics,
+            "dimensions": classification.dimensions,
+            "targets": classification.targets,
+            "dates": classification.dates
+        }
+    )
+    
+    return CausalAnalysisResponse(
+        annotations=result["annotations"],
+        summary=result["summary"],
+        total_drivers_found=result["total_drivers_found"],
+        strong_correlations=result["strong_correlations"]
+    )
