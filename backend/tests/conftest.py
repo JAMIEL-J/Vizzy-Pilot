@@ -1,4 +1,6 @@
 # Test Configuration and Fixtures
+import os
+os.environ["TESTING"] = "1"
 
 import pytest
 import pandas as pd

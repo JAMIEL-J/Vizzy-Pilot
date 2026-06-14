@@ -337,10 +337,11 @@ def _execute_diagnostic(
 async def _execute_diagnostic_sql(
     db_engine,
     query: Dict[str, Any],
+    table_name: str = "data",
 ) -> Dict[str, Any]:
     """Execute a single diagnostic aggregation using SQL against DuckDB."""
     try:
-        sql_bundle = _build_sql_for_diagnostic(query, table_name="data")
+        sql_bundle = _build_sql_for_diagnostic(query, table_name=table_name)
         sql = sql_bundle["sql"]
         dim = sql_bundle["dimension"]
 
@@ -377,13 +378,14 @@ async def _execute_diagnostic_batch_sql(
     df: pd.DataFrame,
     diag_queries: List[Dict[str, Any]],
     progress_callback: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
+    table_name: str = "data",
 ) -> List[Dict[str, Any]]:
     """Execute a full diagnostic batch in SQL mode using a transient DuckDB engine."""
     from app.services.analytics.db_engine import DBEngine
     
     engine = DBEngine(db_path=":memory:")
     try:
-        await engine.load_dataframe("data", df)
+        await engine.load_dataframe(table_name, df)
         out: List[Dict[str, Any]] = []
         total = len(diag_queries)
         for idx, q in enumerate(diag_queries):
@@ -396,7 +398,7 @@ async def _execute_diagnostic_batch_sql(
                     "query_index": idx + 1,
                     "query_total": total
                 })
-            out.append(await _execute_diagnostic_sql(engine, q))
+            out.append(await _execute_diagnostic_sql(engine, q, table_name=table_name))
         return out
     finally:
         engine.close()

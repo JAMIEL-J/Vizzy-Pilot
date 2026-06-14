@@ -90,6 +90,7 @@ async def build_duckdb_from_csv(
     dataset_id: UUID,
     version_id: UUID,
     csv_path: str,
+    table_name: str = "data",
     force_rebuild: bool = False
 ) -> Path:
     """
@@ -131,7 +132,7 @@ async def build_duckdb_from_csv(
         db_engine = DBEngine(db_path=str(duckdb_path))
 
         # Load CSV into DuckDB (creates table + runs coercion pipeline)
-        await db_engine.load_csv("data", csv_path)
+        await db_engine.load_csv(table_name, csv_path)
 
         # Close connection to finalize file
         db_engine.close()
@@ -169,3 +170,38 @@ def get_or_build_duckdb(dataset_id: UUID, version_id: UUID, csv_path: str) -> Pa
 def duckdb_exists(dataset_id: UUID, version_id: UUID) -> bool:
     """Check if DuckDB file exists for this version."""
     return get_duckdb_path(dataset_id, version_id).exists()
+
+
+async def add_table_to_duckdb(
+    dataset_id: UUID,
+    version_id: UUID,
+    csv_path: str,
+    table_name: str,
+) -> Path:
+    """Add a new table to an existing DuckDB file.
+
+    If the DuckDB file doesn't exist, creates it with the table.
+    If it exists, appends the table (replaces if same name exists).
+    """
+    duckdb_path = get_duckdb_path(dataset_id, version_id)
+
+    logger.info(f"Adding table '{table_name}' from {csv_path} → {duckdb_path}")
+
+    try:
+        mark_duckdb_building(dataset_id, version_id)
+
+        db_engine = DBEngine(db_path=str(duckdb_path))
+        await db_engine.load_csv(table_name, csv_path)
+        db_engine.close()
+
+        mark_duckdb_ready(dataset_id, version_id)
+
+        file_size_mb = duckdb_path.stat().st_size / 1024 / 1024
+        logger.info(f"✅ Table '{table_name}' added to DuckDB ({file_size_mb:.2f} MB total)")
+
+        return duckdb_path
+
+    except Exception as e:
+        logger.error(f"Failed to add table '{table_name}' to DuckDB: {e}")
+        mark_duckdb_failed(dataset_id, version_id, str(e))
+        raise RuntimeError(f"DuckDB table add failed: {e}")

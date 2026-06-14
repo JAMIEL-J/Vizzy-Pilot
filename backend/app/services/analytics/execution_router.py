@@ -18,7 +18,8 @@ async def execute_dashboard_load(
     target_column: Optional[str] = None,
     target_value: str = "all",
     dataset_id: str = "default",
-    version_id: str = "default"
+    version_id: str = "default",
+    table_name: str = "data"
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """
     Orchestrate the execution of dashboard components and yield results as they arrive.
@@ -42,7 +43,8 @@ async def execute_dashboard_load(
         filters=filters,
         target_column=target_column,
         target_value=target_value,
-        dataset_id=dataset_id
+        dataset_id=dataset_id,
+        table_name=table_name
     ))
     
     pandas_task = asyncio.create_task(run_pandas_pipeline(

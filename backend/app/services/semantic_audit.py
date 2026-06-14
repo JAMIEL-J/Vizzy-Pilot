@@ -24,8 +24,26 @@ CONFIDENCE_AUTO_ACCEPT = 0.90
 CONFIDENCE_FLAGGED = 0.65
 
 
-def _table_name(dataset_id: str) -> str:
-    return f"data"
+def _table_name(dataset_id: str, version_id: str = None) -> str:
+    """Resolve the DuckDB table name for a dataset.
+
+    Returns 'data' for legacy single-table datasets,
+    or the actual table name for multi-table datasets.
+    """
+    if version_id:
+        from app.models.database import get_session
+        from app.services.analytics.table_resolver import resolve_table_name
+        from uuid import UUID
+        
+        session_gen = get_session()
+        session = next(session_gen)
+        try:
+            return resolve_table_name(UUID(version_id), session)
+        except Exception:
+            pass
+        finally:
+            session_gen.close()
+    return "data"
 
 
 def _fetch_column_samples(conn: duckdb.DuckDBPyConnection, table: str, col: str, limit: int = 20) -> List[Any]:
@@ -92,7 +110,7 @@ async def run_semantic_audit(
     from app.services.analytics.semantic_mapper import SemanticMapper
 
     mapper = SemanticMapper()
-    table = _table_name(dataset_id)
+    table = _table_name(dataset_id, version_id)
 
     # Try connecting to dataset-specific DuckDB file
     duckdb_path = get_duckdb_path(dataset_id, version_id)

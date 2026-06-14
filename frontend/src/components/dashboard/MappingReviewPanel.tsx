@@ -81,14 +81,24 @@ export default function MappingReviewPanel({ datasetId, versionId, onConfirm }: 
                     throw new Error('No semantic mapping proposals were returned by the server');
                 }
 
-                const proposedList: MappingProposal[] = proposalsRaw.map((item: any) => ({
-                    column: item.column_name,
-                    role: item.role,
-                    evidence: item.evidence,
-                    confidence: item.confidence,
-                    status: item.status || (item.confidence >= 0.9 ? 'auto_accepted' : item.confidence >= 0.65 ? 'flagged' : 'unclassified'),
-                    profile: item.profile || null
-                }));
+                const proposedList: MappingProposal[] = proposalsRaw.map((item: any) => {
+                    let status: MappingStatus = 'unclassified';
+                    if (item.status) {
+                        status = item.status;
+                    } else if (item.confidence >= 0.9) {
+                        status = 'auto_accepted';
+                    } else if (item.role && item.role !== 'unclassified') {
+                        status = 'flagged';
+                    }
+                    return {
+                        column: item.column_name,
+                        role: item.role,
+                        evidence: item.evidence,
+                        confidence: item.confidence,
+                        status: status,
+                        profile: item.profile || null
+                    };
+                });
 
                 setProposals(proposedList);
                 setOriginalProposals(JSON.parse(JSON.stringify(proposedList)));
@@ -364,9 +374,16 @@ export default function MappingReviewPanel({ datasetId, versionId, onConfirm }: 
                                                         </div>
                                                     </div>
 
-                                                    <span className={`text-[10px] font-bold tabular-nums ${confidenceColor} font-['JetBrains_Mono'] whitespace-nowrap`}>
-                                                        {Math.round(p.confidence * 100)}%
-                                                    </span>
+                                                     <div className="flex items-center gap-1.5 whitespace-nowrap">
+                                                         {p.confidence < 0.65 && (
+                                                             <span className="px-1.5 py-0.5 text-[9px] font-bold bg-amber-500/20 text-amber-600 dark:text-amber-400 rounded">
+                                                                 Low Confidence
+                                                             </span>
+                                                         )}
+                                                         <span className={`text-[10px] font-bold tabular-nums ${confidenceColor} font-['JetBrains_Mono']`}>
+                                                             {Math.round(p.confidence * 100)}%
+                                                         </span>
+                                                     </div>
                                                 </div>
 
                                                 {/* Row 2: Type badge + Sample values */}

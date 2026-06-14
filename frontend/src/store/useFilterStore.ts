@@ -21,6 +21,12 @@ export interface DashboardState {
     target_value: string;
     total_records: number;
 
+    dataVersion: number;
+    streamedCharts: Record<string, any> | null;
+    streamedKpis: Record<string, any> | null;
+    streamDone: boolean;
+    streamError: string | null;
+
     setDashboardData: (rawData: any[], chartConfigs: Record<string, any>, initialChartData: Record<string, any>, totalRows: number, targetCol?: string | null, datasetId?: string | null) => void;
     syncServerChartData: (charts: Record<string, any>) => void;
     setTargetValue: (value: string) => void;
@@ -33,6 +39,8 @@ export interface DashboardState {
     setClassificationOverride: (column: string, role: ClassificationRole) => void;
     setDomain: (domain: string | null) => void;
     resetState: () => void;
+    setStreamedData: (streamedCharts: Record<string, any> | null, streamedKpis: Record<string, any> | null, streamDone: boolean, streamError: string | null) => void;
+    resetStreamState: () => void;
 }
 
 const getRowValue = (row: any, key: string) => {
@@ -837,6 +845,12 @@ export const useFilterStore = create<DashboardState>((set, get) => ({
     target_value: 'all',
     total_records: 0,
 
+    dataVersion: 0,
+    streamedCharts: null,
+    streamedKpis: null,
+    streamDone: false,
+    streamError: null,
+
     setDashboardData: (rawData, chartConfigs, initialChartData, totalRows, targetCol, datasetId) => {
         const state = get();
         const activeDatasetId = datasetId || state.datasetId;
@@ -863,6 +877,8 @@ export const useFilterStore = create<DashboardState>((set, get) => ({
             initialChartData
         );
 
+        const versionChanged = activeDatasetId !== state.datasetId;
+
         set({
             datasetId: activeDatasetId,
             rawData,
@@ -875,7 +891,8 @@ export const useFilterStore = create<DashboardState>((set, get) => ({
             chart_overrides: finalOverrides,
             classification_overrides: finalClassOverrides,
             target_value: finalTargetVal,
-            selected_domain: finalDomain
+            selected_domain: finalDomain,
+            dataVersion: versionChanged ? state.dataVersion + 1 : state.dataVersion
         });
     },
 
@@ -1071,7 +1088,29 @@ export const useFilterStore = create<DashboardState>((set, get) => ({
             classification_overrides: {},
             selected_domain: null,
             target_column: null,
-            target_value: 'all'
+            target_value: 'all',
+            streamedCharts: null,
+            streamedKpis: null,
+            streamDone: false,
+            streamError: null
+        });
+    },
+
+    setStreamedData: (streamedCharts, streamedKpis, streamDone, streamError) => {
+        set({
+            streamedCharts,
+            streamedKpis,
+            streamDone,
+            streamError
+        });
+    },
+
+    resetStreamState: () => {
+        set({
+            streamedCharts: null,
+            streamedKpis: null,
+            streamDone: false,
+            streamError: null
         });
     }
 }));

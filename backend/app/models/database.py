@@ -57,7 +57,11 @@ def init_db() -> None:
     _ensure_dataset_versions_approved_by_column()
     _ensure_dataset_versions_approved_at_column()
     _ensure_dataset_versions_chart_configs_json_column()
+    _ensure_dataset_versions_duckdb_table_name_column()
+    _ensure_dataset_versions_active_join_view_column()
+    _ensure_dataset_versions_join_config_json_column()
     _ensure_mapping_corrections_table()
+    _ensure_dataset_tables_table()
 
 
 def _ensure_mapping_corrections_table() -> None:
@@ -255,6 +259,77 @@ def _ensure_dataset_versions_chart_configs_json_column() -> None:
 
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE dataset_versions ADD COLUMN chart_configs_json TEXT"))
+
+
+def _ensure_dataset_versions_duckdb_table_name_column() -> None:
+    """Best-effort schema patch for legacy dataset_versions tables to add duckdb_table_name."""
+    inspector = inspect(engine)
+    if "dataset_versions" not in inspector.get_table_names():
+        return
+
+    columns = {col["name"] for col in inspector.get_columns("dataset_versions")}
+    if "duckdb_table_name" in columns:
+        return
+
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE dataset_versions ADD COLUMN duckdb_table_name VARCHAR DEFAULT 'data'"))
+
+
+def _ensure_dataset_versions_active_join_view_column() -> None:
+    """Best-effort schema patch for active_join_view on dataset_versions."""
+    inspector = inspect(engine)
+    if "dataset_versions" not in inspector.get_table_names():
+        return
+
+    columns = {col["name"] for col in inspector.get_columns("dataset_versions")}
+    if "active_join_view" in columns:
+        return
+
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE dataset_versions ADD COLUMN active_join_view VARCHAR"))
+
+
+def _ensure_dataset_versions_join_config_json_column() -> None:
+    """Best-effort schema patch for join_config_json on dataset_versions."""
+    inspector = inspect(engine)
+    if "dataset_versions" not in inspector.get_table_names():
+        return
+
+    columns = {col["name"] for col in inspector.get_columns("dataset_versions")}
+    if "join_config_json" in columns:
+        return
+
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE dataset_versions ADD COLUMN join_config_json TEXT"))
+
+
+def _ensure_dataset_tables_table() -> None:
+    """Ensure dataset_tables table exists for multi-table dataset support."""
+    inspector = inspect(engine)
+    if "dataset_tables" in inspector.get_table_names():
+        return
+
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE dataset_tables (
+                    id VARCHAR(36) NOT NULL PRIMARY KEY,
+                    version_id VARCHAR(36) NOT NULL,
+                    table_name VARCHAR(255) NOT NULL,
+                    original_filename VARCHAR(255) NOT NULL,
+                    source_reference VARCHAR NOT NULL,
+                    row_count INTEGER,
+                    schema_metadata TEXT,
+                    is_primary BOOLEAN NOT NULL DEFAULT 1,
+                    display_order INTEGER NOT NULL DEFAULT 0,
+                    created_at DATETIME NOT NULL,
+                    updated_at DATETIME NOT NULL
+                )
+                """
+            )
+        )
+        conn.execute(text("CREATE INDEX ix_dataset_tables_version_id ON dataset_tables (version_id)"))
 
 
 def get_session() -> Generator[Session, None, None]:

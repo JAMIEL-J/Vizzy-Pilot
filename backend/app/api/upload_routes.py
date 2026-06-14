@@ -1,6 +1,25 @@
 from uuid import UUID
 import json
 import re
+import os
+import sys
+import importlib.util
+
+# Windows libmagic DLL lookup support
+if os.name == 'nt':
+    spec = importlib.util.find_spec('magic')
+    if spec:
+        magic_dir = os.path.dirname(spec.origin)
+        libmagic_dir = os.path.join(magic_dir, 'libmagic')
+        if os.path.exists(libmagic_dir):
+            os.environ['PATH'] = libmagic_dir + os.pathsep + os.environ.get('PATH', '')
+            if hasattr(os, 'add_dll_directory'):
+                try:
+                    os.add_dll_directory(libmagic_dir)
+                except Exception:
+                    pass
+
+import magic
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, status, BackgroundTasks
 
@@ -93,11 +112,19 @@ def _validate_file_security(file: UploadFile, max_size_mb: int) -> None:
     
     # 4. Inspect magic bytes for signature check
     try:
-        header = file.file.read(4)
+        # Read the first 2048 bytes for magic check
+        chunk = file.file.read(2048)
         file.file.seek(0)
         
+        detected_mime = magic.from_buffer(chunk, mime=True)
+        
         # Reject executable signatures
-        if header.startswith(b"MZ") or header.startswith(b"\x7fELF"):
+        if chunk.startswith(b"MZ") or chunk.startswith(b"\x7fELF") or detected_mime in {
+            "application/x-dosexec",
+            "application/x-executable",
+            "application/x-sharedlib",
+            "application/x-msdownload",
+        } or "executable" in detected_mime:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Malicious executable file signature detected.",
@@ -105,12 +132,11 @@ def _validate_file_security(file: UploadFile, max_size_mb: int) -> None:
             
         # Reject binary signatures for text-based extensions
         if ext in {".csv", ".tsv", ".txt", ".json"}:
-            for signature, sig_type in FILE_SIGNATURES.items():
-                if header.startswith(signature):
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Invalid file content. Expected a text-based format, but binary {sig_type} signature was detected.",
-                    )
+            if not (detected_mime.startswith("text/") or detected_mime in {"application/json", "application/csv"}):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Binary file signature detected. Expected a text-based format, but detected mime type was {detected_mime}.",
+                )
     except HTTPException:
         raise
     except Exception as e:

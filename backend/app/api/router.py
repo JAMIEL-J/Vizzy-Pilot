@@ -13,6 +13,8 @@ from app.api import (
     analysis_nl_routes,
     upload_routes,
     sql_ingestion_routes,
+    sql_transparency_routes,
+    relational_routes,
     external_db_routes,
     chat_routes,
     download_routes,
@@ -56,6 +58,17 @@ api_router.include_router(
 api_router.include_router(
     sql_ingestion_routes.router,
     tags=["SQL Ingestion"],
+)
+
+api_router.include_router(
+    sql_transparency_routes.router,
+    prefix="/datasets/{dataset_id}",
+    tags=["SQL Transparency"],
+)
+
+api_router.include_router(
+    relational_routes.router,
+    tags=["Relational Data"],
 )
 
 api_router.include_router(

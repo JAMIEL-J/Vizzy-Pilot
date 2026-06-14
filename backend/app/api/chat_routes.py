@@ -1052,18 +1052,27 @@ async def send_message(
                     # Load dataset
                     version = session.get(DatasetVersion, chat_session.dataset_version_id)
                     if version:
-                        data_path = version.cleaned_reference or version.source_reference
-                        
-                        # Initialize DuckDB engine
-                        db_engine = DBEngine()
-                        
-                        try:
-                            await db_engine.load_csv("data", data_path)
-                        except Exception as csv_err:
-                            logging.getLogger(__name__).warning(f"Direct CSV load failed, falling back to Pandas: {csv_err}")
-                            df = pd.read_csv(data_path)
-                            await db_engine.load_dataframe("data", df)
+                        from app.services.analytics.table_resolver import resolve_table_name_from_version
+                        from app.core.storage import get_duckdb_path
 
+                        table_name = resolve_table_name_from_version(version)
+                        duckdb_path = get_duckdb_path(version.dataset_id, version.id)
+
+                        if duckdb_path.exists():
+                            db_engine = DBEngine(db_path=str(duckdb_path), read_only=True)
+                            db_engine._lock_down_read_con()
+                        else:
+                            data_path = version.cleaned_reference or version.source_reference
+                            
+                            # Initialize DuckDB engine
+                            db_engine = DBEngine()
+                            
+                            try:
+                                await db_engine.load_csv(table_name, data_path)
+                            except Exception as csv_err:
+                                logging.getLogger(__name__).warning(f"Direct CSV load failed, falling back to Pandas: {csv_err}")
+                                df = pd.read_csv(data_path)
+                                await db_engine.load_dataframe(table_name, df)
 
                         # Apply memory management
                         context_messages = chat_service.get_recent_context(
@@ -1091,7 +1100,7 @@ async def send_message(
                         nl2sql_result = await executor.run_query(
                             user_query=contextual_query,
                             db=db_engine,
-                            table_name="data",
+                            table_name=table_name,
                         )
 
                 except Exception as e:

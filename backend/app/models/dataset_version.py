@@ -52,3 +52,8 @@ class DatasetVersion(BaseModel, table=True):
 
     created_by: UUID = Field(nullable=False)
     is_active: bool = Field(default=True)
+    duckdb_table_name: Optional[str] = Field(default="data", nullable=True)
+
+    # Multi-table join support
+    active_join_view: Optional[str] = Field(default=None, nullable=True)
+    join_config_json: Optional[str] = Field(default=None, nullable=True)

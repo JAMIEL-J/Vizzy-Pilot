@@ -7,6 +7,20 @@ from app.core.config import get_settings
 
 _fernet_instance: Optional[Fernet] = None
 
+def get_secret_key() -> str:
+    settings = get_settings()
+    if settings.auth.secret_key:
+        return settings.auth.secret_key.get_secret_value()
+    
+    # Dev fallback — test context only
+    if os.getenv("TESTING") == "1":
+        return "test-secret-key-not-for-production"
+    
+    raise RuntimeError(
+        "AUTH_SECRET_KEY is required. "
+        "Set it in your environment before starting the application."
+    )
+
 def _get_fernet() -> Fernet:
     global _fernet_instance
     if _fernet_instance is not None:
@@ -14,8 +28,8 @@ def _get_fernet() -> Fernet:
 
     encryption_key = os.getenv("ENCRYPTION_KEY")
     if not encryption_key:
-        settings = get_settings()
-        key_hash = hashlib.sha256(settings.auth.secret_key.get_secret_value().encode()).digest()
+        secret_key = get_secret_key()
+        key_hash = hashlib.sha256(secret_key.encode()).digest()
         encryption_key = base64.urlsafe_b64encode(key_hash).decode()
         
     try:

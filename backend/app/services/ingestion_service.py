@@ -23,6 +23,7 @@ from app.services.ingestion_execution.file_loader import load_from_upload, load_
 from app.services.ingestion_execution.file_loader import _validate_file_extension, _validate_file_size
 from app.services.ingestion_execution.schema_inference import infer_schema
 from app.services.dataset_version_service import create_dataset_version
+from app.services.dataset_table_service import create_dataset_table
 
 
 def ingest_file_upload(
@@ -110,6 +111,18 @@ def ingest_file_upload(
             session.commit()
             session.refresh(version)
 
+            # Create DatasetTable entry for multi-table support
+            create_dataset_table(
+                session=session,
+                version_id=version.id,
+                table_name=version.duckdb_table_name or "data",
+                original_filename=filename,
+                source_reference=str(raw_path),
+                row_count=row_count,
+                schema_metadata=version.schema_metadata,
+                is_primary=True,
+            )
+
             df = None
         except Exception as e:
             if "version" in locals():
@@ -155,6 +168,18 @@ def ingest_file_upload(
             session.add(version)
             session.commit()
             session.refresh(version)
+
+            # Create DatasetTable entry for multi-table support
+            create_dataset_table(
+                session=session,
+                version_id=version.id,
+                table_name=version.duckdb_table_name or "data",
+                original_filename=filename,
+                source_reference=str(raw_path),
+                row_count=len(df),
+                schema_metadata=json.dumps(schema.get("columns", [])),
+                is_primary=True,
+            )
 
         except Exception as e:
             version.is_active = False

@@ -274,13 +274,17 @@ class Settings(BaseSettings):
         default="INFO"
     )
     api_prefix: str = Field(default="/api/v1")
-    cors_origins: str = Field(
+    cors_origins: Optional[str] = Field(
         default="http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173",
         description="Comma-separated list of allowed CORS origins. Empty in production.",
     )
     cors_allow_credentials: bool = Field(default=True)
     cors_allow_methods: list[str] = Field(default=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
     cors_allow_headers: list[str] = Field(default=["*"])
+    sse_origin: Optional[str] = Field(
+        default=None,
+        description="Explicit whitelist origin for Server-Sent Events (SSE).",
+    )
 
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     auth: AuthSettings = Field(default_factory=AuthSettings)
@@ -314,7 +318,11 @@ class Settings(BaseSettings):
             # If not set, return empty list (no cross-origin allowed)
             if not os.environ.get("CORS_ORIGINS"):
                 return []
+        if not self.cors_origins:
+            return []
         origins = [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        # Strip out wildcard "*" to fail closed
+        origins = [o for o in origins if o != "*"]
         return origins
 
     @field_validator("auth", mode="after")

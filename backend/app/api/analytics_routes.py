@@ -434,6 +434,16 @@ def _try_duckdb_analytics(
             bootstrap_ms,
         )
 
+        from app.models.database import get_session
+        from app.services.analytics.table_resolver import resolve_table_name
+
+        session_gen = get_session()
+        session = next(session_gen)
+        try:
+            table_name = resolve_table_name(version_id, session)
+        finally:
+            session_gen.close()
+
         conn = duckdb.connect(str(duckdb_path), read_only=True)
 
         duckdb_charts = execute_chart_queries(
@@ -442,6 +452,7 @@ def _try_duckdb_analytics(
             filters=state.active_filters or {},
             target_column=target_col,
             target_value=state.target_value or "all",
+            table_name=table_name,
         )
 
         merged = {
@@ -510,12 +521,23 @@ def _backfill_date_trends_with_duckdb(
         duckdb_path = get_or_build_duckdb(dataset_id, version_id, csv_path)
         conn = duckdb.connect(str(duckdb_path), read_only=True)
 
+        from app.models.database import get_session
+        from app.services.analytics.table_resolver import resolve_table_name
+
+        session_gen = get_session()
+        session = next(session_gen)
+        try:
+            table_name = resolve_table_name(version_id, session)
+        finally:
+            session_gen.close()
+
         duckdb_trends = execute_chart_queries(
             conn=conn,
             chart_configs=chart_configs,
             filters=filters or {},
             target_column=target_col,
             target_value=target_value or "all",
+            table_name=table_name,
         )
 
         merged = {**charts}
@@ -560,9 +582,137 @@ def _backfill_date_trends_with_duckdb(
                 pass
 
 
-# =============================================================================
-# API Endpoints
-# =============================================================================
+@router.get(
+    "/analytics/auto-render/{version_id}",
+    response_model=DashboardAnalyticsResponse,
+    summary="Auto-render dashboard based on dataset characteristics",
+)
+async def auto_render_dashboard(
+    version_id: UUID,
+    session: DBSession,
+    current_user: AuthenticatedUser,
+) -> DashboardAnalyticsResponse:
+    """
+    Zero-Input First Render: Immediately generate a high-value dashboard
+    using domain detection and analytical templates.
+    """
+    try:
+        # 1. Fetch version and verify ownership
+        version = session.get(DatasetVersion, version_id)
+        if not version:
+            raise HTTPException(status_code=404, detail="Version not found")
+
+        from app.api.deps import verify_dataset_owner
+        await verify_dataset_owner(
+            dataset_id=version.dataset_id,
+            session=session,
+            current_user=current_user
+        )
+
+        # 2. Load data
+        file_path = (
+            version.cleaned_reference
+            if version.cleaned_reference
+            else version.source_reference
+        )
+        df = safe_read_csv(file_path)
+
+        # 3. Domain detection & Classification
+        domain, scores = detect_domain(df)
+        confidence = get_domain_confidence(scores)
+        classification = filter_columns(df, domain)
+
+        # 4. Identify target column for the "Zero-Input" state
+        target_col = classification.targets[0] if classification.targets else _find_target_column(df)
+        target_values = []
+        if target_col:
+            target_values = [str(x) for x in df[target_col].dropna().unique()]
+            target_values = _normalize_binary_target_values(target_col, target_values)
+
+        # 5. Generate high-value recommendations (The core of Auto-render)
+        # Note: all_columns=False for the primary landing view
+        charts_full_result = recommend_charts(df, domain, classification, all_columns=False)
+
+        # recommend_charts returns a dict if all_columns=True, otherwise a list of ChartRecommendation
+        # We normalize it to a dict for the response
+        charts_mapped: Dict[str, Any] = {}
+        if isinstance(charts_full_result, list):
+            for i, chart in enumerate(charts_full_result):
+                slot = f"slot_{i+1}"
+                charts_mapped[slot] = {
+                    "title": chart.title,
+                    "type": chart.chart_type,
+                    "data": chart.data,
+                    "confidence": chart.confidence,
+                    "reason": chart.reason,
+                    "dimension": chart.dimension,
+                    "metric": chart.metric,
+                    "aggregation": chart.aggregation,
+                    "format_type": getattr(chart, "format_type", None),
+                    "section": getattr(chart, "section", "Key Insights"),
+                }
+        else:
+            charts_mapped = charts_full_result.get("charts", {})
+
+        # 6. Generate KPIs
+        kpis = generate_kpis(df, domain, classification)
+
+        # 7. Generate DSL Layout
+        from app.services.analytics.dsl_layout_generator import generate_dsl_layout
+        dsl_layout = generate_dsl_layout(
+            domain=domain.value,
+            classification=classification,
+            kpi_dict=kpis,
+            chart_dict=charts_mapped
+        )
+
+        # 8. Prepare raw data payload (stratified sample)
+        max_raw_rows = 50000
+        if len(df) <= max_raw_rows:
+            df_raw = df.copy()
+        else:
+            df_raw = df.sample(n=max_raw_rows, random_state=42).reset_index(drop=True)
+
+        raw_data_payload = df_raw.replace([np.inf, -np.inf], np.nan).where(pd.notnull(df_raw), None).to_dict(orient="records")
+
+        # 9. Chart Configs for hybrid engine
+        chart_configs = {}
+        for slot, chart in charts_mapped.items():
+            chart_configs[slot] = {
+                "title": chart["title"],
+                "type": chart["type"],
+                "dimension": chart.get("dimension"),
+                "metric": chart.get("metric"),
+                "aggregation": chart.get("aggregation"),
+                "is_date": chart.get("dimension") in classification.dates if chart.get("dimension") else False
+            }
+
+        return DashboardAnalyticsResponse(
+            dataset_name=version.source_reference.split('/')[-1],
+            total_rows=len(df),
+            domain=domain.value,
+            domain_confidence=confidence,
+            kpis=kpis,
+            charts=charts_mapped,
+            columns={
+                "dimensions": classification.dimensions,
+                "metrics": classification.metrics,
+                "targets": classification.targets,
+                "dates": classification.dates,
+                "excluded": classification.excluded
+            },
+            target_column=target_col,
+            target_values=target_values,
+            geo_filters={}, # Populate in first render if needed
+            raw_data=raw_data_payload,
+            chart_configs=chart_configs,
+            dsl_layout=dsl_layout,
+            all_columns_charts={},
+            all_columns_count=0,
+        )
+    except Exception as e:
+        logger.exception(f"Auto-render failed for version {version_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Auto-render failed: {str(e)}")
 
 
 @router.post(

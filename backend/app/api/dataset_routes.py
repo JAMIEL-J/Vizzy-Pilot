@@ -16,6 +16,7 @@ from app.core.exceptions import (
     AuthorizationError,
     InvalidOperation,
 )
+from app.core.audit import record_audit_event
 
 
 router = APIRouter()
@@ -107,6 +108,13 @@ def get_dataset(
             dataset_id=dataset_id,
             user_id=UUID(current_user.user_id),
             role=current_user.role,
+        )
+        record_audit_event(
+            event_type="DATASET_ACCESSED",
+            user_id=str(current_user.user_id),
+            resource_type="Dataset",
+            resource_id=str(dataset_id),
+            metadata={"action": "view_details", "dataset_name": dataset.get("name")},
         )
         return DatasetResponse.model_validate(dataset)
     except ResourceNotFound as e:
@@ -208,11 +216,18 @@ def get_dataset_metadata(
     """Return column details and size metrics for latest version of a dataset."""
     try:
         # Enforce access checks
-        dataset_service.get_dataset_details(
+        dataset = dataset_service.get_dataset_details(
             session=session,
             dataset_id=dataset_id,
             user_id=UUID(current_user.user_id),
             role=current_user.role,
+        )
+        record_audit_event(
+            event_type="DATASET_ACCESSED",
+            user_id=str(current_user.user_id),
+            resource_type="Dataset",
+            resource_id=str(dataset_id),
+            metadata={"action": "view_metadata", "dataset_name": dataset.get("name")},
         )
 
         latest_version = get_latest_version(session=session, dataset_id=dataset_id)

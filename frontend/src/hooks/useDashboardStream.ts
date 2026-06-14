@@ -22,20 +22,29 @@ export interface ChartResult {
   error?: string;
 }
 
-export function useDashboardStream(versionId: string) {
-  const [charts, setCharts] = useState<Record<string, ChartResult>>({});
-  const [kpis, setKpis] = useState<Record<string, ChartResult>>({});
-  const [done, setDone] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+import { useFilterStore } from '../store/useFilterStore';
 
-  const receivedCharts = useRef<Set<string>>(new Set());
+export function useDashboardStream(versionId: string) {
+  const resetStreamState = useFilterStore((state) => state.resetStreamState);
+  const setStreamedData = useFilterStore((state) => state.setStreamedData);
+  const streamedCharts = useFilterStore((state) => state.streamedCharts);
+  const streamedKpis = useFilterStore((state) => state.streamedKpis);
+  const streamDone = useFilterStore((state) => state.streamDone);
+  const streamError = useFilterStore((state) => state.streamError);
+
   const retryCountRef = useRef(0);
   const MAX_RETRIES = 3;
 
   useEffect(() => {
+    // Reset stream states in store on load / version change
+    resetStreamState();
+
     if (!versionId) return;
 
     let es: EventSource | null = null;
+    const receivedCharts = new Set<string>();
+    const tempCharts: Record<string, ChartResult> = {};
+    const tempKpis: Record<string, ChartResult> = {};
 
     const connect = () => {
       es = new EventSource(buildSseUrl(versionId));
@@ -45,26 +54,25 @@ export function useDashboardStream(versionId: string) {
           const result: ChartResult = JSON.parse(event.data);
 
           if (result.event === 'done') {
-            setDone(true);
+            setStreamedData({ ...tempCharts }, { ...tempKpis }, true, null);
             es?.close();
             retryCountRef.current = 0;
             return;
           }
 
           if (result.error) {
-            setError(result.error);
+            setStreamedData(null, null, false, result.error);
+            es?.close();
             return;
           }
 
           const id = result.chart_id || result.kpi_id;
-          if (id && !receivedCharts.current.has(id)) {
-            receivedCharts.current.add(id);
+          if (id && !receivedCharts.has(id)) {
+            receivedCharts.add(id);
             if (result.chart_id) {
-              const chartId = result.chart_id;
-              setCharts((prev) => ({ ...prev, [chartId]: result }));
+              tempCharts[result.chart_id] = result;
             } else if (result.kpi_id) {
-              const kpiId = result.kpi_id;
-              setKpis((prev) => ({ ...prev, [kpiId]: result }));
+              tempKpis[result.kpi_id] = result;
             }
           }
         } catch (e) {
@@ -78,7 +86,7 @@ export function useDashboardStream(versionId: string) {
           retryCountRef.current++;
           setTimeout(connect, 1000 * retryCountRef.current);
         } else {
-          setError('Connection to dashboard stream lost after multiple retries.');
+          setStreamedData(null, null, false, 'Connection to dashboard stream lost after multiple retries.');
         }
       };
     };
@@ -88,7 +96,12 @@ export function useDashboardStream(versionId: string) {
     return () => {
       if (es) es.close();
     };
-  }, [versionId]);
+  }, [versionId, resetStreamState, setStreamedData]);
 
-  return { charts, kpis, done, error };
+  return {
+    charts: streamedCharts || {},
+    kpis: streamedKpis || {},
+    done: streamDone,
+    error: streamError
+  };
 }

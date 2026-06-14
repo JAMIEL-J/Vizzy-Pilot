@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertTriangle, CheckCircle2, FileSpreadsheet, FileText, Upload as UploadIcon, Sparkles, X } from "lucide-react";
-import { datasetService, uploadService } from "../../lib/api/dataset";
+import { datasetService, uploadService, semanticMappingService } from "../../lib/api/dataset";
 import MappingReviewPanel from "../../components/dashboard/MappingReviewPanel";
 import { PageHeader } from "@/components/layout/TopNav";
 import { Panel, PanelHeader, Pill, BtnSecondary, BtnPrimary } from "@/components/ui/primitive";
@@ -23,6 +23,7 @@ export default function FileUpload() {
     const [pollCount, setPollCount] = useState(0);
     const [uploadedDatasetId, setUploadedDatasetId] = useState<string | null>(null);
     const [latestVersionId, setLatestVersionId] = useState<string | null>(null);
+    const [redirectCountdown, setRedirectCountdown] = useState<number | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const isMountedRef = useRef(true);
     const navigate = useNavigate();
@@ -46,6 +47,7 @@ export default function FileUpload() {
         setPollCount(0);
         setUploadedDatasetId(null);
         setLatestVersionId(null);
+        setRedirectCountdown(null);
         if (fileInputRef.current) {
             fileInputRef.current.value = "";
         }
@@ -101,12 +103,40 @@ export default function FileUpload() {
 
                 if (status.status === "ready" || status.ready) {
                     setProgress(100);
+                    const versionId = status.version_id || null;
+                    setLatestVersionId(versionId);
+
+                    if (versionId) {
+                        try {
+                            setStatusMessage("Applying AI semantic mappings...");
+                            const mappingRes = await semanticMappingService.proposeMapping(datasetId, versionId);
+                            const proposals = mappingRes?.proposal?.metadata?.proposals || [];
+                            const finalMap: Record<string, string> = {};
+                            proposals.forEach((p: any) => {
+                                finalMap[p.column_name] = p.role;
+                            });
+                            await semanticMappingService.confirmMapping(datasetId, versionId, finalMap, []);
+                        } catch (err) {
+                            console.error("Auto mapping failed, proceeding anyway:", err);
+                        }
+                    }
                     setUploadPhase("ready");
-                    setStatusMessage("Dataset is ready for full analytics.");
-
-                    setLatestVersionId(status.version_id || null);
-
-                    setShowSchema(true);
+                    setStatusMessage("Dataset ingested successfully!");
+                    
+                    let count = 3;
+                    setRedirectCountdown(count);
+                    const interval = setInterval(() => {
+                        count -= 1;
+                        if (isMountedRef.current) {
+                            setRedirectCountdown(count);
+                        }
+                        if (count <= 0) {
+                            clearInterval(interval);
+                            if (isMountedRef.current) {
+                                navigate("/user/dashboard");
+                            }
+                        }
+                    }, 1000);
                     return;
                 }
 
@@ -162,7 +192,7 @@ export default function FileUpload() {
 
     const startUpload = async (selectedFile: File) => {
         setUploadPhase("uploading");
-        setStatusMessage("Uploading dataset and creating version...");
+        setStatusMessage("Uploading dataset...");
         setFailureMessage("");
         setShowSchema(false);
         setUploadedDatasetId(null);
@@ -208,13 +238,10 @@ export default function FileUpload() {
         }
     };
 
-    const phases: { key: UploadPhase; label: string }[] = [
-        { key: "uploading", label: "Uploading" },
-        { key: "building", label: "DuckDB ingest" },
-        { key: "ready", label: "Schema review" },
-    ];
-
-    const phaseIndex = ["uploading", "building", "ready"].indexOf(uploadPhase);
+    const radius = 45;
+    const strokeWidth = 6;
+    const circumference = 2 * Math.PI * radius;
+    const strokeDashoffset = circumference - (progress / 100) * circumference;
 
     return (
         <div>
@@ -223,121 +250,134 @@ export default function FileUpload() {
                 title="Upload data"
                 description="CSV files"
             />
-            <div className="grid grid-cols-12 gap-4 px-5 py-4">
-                <Panel className="col-span-12 lg:col-span-7">
-                    <PanelHeader title="Source file" subtitle="Drag & drop or browse" icon={<UploadIcon className="h-3.5 w-3.5" />} />
-                    <div className="p-5">
-                        <div
-                            onDragOver={handleDragOver}
-                            onDragLeave={handleDragLeave}
-                            onDrop={handleDrop}
-                            onClick={() => fileInputRef.current?.click()}
-                            className={`relative grid cursor-pointer place-items-center rounded-lg border-2 border-dashed p-12 text-center transition ${isDragging ? "border-accent bg-accent/5" : "border-border bg-surface-2/40 hover:bg-surface-2/60"}`}
-                        >
-                            <input
-                                ref={fileInputRef}
-                                type="file"
-                                className="hidden"
-                                onChange={(e) => {
-                                    if (e.target.files && e.target.files.length > 0) {
-                                        handleFile(e.target.files[0]);
-                                    }
-                                }}
-                            />
-                            <div className="grid h-12 w-12 place-items-center rounded-xl bg-surface-3">
-                                <FileSpreadsheet className="h-6 w-6 text-muted-foreground" />
-                            </div>
-                            <h3 className="mt-3 text-[14px] font-semibold">Drop your dataset here</h3>
-                            <p className="mt-1 max-w-xs text-[12px] text-muted-foreground">
-                                We'll ingest into DuckDB, profile columns, and surface schema in under a minute.
-                            </p>
-                            <div className="mt-4 flex gap-2" onClick={(e) => e.stopPropagation()}>
-                                <BtnPrimary onClick={() => fileInputRef.current?.click()}><UploadIcon className="h-3 w-3" />Browse files</BtnPrimary>
-                            </div>
-                            <div className="mt-4 flex items-center gap-1.5 text-[10.5px] text-muted-foreground">
-                                <Pill>CSV</Pill>
-                            </div>
-                        </div>
-
-                        {uploadPhase !== "idle" && (
-                            <div className="mt-5 rounded-md border border-border bg-surface-2 p-4">
-                                <div className="mb-3 flex items-center justify-between">
-                                    <div className="flex items-center gap-2">
-                                        <FileText className="h-3.5 w-3.5 text-muted-foreground" />
-                                        <span className="text-[12px] font-medium">{file?.name || "No file selected"}</span>
-                                        {file && <span className="text-[10.5px] text-muted-foreground">· {(file.size / 1024 / 1024).toFixed(2)} MB</span>}
-                                    </div>
-                                    <button 
-                                        onClick={resetUpload} 
-                                        className="rounded p-0.5 text-muted-foreground hover:bg-surface-3 transition-colors"
-                                        title="Cancel upload"
-                                    >
-                                        <X className="h-3 w-3" />
-                                    </button>
+            <div className="max-w-2xl mx-auto px-5 py-8">
+                <Panel className="w-full">
+                    <PanelHeader 
+                        title="Dataset Ingestion" 
+                        subtitle={uploadPhase === "idle" ? "Upload a file to begin" : "Processing your data"} 
+                        icon={<UploadIcon className="h-3.5 w-3.5" />} 
+                    />
+                    <div className="p-6">
+                        {uploadPhase === "idle" && (
+                            <div
+                                onDragOver={handleDragOver}
+                                onDragLeave={handleDragLeave}
+                                onDrop={handleDrop}
+                                onClick={() => fileInputRef.current?.click()}
+                                className={`relative grid cursor-pointer place-items-center rounded-lg border-2 border-dashed p-12 text-center transition ${isDragging ? "border-accent bg-accent/5" : "border-border bg-surface-2/40 hover:bg-surface-2/60"}`}
+                            >
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                        if (e.target.files && e.target.files.length > 0) {
+                                            handleFile(e.target.files[0]);
+                                        }
+                                    }}
+                                />
+                                <div className="grid h-12 w-12 place-items-center rounded-xl bg-surface-3">
+                                    <FileSpreadsheet className="h-6 w-6 text-muted-foreground" />
                                 </div>
-                                <div className="flex items-center gap-2">
-                                    {phases.map((p, i) => {
-                                        const done = phaseIndex >= i;
-                                        return (
-                                            <div key={p.key} className="flex flex-1 items-center gap-2">
-                                                <div className={`grid h-5 w-5 place-items-center rounded-full text-[10px] font-semibold ${done ? "bg-success text-background" : "bg-surface-3 text-muted-foreground"}`}>
-                                                    {done ? <CheckCircle2 className="h-3 w-3" /> : i + 1}
-                                                </div>
-                                                <span className={`text-[11px] ${done ? "text-foreground" : "text-muted-foreground"}`}>{p.label}</span>
-                                                {i < phases.length - 1 && <div className={`h-px flex-1 ${done ? "bg-success" : "bg-border"}`} />}
-                                            </div>
-                                        );
-                                    })}
+                                <h3 className="mt-3 text-[14px] font-semibold">Drop your dataset here</h3>
+                                <p className="mt-1 max-w-xs text-[12px] text-muted-foreground">
+                                    We'll ingest into DuckDB, build indexes, and run AI semantic auditing automatically.
+                                </p>
+                                <div className="mt-4 flex gap-2" onClick={(e) => e.stopPropagation()}>
+                                    <BtnPrimary onClick={() => fileInputRef.current?.click()}><UploadIcon className="h-3 w-3" />Browse files</BtnPrimary>
                                 </div>
-                                <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-surface-3">
-                                    <div className={`h-full rounded-full ${uploadPhase === 'failed' ? 'bg-destructive' : 'bg-gradient-to-r from-accent to-primary shimmer'}`} style={{ width: `${progress}%` }} />
+                                <div className="mt-4 flex items-center gap-1.5 text-[10.5px] text-muted-foreground">
+                                    <Pill>CSV</Pill>
                                 </div>
-                                <div className="mt-2 flex items-center justify-between text-[10.5px] text-muted-foreground">
-                                    <span>{statusMessage || "Processing..."}</span>
-                                    <span className="num">{progress}%</span>
-                                </div>
-
-                                {uploadPhase === "failed" && (
-                                    <div className="mt-4 overflow-hidden rounded-md border border-destructive/20 bg-destructive/5">
-                                        <div className="flex items-center gap-2 border-b border-destructive/10 bg-destructive/10 px-3 py-2">
-                                            <AlertTriangle className="h-3.5 w-3.5 text-destructive" />
-                                            <span className="text-[12px] font-medium text-destructive">Upload Failed</span>
-                                        </div>
-                                        <div className="p-3 text-[11.5px] text-muted-foreground">
-                                            <div className="mb-2">We encountered an error while processing your file:</div>
-                                            <div className="rounded border border-border/50 bg-surface-1 p-2 font-mono text-[10px] leading-relaxed text-foreground/90 break-all">
-                                                {failureMessage || "Unknown error occurred during ingestion."}
-                                            </div>
-                                            <div className="mt-3 flex items-center gap-3">
-                                                <button onClick={resetUpload} className="font-medium text-foreground hover:text-accent transition-colors">Try again</button>
-                                                <span className="text-border">•</span>
-                                                <button onClick={() => navigate("/user/dashboard")} className="font-medium text-foreground hover:text-accent transition-colors">Return to dashboard</button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
                             </div>
                         )}
-                    </div>
-                </Panel>
 
-                <Panel className="col-span-12 lg:col-span-5">
-                    <PanelHeader
-                        title="Schema review"
-                        subtitle="Confirm types before ingest completes"
-                        icon={<Sparkles className="h-3.5 w-3.5 text-primary" />}
-                        actions={<Pill tone="info">Auto-inferred</Pill>}
-                    />
-                    <div className="p-4">
-                        {showSchema && uploadedDatasetId && latestVersionId ? (
-                            <MappingReviewPanel
-                                datasetId={uploadedDatasetId}
-                                versionId={latestVersionId}
-                                onConfirm={() => navigate("/user/dashboard")}
-                            />
-                        ) : (
-                            <div className="text-[12px] text-muted-foreground">
-                                Upload a dataset to review inferred schema.
+                        {(uploadPhase === "uploading" || uploadPhase === "building") && (
+                            <div className="flex flex-col items-center justify-center py-8 text-center animate-fade-in">
+                                <div className="relative h-36 w-36 flex items-center justify-center">
+                                    <svg className="w-full h-full transform -rotate-90">
+                                        <circle
+                                            cx="72"
+                                            cy="72"
+                                            r={radius}
+                                            className="stroke-surface-3 fill-none"
+                                            strokeWidth={strokeWidth}
+                                        />
+                                        <circle
+                                            cx="72"
+                                            cy="72"
+                                            r={radius}
+                                            className="stroke-primary fill-none transition-all duration-300 ease-out"
+                                            strokeWidth={strokeWidth}
+                                            strokeDasharray={circumference}
+                                            strokeDashoffset={strokeDashoffset}
+                                            strokeLinecap="round"
+                                            style={{
+                                                filter: "drop-shadow(0 0 6px var(--color-primary))",
+                                            }}
+                                        />
+                                    </svg>
+                                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                                        <span className="font-mono text-2xl font-extrabold text-foreground">{progress}%</span>
+                                        <span className="text-[10px] uppercase tracking-wider text-muted-foreground mt-0.5">Ingesting</span>
+                                    </div>
+                                </div>
+                                <h3 className="mt-6 text-sm font-semibold text-foreground tracking-wide">{statusMessage}</h3>
+                                <p className="mt-1.5 text-xs text-muted-foreground max-w-sm">
+                                    File: {file?.name} ({(file ? file.size / 1024 / 1024 : 0).toFixed(2)} MB)
+                                </p>
+                                <button
+                                    onClick={resetUpload}
+                                    className="mt-6 text-xs text-muted-foreground hover:text-foreground underline transition-colors"
+                                >
+                                    Cancel Ingestion
+                                </button>
+                            </div>
+                        )}
+
+                        {uploadPhase === "ready" && (
+                            <div className="flex flex-col items-center justify-center py-6 text-center animate-fade-in">
+                                <div className="grid h-16 w-16 place-items-center rounded-full bg-success/15 border border-success/30 text-success mb-6 shadow-[0_0_20px_rgba(34,197,94,0.15)]">
+                                    <CheckCircle2 className="h-8 w-8" />
+                                </div>
+                                <h3 className="text-lg font-bold text-foreground tracking-wide">Dataset Ready!</h3>
+                                <p className="mt-2 text-sm text-muted-foreground max-w-md">
+                                    Your file <span className="font-semibold text-foreground">{file?.name}</span> has been uploaded and analyzed.
+                                    AI semantic mappings were applied automatically.
+                                </p>
+                                <div className="mt-8 flex flex-col items-center gap-2">
+                                    <BtnPrimary onClick={() => navigate("/user/dashboard")} className="px-6 py-2">
+                                        Go to Dashboard
+                                    </BtnPrimary>
+                                    {redirectCountdown !== null && (
+                                        <span className="text-[11px] text-muted-foreground mt-1.5">
+                                            Opening dashboard in {redirectCountdown}s...
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {uploadPhase === "failed" && (
+                            <div className="flex flex-col items-center justify-center py-6 text-center animate-fade-in">
+                                <div className="grid h-16 w-16 place-items-center rounded-full bg-destructive/15 border border-destructive/30 text-destructive mb-6 shadow-[0_0_20px_rgba(239,68,68,0.15)]">
+                                    <AlertTriangle className="h-8 w-8" />
+                                </div>
+                                <h3 className="text-lg font-bold text-foreground tracking-wide">Ingestion Failed</h3>
+                                <p className="mt-2 text-sm text-muted-foreground max-w-md">
+                                    We encountered an error while processing your file.
+                                </p>
+                                <div className="mt-4 w-full max-w-md rounded-lg border border-border/50 bg-surface-1 p-4 text-left font-mono text-[10.5px] leading-relaxed text-foreground/90 break-all max-h-36 overflow-auto">
+                                    {failureMessage || "Unknown error occurred during ingestion."}
+                                </div>
+                                <div className="mt-8 flex items-center gap-3">
+                                    <BtnPrimary onClick={resetUpload}>
+                                        Try again
+                                    </BtnPrimary>
+                                    <BtnSecondary onClick={() => navigate("/user/dashboard")}>
+                                        Cancel
+                                    </BtnSecondary>
+                                </div>
                             </div>
                         )}
                     </div>

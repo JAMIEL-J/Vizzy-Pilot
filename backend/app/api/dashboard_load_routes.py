@@ -16,6 +16,7 @@ from app.models.dataset_version import DatasetVersion
 from app.services.analytics.chart_recommender import generate_chart_configs
 from app.services.analytics.execution_router import execute_dashboard_load
 from app.services.analytics.db_engine import get_db_engine
+from app.core.audit import record_audit_event
 
 
 class DashboardJSONEncoder(json.JSONEncoder):
@@ -82,6 +83,14 @@ async def get_dashboard_configs(
     if not version:
         raise HTTPException(status_code=404, detail="Version not found")
 
+    record_audit_event(
+        event_type="DATASET_ACCESSED",
+        user_id=str(current_user.user_id),
+        resource_type="Dataset",
+        resource_id=str(version.dataset_id),
+        metadata={"action": "view_dashboard_configs", "version_id": str(version_id)},
+    )
+
     if not version.semantic_map_json:
         raise HTTPException(status_code=400, detail="No approved semantic map found for this version")
 
@@ -125,6 +134,9 @@ async def dashboard_event_generator(
             db_engine._lock_down_read_con()
             conn = db_engine._read_con
             
+            from app.services.analytics.table_resolver import resolve_table_name_from_version
+            table_name = resolve_table_name_from_version(version)
+
             chart_configs = generate_chart_configs(version.semantic_map_json)
             filters = {}
             kpi_configs = {} 
@@ -134,7 +146,9 @@ async def dashboard_event_generator(
                 chart_configs=chart_configs,
                 kpi_configs=kpi_configs,
                 filters=filters,
-                dataset_id=version.dataset_id
+                dataset_id=version.dataset_id,
+                version_id=version.id,
+                table_name=table_name
             ):
                 yield f"data: {_dumps(result)}\n\n"
                 
@@ -155,11 +169,20 @@ async def load_dashboard(
     version_id: UUID,
     session: DBSession,
     current_user: AuthenticatedUserHeaderOrQuery,
-) -> StreamingResponse:
-    """
-    SSE endpoint to stream dashboard data.
-    """
+):
+    version = session.get(DatasetVersion, version_id)
+    if not version:
+        raise HTTPException(status_code=404, detail="Version not found")
+
+    record_audit_event(
+        event_type="DATASET_ACCESSED",
+        user_id=str(current_user.user_id),
+        resource_type="Dataset",
+        resource_id=str(version.dataset_id),
+        metadata={"action": "stream_dashboard_data", "version_id": str(version_id)},
+    )
     return StreamingResponse(
         dashboard_event_generator(version_id, session),
         media_type="text/event-stream"
     )
+

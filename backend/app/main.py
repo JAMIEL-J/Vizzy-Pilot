@@ -25,8 +25,6 @@ from app.core.exceptions import (
 )
 from app.api.router import api_router
 
-
-
 logger = get_logger(__name__)
 settings = get_settings()
 
@@ -43,14 +41,14 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         
         # Content Security Policy (CSP)
-        # Adjusted for a typical SPA + API setup. 
-        # In production, this should be more restrictive.
+        sse_origin = settings.sse_origin
+        connect_src_extra = f" {sse_origin}" if sse_origin else ""
         csp = (
             "default-src 'self'; "
             "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
             "style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data:; "
-            "connect-src 'self' https://*.groq.com https://*.google.com; "
+            f"connect-src 'self' https://*.groq.com https://*.google.com{connect_src_extra}; "
             "frame-ancestors 'none';"
         )
         

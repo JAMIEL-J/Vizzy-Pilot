@@ -181,5 +181,14 @@ export const chatService = {
     getInitialSuggestions: async (sessionId: string) => {
         const response = await apiClient.get<{ suggestions: string[] }>(`/chat/sessions/${sessionId}/suggestions`);
         return response.data.suggestions;
+    },
+
+    // Execute custom SQL query against a dataset
+    executeSql: async (datasetId: string, sql: string, maxRows = 1000) => {
+        const response = await apiClient.post<any>(`/datasets/${datasetId}/sql/execute`, {
+            sql,
+            max_rows: maxRows
+        });
+        return response.data;
     }
 };

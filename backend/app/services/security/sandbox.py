@@ -37,52 +37,109 @@ class QueryExecutionError(Exception):
 
 _executor = ThreadPoolExecutor(max_workers=4)
 
-def validate_sql(sql: str, table_name: str) -> Tuple[bool, str, Optional[exp.Expression]]:
-    """Validate SQL using AST parsing and pattern scanning."""
+def validate_sql(sql: str, allowed_tables: str | list[str]) -> Tuple[bool, str, Optional[exp.Expression]]:
+    """
+    Returns (is_valid, error_message, parsed_expression).
+    Uses DuckDB AST parsing — not string matching.
+    """
+    if isinstance(allowed_tables, str):
+        allowed_tables = [allowed_tables]
+
+    sql = sql.strip()
+
+    # Step 0: Defense-in-depth: Run regex patterns
+    for pattern in BLOCKED_PATTERNS:
+        if re.search(pattern, sql, re.IGNORECASE):
+            return False, f"Blocked pattern matched: {pattern}", None
+
+    # Step 0.5: Multiple statements check via sqlglot
     try:
-        # sqlglot.parse returns a list of parsed statements
-        parsed_statements = sqlglot.parse(sql, dialect="duckdb")
-        if not parsed_statements:
-            return False, "Empty query", None
-            
+        parsed_statements = sqlglot.parse(sql, read="duckdb")
         if len(parsed_statements) > 1:
-            return False, "Multiple statements per query are not permitted for security reasons.", None
+            return False, "Multiple statements are not allowed.", None
+    except Exception as e:
+        pass
+    
+    # Step 1: Parse via DuckDB — catches syntax errors
+    try:
+        parsed_db = duckdb.query(f"SELECT json_serialize_sql('{sql.replace(chr(39), chr(39)*2)}')")
+        ast = parsed_db.fetchone()[0]
+    except Exception as e:
+        return False, f"Syntax error: {str(e)}", None
+    
+    # Step 2: AST must be a single SELECT statement at root
+    import json
+    tree = json.loads(ast)
+
+    if tree.get("error") is True:
+        err_msg = tree.get("error_message", "")
+        if "Only SELECT statements can be serialized" in err_msg:
+            return False, "Only SELECT statements permitted.", None
+        return False, f"SQL error: {err_msg}", None
+
+    statements = tree.get("statements", [])
+    if len(statements) != 1:
+        return False, "Only a single statement is allowed.", None
+    if statements[0].get("node", {}).get("type") != "SELECT_NODE":
+        return False, "Only SELECT statements permitted.", None
+    
+    # Step 3: Reject any table reference not in allowed_tables
+    # Walk AST for all table references
+    def extract_table_refs(node):
+        refs = []
+        if isinstance(node, dict):
+            if node.get("type") in ("BASE_TABLE", "BASE_TABLE_REF"):
+                refs.append(node.get("table_name", "").lower())
+            for v in node.values():
+                refs.extend(extract_table_refs(v))
+        elif isinstance(node, list):
+            for item in node:
+                refs.extend(extract_table_refs(item))
+        return refs
+    
+    table_refs = extract_table_refs(tree)
+    
+    # Exclude CTE aliases defined inside the query itself
+    def extract_cte_aliases(node):
+        aliases = []
+        if isinstance(node, dict):
+            if "cte_map" in node and isinstance(node["cte_map"], dict):
+                m = node["cte_map"].get("map", [])
+                for item in m:
+                    if isinstance(item, dict) and "key" in item:
+                        aliases.append(item["key"].lower())
+            for v in node.values():
+                aliases.extend(extract_cte_aliases(v))
+        elif isinstance(node, list):
+            for item in node:
+                aliases.extend(extract_cte_aliases(item))
+        return aliases
+        
+    cte_aliases = set(extract_cte_aliases(tree))
+    allowed_lower = [t.lower() for t in allowed_tables]
+    
+    for ref in table_refs:
+        if ref and ref not in allowed_lower and ref not in cte_aliases:
+            return False, f"Unauthorized table: Table '{ref}' is not accessible in this dataset.", None
+    
+    # Step 4: Reject DuckDB file-access functions explicitly
+    FORBIDDEN_FUNCTIONS = {
+        "read_csv_auto", "read_csv", "read_parquet", "read_json",
+        "read_json_auto", "scan_csv", "copy", "export_database",
+        "import_database", "load", "install"
+    }
+    sql_upper = sql.upper()
+    for fn in FORBIDDEN_FUNCTIONS:
+        if fn.upper() in sql_upper:
+            return False, f"Function '{fn}' is not permitted.", None
             
-        parsed = parsed_statements[0]
-        if parsed is None:
-            return False, "Failed to parse statement", None
-            
+    # Parse via sqlglot to return the parsed expression for limit injection
+    try:
+        parsed_expr = sqlglot.parse_one(sql, read="duckdb")
     except Exception as e:
         return False, f"SQL parse failure: {str(e)}", None
-
-    # Step 1: Only SELECT statements permitted
-    if not isinstance(parsed, exp.Select):
-        return False, f"Only SELECT statements permitted. Got: {type(parsed).__name__}", None
-
-    # Step 2: AST scan for blocked statements
-    for node in parsed.walk():
-        # Any statement that isn't a SELECT or its sub-components is blocked
-        if isinstance(node, (exp.Drop, exp.Delete, exp.Update, exp.Insert, exp.Alter, exp.Create)):
-            return False, f"Blocked statement type detected: {type(node).__name__}", None
-
-    # Step 3: Regex scan for blocked patterns (defense in depth)
-    sql_upper = sql.upper()
-    for pattern in BLOCKED_PATTERNS:
-        if re.search(pattern, sql_upper, re.IGNORECASE):
-            return False, f"Blocked pattern detected: {pattern}", None
-
-    # Step 4: Enforce scoped table usage
-    referenced_tables = {
-        table.name.lower() 
-        for table in parsed.find_all(exp.Table)
-    }
-    allowed_tables = {table_name.lower()}
     
-    unauthorized = referenced_tables - allowed_tables
-    if unauthorized:
-        return False, f"Unauthorized table reference: {unauthorized}", None
-
-    return True, "valid", parsed
+    return True, "valid", parsed_expr
 
 def sanitize_error_message(error: str, table_name: str) -> str:
     """Remove sensitive information from error messages."""

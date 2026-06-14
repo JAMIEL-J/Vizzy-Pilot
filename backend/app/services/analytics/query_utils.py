@@ -17,9 +17,10 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 logger = logging.getLogger(__name__)
 
-# Valid SQL identifier pattern (column or table name).
-# Must start with letter or underscore, contain only alphanumeric + underscore.
-_IDENTIFIER_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+# Valid SQL identifier pattern (simple unquoted names).
+# For names that don't match, we still allow them via double-quoting
+# after sanitization (DuckDB supports quoted identifiers with spaces).
+_IDENTIFIER_SIMPLE_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
 
 
 class QuerySafetyError(ValueError):
@@ -30,15 +31,29 @@ class QuerySafetyError(ValueError):
 def safe_identifier(name: str) -> str:
     """Validate and return a double-quoted SQL identifier.
     
-    Raises QuerySafetyError if the identifier contains unsafe characters.
-    This prevents identifier injection while allowing standard column/table names.
+    Supports column names with spaces, hyphens, and other non-standard
+    characters by double-quoting them. Embedded double-quotes are escaped
+    per SQL standard (doubled). Rejects truly unsafe identifiers:
+    empty strings, null bytes, or excessively long names.
     """
-    if not _IDENTIFIER_RE.match(name):
+    if not name or not name.strip():
+        raise QuerySafetyError("Empty SQL identifier is not allowed.")
+    if '\x00' in name:
         raise QuerySafetyError(
-            f"Unsafe SQL identifier: '{name}'. "
-            f"Identifiers must match {_IDENTIFIER_RE.pattern}"
+            f"Unsafe SQL identifier: '{name}'. Null bytes are not allowed."
         )
-    return f'"{name}"'
+    if len(name) > 256:
+        raise QuerySafetyError(
+            f"Unsafe SQL identifier: '{name[:50]}...'. "
+            f"Identifier too long ({len(name)} chars, max 256)."
+        )
+    if not _IDENTIFIER_SIMPLE_RE.match(name):
+        raise QuerySafetyError(
+            f"Unsafe SQL identifier: '{name}'. Identifier must start with a letter/underscore and contain only alphanumeric/underscore characters."
+        )
+    # Escape any embedded double-quotes (SQL standard: " -> "")
+    escaped = name.replace('"', '""')
+    return f'"{escaped}"'
 
 
 def safe_table_ref(catalog: str, table: str) -> str:

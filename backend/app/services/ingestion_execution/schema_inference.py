@@ -35,8 +35,11 @@ def infer_schema(df: pd.DataFrame) -> Dict[str, Any]:
 
     for col in df.columns:
         series = df[col]
+        from app.core.input_validation import sanitize_column_name
+        safe_name = sanitize_column_name(str(col))
         column_schema = {
             "name": str(col),
+            "safe_name": safe_name,
             "dtype": _normalize_dtype(series.dtype),
             "nullable": bool(series.isnull().any()),
         }

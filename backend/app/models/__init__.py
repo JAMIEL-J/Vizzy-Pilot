@@ -6,5 +6,6 @@ All models inherit from BaseModel for consistent identity and timestamps.
 """
 
 from .chart_customization import ChartCustomization
+from .dataset_table import DatasetTable
 
-__all__ = ["ChartCustomization"]
+__all__ = ["ChartCustomization", "DatasetTable"]

@@ -3,8 +3,9 @@ from typing import List, Dict, Any, Tuple, Optional
 import pandas as pd
 import duckdb
 
+import re
 from .duckdb_chart_builder import build_filter_where_clause, get_parsed_date_expr
-from .query_utils import safe_identifier
+from .query_utils import safe_identifier, execute_df
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +14,8 @@ def build_preagg_sql(config: Dict[str, Any], dataset_id: str, filters: Dict[str,
     Build pre-aggregation query for ratio_pct derived metrics.
     Returns (query_sql, params) that fetches numerator and denominator.
     """
+    if not re.match(r"^[a-zA-Z0-9_\-]+$", dataset_id):
+        raise ValueError(f"Invalid dataset_id: {dataset_id}")
     table = f"dataset_{dataset_id}"
     where_clause, params = build_filter_where_clause(filters, target_column, target_value)
     
@@ -82,7 +85,7 @@ async def run_pandas_pipeline(
             
         try:
             sql, params = build_preagg_sql(config, dataset_id, filters, target_column, target_value)
-            df = conn.execute(sql, params).df()
+            df = execute_df(conn, sql, params)
             
             final_df = apply_formula(config, df)
             

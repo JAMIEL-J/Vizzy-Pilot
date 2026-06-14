@@ -53,7 +53,9 @@ def build_connection_string(config: DatabaseConnection) -> str:
                 operation="db_connection",
                 reason="SQLite requires file_path",
             )
-        return f"sqlite:///{config.file_path}"
+        from app.core.config import _validate_sqlite_path
+        validated_path = _validate_sqlite_path(config.file_path)
+        return f"sqlite:///{validated_path}"
     
     # Validate required fields for server databases
     if not all([config.host, config.port, config.username, config.password]):

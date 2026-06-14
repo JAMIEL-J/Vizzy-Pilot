@@ -329,7 +329,8 @@ def execute_chart_queries(
     chart_configs: Dict[str, Any],
     filters: Dict[str, List[str]],
     target_column: Optional[str] = None,
-    target_value: str = "all"
+    target_value: str = "all",
+    table_name: str = "data"
 ) -> Dict[str, List[Dict[str, Any]]]:
     """
     Execute all chart queries and return results.
@@ -342,7 +343,8 @@ def execute_chart_queries(
                 chart_config=config,
                 filters=filters,
                 target_column=target_column,
-                target_value=target_value
+                target_value=target_value,
+                table_name=table_name
             )
 
 
@@ -406,7 +408,8 @@ def execute_kpi_queries(
     kpi_configs: Dict[str, Dict[str, Any]],
     filters: Dict[str, List[str]],
     target_column: Optional[str] = None,
-    target_value: str = "all"
+    target_value: str = "all",
+    table_name: str = "data"
 ) -> Dict[str, Any]:
     """
     Execute all KPI queries and return results.
@@ -422,7 +425,8 @@ def execute_kpi_queries(
                 kpi_config=config,
                 filters=filters,
                 target_column=target_column,
-                target_value=target_value
+                target_value=target_value,
+                table_name=table_name
             )
 
             result = conn.execute(query, params).fetchone()

@@ -13,7 +13,8 @@ async def run_duckdb_pipeline(
     filters: Dict[str, List[str]],
     target_column: Optional[str] = None,
     target_value: str = "all",
-    dataset_id: str = "default"
+    dataset_id: str = "default",
+    table_name: str = "data"
 ) -> Dict[str, Any]:
     """
     Execute all DuckDB-slotted charts and KPIs.
@@ -28,7 +29,8 @@ async def run_duckdb_pipeline(
             chart_configs=chart_map,
             filters=filters,
             target_column=target_column,
-            target_value=target_value
+            target_value=target_value,
+            table_name=table_name
         )
         
         # 2. Execute KPIs
@@ -37,7 +39,8 @@ async def run_duckdb_pipeline(
             kpi_configs=kpi_configs,
             filters=filters,
             target_column=target_column,
-            target_value=target_value
+            target_value=target_value,
+            table_name=table_name
         )
         
         return {

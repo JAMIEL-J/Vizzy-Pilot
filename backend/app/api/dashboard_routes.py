@@ -170,6 +170,15 @@ def get_dashboard(
     if dashboard.user_id != UUID(current_user.user_id) and not dashboard.is_public:
         raise HTTPException(status_code=403, detail="Access denied")
 
+    if dashboard.dataset_id:
+        record_audit_event(
+            event_type="DATASET_ACCESSED",
+            user_id=str(current_user.user_id),
+            resource_type="Dataset",
+            resource_id=str(dashboard.dataset_id),
+            metadata={"action": "load_dashboard", "dashboard_id": str(dashboard.id), "dashboard_name": dashboard.name},
+        )
+
     return DashboardResponse.model_validate(dashboard)
 
 
