@@ -126,7 +126,7 @@ export function TopNav() {
           <div className="grid h-6 w-6 place-items-center rounded-md bg-foreground text-background">
             <Layers className="h-3.5 w-3.5" strokeWidth={2.5} />
           </div>
-          <span className="text-[13px] font-semibold tracking-tight">Helix</span>
+          <span className="text-[13px] font-semibold tracking-tight">Vizzy Pilot</span>
         </Link>
 
         <div className="mx-2 h-4 w-px bg-border" />
@@ -193,7 +193,7 @@ export function TopNav() {
                     onChange={(e) => handleSaveLLMSettings(e.target.value)}
                     className="w-full rounded-md border border-border bg-background px-2 py-1 text-[11.5px] outline-none text-foreground"
                   >
-                    <option value="default">Default (Helix Managed)</option>
+                    <option value="default">Default (Vizzy Pilot Managed)</option>
                     <option value="openai">Custom OpenAI API</option>
                     <option value="gemini">Custom Gemini API</option>
                     <option value="ollama">Local Ollama (Local Storage)</option>

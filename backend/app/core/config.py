@@ -264,7 +264,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    app_name: str = Field(default="Vizzy")
+    app_name: str = Field(default="Vizzy Pilot")
     app_version: str = Field(default="1.0.0")
     environment: Literal["development", "staging", "production"] = Field(
         default="development"

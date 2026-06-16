@@ -2,7 +2,8 @@
 import React from "react";
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useTheme } from '../../context/ThemeContext';
-import { datasetService, semanticMappingService } from '../../lib/api/dataset';
+import { datasetService, semanticMappingService, type DatasetVersionSummary } from '../../lib/api/dataset';
+import { apiClient } from '../../lib/api/client';
 import { analyticsService, correlationService, narrativeService, type DashboardAnalytics, type CorrelationMatrix } from '../../lib/api/dashboard';
 import { useDashboardStream } from '../../hooks/useDashboardStream';
 import { HeaderSkeleton, KPISkeleton, ChartSkeleton } from '../../components/dashboard/DashboardSkeletons';
@@ -21,7 +22,7 @@ import {
 import { TreemapController, TreemapElement } from 'chartjs-chart-treemap';
 import { PageHeader } from '@/components/layout/TopNav';
 import { Panel, PanelHeader, Pill, BtnSecondary, BtnPrimary, BtnGhost, BtnAccent } from '@/components/ui/primitive';
-import { GitCompare, RefreshCw, Wand2, Sparkles, Eye, Download, TrendingUp, TrendingDown, AlertCircle, X } from 'lucide-react';
+import { GitCompare, RefreshCw, Wand2, Sparkles, Eye, Download, TrendingUp, TrendingDown, AlertCircle, X, ChevronDown } from 'lucide-react';
 import { VIZZY_THEME } from '../../theme/tokens';
 import { toast } from 'react-hot-toast';
 
@@ -292,6 +293,10 @@ export default function UserDashboard() {
     const [remapCurrentMappings, setRemapCurrentMappings] = useState<Record<string, string> | null>(null);
     const [versionDiffData, setVersionDiffData] = useState<{ prev: any[], curr: any[] }>({ prev: [], curr: [] });
     const [isJoinBuilderOpen, setIsJoinBuilderOpen] = useState(false);
+    const [versions, setVersions] = useState<DatasetVersionSummary[]>([]);
+    const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
+    const [versionPickerOpen, setVersionPickerOpen] = useState(false);
+    const versionPickerRef = useRef<HTMLDivElement>(null);
     
     const [proposals, setProposals] = useState<any[]>([]);
     const [showMappingBanner, setShowMappingBanner] = useState(true);
@@ -327,7 +332,7 @@ export default function UserDashboard() {
         setIsInsightOpen(false);
         // If the chat interface is integrated, we would trigger a predefined prompt here.
         // For now, we'll just notify the user.
-        toast.success("Opening deep dive chat with Vizzy...");
+        toast.success("Opening deep dive chat with Vizzy Pilot...");
     };
 
 
@@ -425,39 +430,31 @@ export default function UserDashboard() {
         }
     };
 
-    const handleOpenDiff = async () => {
-        try {
-            if (!selectedDatasetId) return;
-            setIsLoading(true);
+    const handleOpenDiff = () => {
+        if (!selectedDatasetId) return;
 
-            const versions = await datasetService.listVersionsForDataset(selectedDatasetId);
-            if (versions.length < 2) {
-                toast.error('At least two versions are required to show a diff.');
-                return;
-            }
-
-            const current = versions[0];
-            const previous = versions[1];
-
-            const currMap = JSON.parse(current.semantic_map_json || '[]');
-            const prevMap = JSON.parse(previous.semantic_map_json || '[]');
-
-            // Normalize to array of {column_name, role}
-            const normalize = (map: any) => {
-                if (Array.isArray(map)) return map;
-                return Object.entries(map).map(([role, col]) => ({ column_name: col, role }));
-            };
-
-            setVersionDiffData({
-                prev: normalize(prevMap),
-                curr: normalize(currMap)
-            });
-            setIsDiffModalOpen(true);
-        } catch (err: any) {
-            toast.error(err?.response?.data?.detail || err?.message || 'Failed to load version history');
-        } finally {
-            setIsLoading(false);
+        if (versions.length < 2) {
+            toast('No other versions are available for this dataset.', { icon: 'ℹ️' });
+            return;
         }
+
+        const current = versions[0];
+        const previous = versions[1];
+
+        const currMap = JSON.parse(current.semantic_map_json || '[]');
+        const prevMap = JSON.parse(previous.semantic_map_json || '[]');
+
+        // Normalize to array of {column_name, role}
+        const normalize = (map: any) => {
+            if (Array.isArray(map)) return map;
+            return Object.entries(map).map(([role, col]) => ({ column_name: col, role }));
+        };
+
+        setVersionDiffData({
+            prev: normalize(prevMap),
+            curr: normalize(currMap)
+        });
+        setIsDiffModalOpen(true);
     };
 
 
@@ -469,19 +466,57 @@ export default function UserDashboard() {
         };
     }, []);
 
+    // Fetch versions list whenever dataset changes
     useEffect(() => {
         if (!selectedDatasetId) {
             setVersionId(null);
+            setVersions([]);
+            setSelectedVersionId(null);
             return;
         }
-        datasetService.getLatestVersion(selectedDatasetId)
-            .then(v => {
-                setVersionId(v.id);
+        // Fetch all versions and set default to latest
+        Promise.all([
+            datasetService.listVersionsForDataset(selectedDatasetId),
+            datasetService.getLatestVersion(selectedDatasetId),
+        ])
+            .then(([allVersions, latest]) => {
+                setVersions(allVersions);
+                setVersionId(latest.id);
+                setSelectedVersionId(latest.id);
                 // Trigger auto-render immediately upon selecting a dataset
-                triggerAutoRender(v.id);
+                triggerAutoRender(latest.id);
             })
-            .catch(() => setVersionId(null));
+            .catch(() => {
+                setVersionId(null);
+                setVersions([]);
+            });
     }, [selectedDatasetId]);
+
+    // Close version picker on outside click
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (versionPickerRef.current && !versionPickerRef.current.contains(e.target as Node)) {
+                setVersionPickerOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    // Switch version handler
+    const handleVersionSwitch = (newVersionId: string) => {
+        setSelectedVersionId(newVersionId);
+        setVersionId(newVersionId);
+        setVersionPickerOpen(false);
+        triggerAutoRender(newVersionId);
+    };
+
+    // Active version display helper
+    const activeVersion = versions.find(v => v.id === selectedVersionId) || null;
+    const activeLabel = activeVersion
+        ? (activeVersion.source_type === 'clean' ? 'Cleaned' : 'Raw')
+        : '';
+    const datasetName = datasets.find(d => d.id === selectedDatasetId)?.name || 'Dataset';
 
     const triggerAutoRender = async (versionId: string) => {
         try {
@@ -490,6 +525,18 @@ export default function UserDashboard() {
             const data = response.data;
 
             setAnalytics(data);
+            // Write to cache so subsequent interactive refreshes find the right version
+            const cacheKey = stableSerialize({
+                schema: DASHBOARD_CACHE_SCHEMA_VERSION,
+                datasetId: selectedDatasetId,
+                versionId,
+                targetValue: 'all',
+                selectedDomain: data.domain_confidence ? 'auto' : 'auto',
+                filters: {},
+                classificationOverrides: {},
+            });
+            cacheRef.current.analytics.set(cacheKey, { value: data, createdAt: Date.now() });
+            setSessionCachedAnalytics(cacheKey, data);
 
             if (data.raw_data && data.chart_configs) {
                 const initial: Record<string, any> = {};
@@ -662,6 +709,7 @@ export default function UserDashboard() {
         return stableSerialize({
             schema: DASHBOARD_CACHE_SCHEMA_VERSION,
             datasetId: selectedDatasetId,
+            versionId: selectedVersionId,
             targetValue: target_value || 'all',
             selectedDomain: selected_domain || 'auto',
             filters: normalizedActiveFilters,
@@ -743,7 +791,8 @@ export default function UserDashboard() {
                 classification_overrides,
                 selected_domain,
                 signal,
-                true // Always fetch All Columns data for tab toggle
+                true, // Always fetch All Columns data for tab toggle
+                selectedVersionId
             );
             setAnalytics(data);
             cacheRef.current.analytics.set(cacheKey, data);
@@ -785,7 +834,8 @@ export default function UserDashboard() {
                 classification_overrides,
                 selected_domain,
                 signal,
-                true
+                true,
+                selectedVersionId
             );
 
             if (data.charts) {
@@ -831,6 +881,7 @@ export default function UserDashboard() {
             const baseKey = stableSerialize({
                 schema: DASHBOARD_CACHE_SCHEMA_VERSION,
                 datasetId: selectedDatasetId,
+                versionId: selectedVersionId,
                 targetValue: 'all',
                 selectedDomain: selected_domain || 'auto',
                 filters: {},
@@ -1106,7 +1157,7 @@ export default function UserDashboard() {
             const valueKey = chart.value_label || Object.keys(firstRow).find(k => typeof firstRow[k] === 'number') || 'value';
 
             let htmlContent = '';
-            const safeTitle = (chart.title || 'Vizzy Export').replace(/</g, '&lt;');
+            const safeTitle = (chart.title || 'Vizzy Pilot Export').replace(/</g, '&lt;');
             const reportDate = new Date().toLocaleDateString();
 
             const safeJSON = (obj: any) => JSON.stringify(obj).replace(/`/g, '\\`').replace(/\$/g, '\\$');
@@ -1144,7 +1195,7 @@ export default function UserDashboard() {
         <div id="vizzyChart" style="width: 100%; height: 500px;" class="rounded-lg overflow-hidden border border-white/5"></div>
 
         <div class="mt-8 pt-6 border-t border-white/5 flex justify-between items-center text-xs text-white/20 uppercase tracking-widest font-mono">
-            <span>Generated by Vizzy Analytics</span>
+            <span>Generated by Vizzy Pilot Analytics</span>
             <span>${reportDate}</span>
         </div>
     </div>
@@ -1319,7 +1370,7 @@ export default function UserDashboard() {
         </div>
 
         <div class="mt-8 pt-6 border-t border-white/5 flex justify-between items-center text-xs text-white/20 uppercase tracking-widest font-mono">
-            <span>Generated by Vizzy Analytics</span>
+            <span>Generated by Vizzy Pilot Analytics</span>
             <span>${reportDate}</span>
         </div>
     </div>
@@ -1378,7 +1429,7 @@ export default function UserDashboard() {
 
                 new Chart(ctx, config);
             } catch (e) {
-                console.error("Vizzy Export Error:", e);
+                console.error("Vizzy Pilot Export Error:", e);
                 document.body.innerHTML += '<div style="position:fixed;bottom:20px;left:20px;background:red;color:white;padding:10px;z-index:9999">Render Error: ' + e.message + '</div>';
             }
         }
@@ -1527,7 +1578,7 @@ export default function UserDashboard() {
     return (
         <div className="bg-noise min-h-screen">
             <PageHeader
-                breadcrumb={["Workspaces", "Vizzy", analytics?.dataset_name || "Dashboard"]}
+                breadcrumb={["Workspaces", "Vizzy Pilot", analytics?.dataset_name || "Dashboard"]}
                 title={getDashboardTitle(analytics?.domain)}
                 description={analytics ? `${analytics.total_rows.toLocaleString()} rows · ${analytics.domain} domain` : "Select a dataset to start analytics"}
                 actions={(
@@ -1536,7 +1587,7 @@ export default function UserDashboard() {
                         <BtnSecondary onClick={handleOpenDiff}><GitCompare className="h-3 w-3" />Diff versions</BtnSecondary>
                         <BtnSecondary onClick={handleOpenRemap}><Wand2 className="h-3 w-3" />Remap</BtnSecondary>
                         <BtnSecondary onClick={() => loadAnalytics(undefined, true)}><RefreshCw className="h-3 w-3" />Refresh</BtnSecondary>
-                        <BtnPrimary><Sparkles className="h-3 w-3" />Ask Vizzy</BtnPrimary>
+                        <BtnPrimary><Sparkles className="h-3 w-3" />Ask Vizzy Pilot</BtnPrimary>
                     </div>
 
                 )}
@@ -1567,9 +1618,83 @@ export default function UserDashboard() {
                     <div className="space-y-6">
                         {/* Dataset Selector */}
                         <div className="flex flex-wrap items-end justify-between gap-4">
-                            <div>
-                                <div className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground font-semibold mb-2">Select Dataset</div>
-                                <FilterDropdown datasets={datasets} selectedDatasetId={selectedDatasetId} onDatasetChange={setSelectedDatasetId} />
+                            <div className="flex flex-wrap items-end gap-6">
+                                <div>
+                                    <div className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground font-semibold mb-2">Select Dataset</div>
+                                    <FilterDropdown datasets={datasets} selectedDatasetId={selectedDatasetId} onDatasetChange={setSelectedDatasetId} />
+                                </div>
+                                {/* Version Picker Dropdown */}
+                                <div ref={versionPickerRef} className="relative">
+                                    <div className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground font-semibold mb-2">Data Version</div>
+                                    <button
+                                        onClick={() => {
+                                            if (versions.length <= 1) {
+                                                toast('Only one version available for this dataset.', { icon: 'ℹ️' });
+                                                return;
+                                            }
+                                            setVersionPickerOpen(!versionPickerOpen);
+                                        }}
+                                        className="flex items-center gap-2 text-[11px] font-medium px-3 py-1.5 rounded-md border border-border bg-surface text-foreground hover:border-primary/40 hover:text-foreground transition-all"
+                                    >
+                                        <span className="grid h-4 w-4 place-items-center rounded bg-primary/10 text-primary text-[9px] font-bold">
+                                            {activeVersion?.source_type === 'clean' ? 'C' : 'R'}
+                                        </span>
+                                        <span>
+                                            {activeLabel && `${activeLabel} `}
+                                            v{activeVersion?.version_number || '?'}
+                                        </span>
+                                        <span className="text-muted-foreground/50">·</span>
+                                        <span className="text-muted-foreground truncate max-w-[120px]">{datasetName}</span>
+                                        {versions.length > 1 && (
+                                            <ChevronDown className={`h-3 w-3 text-muted-foreground transition-transform ${versionPickerOpen ? 'rotate-180' : ''}`} />
+                                        )}
+                                    </button>
+
+                                    {versionPickerOpen && versions.length > 1 && (
+                                        <div className="absolute left-0 top-full mt-1 z-50 w-64 rounded-xl border border-border bg-surface shadow-2xl py-1.5 overflow-hidden">
+                                            <div className="px-3 py-2 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold border-b border-border">
+                                                Switch Data Version
+                                            </div>
+                                            {versions.map((v) => {
+                                                const isRaw = v.source_type !== 'clean';
+                                                const isActive = selectedVersionId === v.id;
+                                                const label = isRaw ? 'Raw' : 'Cleaned';
+                                                const icon = isRaw ? 'R' : 'C';
+                                                return (
+                                                    <button
+                                                        key={v.id}
+                                                        onClick={() => handleVersionSwitch(v.id)}
+                                                        className={`w-full flex items-center gap-3 px-3 py-2.5 text-left text-[12px] transition-all ${
+                                                            isActive
+                                                                ? 'bg-primary/10 text-foreground font-semibold'
+                                                                : 'text-muted-foreground hover:bg-surface-2 hover:text-foreground'
+                                                        }`}
+                                                    >
+                                                        <span className={`grid h-6 w-6 place-items-center rounded-md text-[10px] font-bold ${
+                                                            isActive
+                                                                ? 'bg-primary text-primary-foreground'
+                                                                : 'bg-surface-3 text-muted-foreground'
+                                                        }`}>
+                                                            {icon}
+                                                        </span>
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="flex items-center gap-2">
+                                                                <span>{label}</span>
+                                                                <span className="text-[10px] text-muted-foreground/60">v{v.version_number}</span>
+                                                                {isActive && (
+                                                                    <span className="ml-auto text-[9px] uppercase tracking-wider text-primary font-bold">Active</span>
+                                                                )}
+                                                            </div>
+                                                            <div className="text-[10px] text-muted-foreground/50 truncate">
+                                                                {datasetName}
+                                                            </div>
+                                                        </div>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                             <div className="flex items-center gap-3">
                                 <div className="text-[11px] text-muted-foreground">Domain:</div>
@@ -1604,7 +1729,7 @@ export default function UserDashboard() {
                                             Smart Column Mapping Applied
                                         </h4>
                                         <p className="text-xs text-muted-foreground mt-0.5">
-                                            Vizzy automatically mapped your columns.
+                                            Vizzy Pilot automatically mapped your columns.
                                             {lowConfidenceColumns.length > 0 ? (
                                                 <span> We identified <strong className="text-yellow-600 dark:text-yellow-400">{lowConfidenceColumns.length} columns with low confidence</strong>. Please review them.</span>
                                             ) : (
@@ -1685,7 +1810,7 @@ export default function UserDashboard() {
 
                         {/* Narrative Insights */}
                         <Panel className="ai-glow">
-                            <PanelHeader title="Vizzy insights" subtitle="Live narrative" icon={<Sparkles className="h-3.5 w-3.5 text-primary" />} actions={<Pill tone="accent">AI</Pill>} />
+                            <PanelHeader title="Vizzy Pilot insights" subtitle="Live narrative" icon={<Sparkles className="h-3.5 w-3.5 text-primary" />} actions={<Pill tone="accent">AI</Pill>} />
                             <div className="p-4">
                                 {narrativeLoading ? (
                                     <div className="space-y-2">
@@ -1759,7 +1884,7 @@ export default function UserDashboard() {
                                         <>
                                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                                 {pageItems.map(([id, chart]: [string, any]) => (
-                                                    <Panel key={id}>
+                                                    <Panel key={`${selectedVersionId}-all-${id}`}>
                                                         <PanelHeader title={chart.title || `Column ${id}`} actions={renderChartActions({ ...chart, id })} />
                                                         <div className="p-3">
                                                             <ChartRenderer
@@ -1828,7 +1953,7 @@ export default function UserDashboard() {
                                                 const resolvedData = streamedChart?.data ?? chart.data;
                                                 if (!resolvedData && !isLoading) return <ChartSkeleton key={chart.id} isDark={isDark} />;
                                                 return (
-                                                    <Panel key={chart.id}>
+                                                    <Panel key={`${selectedVersionId}-insight-${chart.id}`}>
                                                         <PanelHeader title={chart.title || `Insight ${chart.id}`} actions={renderChartActions(chart)} />
                                                         <div className="p-4">
                                                             <ChartRenderer
@@ -1904,7 +2029,7 @@ export default function UserDashboard() {
                         <div className="flex items-start justify-between border-b border-border px-6 py-5">
                             <div>
                                 <h3 className="text-[18px] font-bold">Column classifier</h3>
-                                <p className="mt-1 text-[13px] text-muted-foreground">Auto-typed by Vizzy · review & override</p>
+                                <p className="mt-1 text-[13px] text-muted-foreground">Auto-typed by Vizzy Pilot · review & override</p>
                             </div>
                             <button onClick={() => setClassifierOpen(false)} className="rounded-full p-2 hover:bg-surface-2 transition-colors">
                                 <X className="h-4 w-4" />

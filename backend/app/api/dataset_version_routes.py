@@ -46,7 +46,6 @@ class VersionResponse(BaseModel):
     dataset_id: UUID
     version_number: int
     source_type: SourceType
-    source_reference: str
     row_count: Optional[int]
     schema_hash: str
     created_by: UUID

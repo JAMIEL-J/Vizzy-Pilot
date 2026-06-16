@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 
 export default function AdminSettings() {
-    const [siteName, setSiteName] = useState('Vizzy');
+    const [siteName, setSiteName] = useState('Vizzy Pilot');
     const [maxUploadSize, setMaxUploadSize] = useState('50');
     const [enableRegistration, setEnableRegistration] = useState(true);
     const [maintenanceMode, setMaintenanceMode] = useState(false);

@@ -177,6 +177,36 @@ def _format_compact_number(value: Any, is_currency: bool = False, symbol: str = 
     return f"{symbol}{compact}" if is_currency else compact
 
 
+def _format_insight_value(
+    value: Any,
+    column_name: str = "",
+    column_metadata: Optional[Dict[str, Any]] = None,
+    title: str = "",
+) -> str:
+    """Format a value for display in key insight text — handles %, currency, and plain numbers."""
+    if not isinstance(value, (int, float)):
+        return str(value)
+
+    is_pct = _is_likely_percentage(column_name) or _is_likely_percentage(title)
+    is_curr = not is_pct and _is_currency_metric(title, column_name, column_metadata)
+
+    # Scale ratio values (0.2674 → 26.74) for percentage display
+    display_val = value
+    if is_pct and -1.0 <= value <= 1.0:
+        display_val = value * 100
+
+    if is_pct:
+        base = f"{display_val:.1f}"
+        base = base.rstrip("0").rstrip(".")
+        return f"{base}%"
+
+    if is_curr:
+        symbol = _currency_symbol_for_metric(column_name, column_metadata)
+        return _format_compact_number(display_val, is_currency=True, symbol=symbol)
+
+    return _format_compact_number(display_val, is_currency=False)
+
+
 def build_chart_from_nl2sql(nl2sql_result: dict) -> Dict[str, Any]:
     """
     Transform NL2SQL executor output into a frontend-compatible chart spec.
@@ -674,24 +704,37 @@ def _extract_key_insight(
         for col in columns:
             val = row.get(col)
             if isinstance(val, (int, float)):
-                is_currency = _is_currency_metric(title or col, col, column_metadata)
-                currency_symbol = _currency_symbol_for_metric(col, column_metadata)
-                fmt_val = _format_compact_number(val, is_currency=is_currency, symbol=currency_symbol)
+                fmt_val = _format_insight_value(val, column_name=col, column_metadata=column_metadata, title=title)
                 return f"The result is {fmt_val}"
         return "Result computed."
 
     if chart_type in ("bar", "pie", "table", "stacked_bar", "stacked") and len(data) >= 2:
         _, value_col = _detect_category_value_cols(columns, data)
-        category_col = [c for c in columns if c != value_col][0] if len(columns) > 1 else columns[0]
+        # Pick the best category column among non-value columns — prefer the one
+        # with the most non-numeric, non-time, short-string values.
+        category_candidates = [c for c in columns if c != value_col]
+        if len(category_candidates) > 1:
+            cat_scores = {}
+            for col in category_candidates:
+                vals = [str(r.get(col, "")).strip() for r in data if r.get(col) is not None]
+                unique_vals = len(set(vals))
+                avg_len = sum(len(v) for v in vals) / max(len(vals), 1)
+                cat_scores[col] = unique_vals - (avg_len / 20)  # favour moderate-length category names
+            category_col = max(cat_scores, key=cat_scores.get)
+        else:
+            category_col = category_candidates[0] if category_candidates else columns[0]
+
         top_row = max(data, key=lambda r: r.get(value_col, 0) if isinstance(r.get(value_col), (int, float)) else 0)
         val = top_row.get(value_col, 0)
-        is_currency = _is_currency_metric(title, value_col, column_metadata)
-        currency_symbol = _currency_symbol_for_metric(value_col, column_metadata)
-        fmt_val = _format_compact_number(val, is_currency=is_currency, symbol=currency_symbol)
+        fmt_val = _format_insight_value(val, column_name=value_col, column_metadata=column_metadata, title=title)
         
+        # Build a clear, insight-driven one-liner
+        category_value = str(top_row.get(category_col, 'Top item') or '').strip()
+        if not category_value:
+            category_value = 'Top item'
         # If it's a table but looks like a regular grouped list, give a top-item metric
         action_verb = "leads with" if chart_type != "table" else "is listed with highest value:"
-        return f"{top_row.get(category_col, 'Top item')} {action_verb} {fmt_val}."
+        return f"{category_value} {action_verb} {fmt_val}."
 
     if chart_type == "line" and len(data) >= 3:
         time_col, value_col = _detect_time_value_cols(columns, data)
@@ -711,13 +754,10 @@ def _extract_key_insight(
             anomalies = [r for r in data if isinstance(r.get(value_col), (int, float)) and (r.get(value_col) > upper_bound or r.get(value_col) < lower_bound)]
             
             if anomalies:
-                is_currency = _is_currency_metric(title, value_col, column_metadata)
-                currency_symbol = _currency_symbol_for_metric(value_col, column_metadata)
-                
                 # Report top anomaly
                 top_anomaly = max(anomalies, key=lambda r: abs(r.get(value_col) - ((q1+q3)/2)))
                 av = top_anomaly.get(value_col)
-                fmt_val = _format_compact_number(av, is_currency=is_currency, symbol=currency_symbol)
+                fmt_val = _format_insight_value(av, column_name=value_col, column_metadata=column_metadata, title=title)
                 direction = "spike" if av > q3 else "drop"
                 return f"Detected {len(anomalies)} anomalies. Notable {direction} on {top_anomaly.get(time_col, 'date')} ({fmt_val})."
             else:

@@ -5,7 +5,7 @@ export default function UserLayout() {
     return (
         <div className="helix-scope min-h-screen bg-background text-foreground">
             <TopNav />
-            <main className="min-h-[calc(100vh-84px)]">
+            <main className="min-h-[calc(100vh-85px)]">
                 <Outlet />
             </main>
         </div>

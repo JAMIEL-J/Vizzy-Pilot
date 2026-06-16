@@ -9,7 +9,7 @@ const LandingNavbar = () => (
     <div className="flex items-center justify-between px-8 py-5 max-w-7xl mx-auto">
       <div className="flex items-center gap-2 text-2xl font-bold tracking-tight font-headline">
         <span className="w-8 h-8 bg-indigo-accent rounded-lg flex items-center justify-center text-white text-base">V</span>
-        <span className="text-slate-custom">Vizzy Pro</span>
+        <span className="text-slate-custom">Vizzy Pilot</span>
       </div>
       <div className="hidden md:flex items-center space-x-10">
         <a className="text-sm font-medium text-slate-custom hover:text-indigo-accent transition-colors" href="#features">Capabilities</a>
@@ -339,7 +339,7 @@ const LandingFooter = () => (
             <div className="space-y-8">
                 <div className="flex items-center gap-2 text-2xl font-bold font-headline text-slate-custom">
                     <span className="w-8 h-8 bg-indigo-accent rounded-lg flex items-center justify-center text-white text-base">V</span>
-                    Vizzy Pro
+                    Vizzy Pilot
                 </div>
                 <p className="text-slate-custom/60 leading-relaxed max-w-xs text-sm">Deterministic conversational intelligence for the modern enterprise.</p>
             </div>
@@ -369,7 +369,7 @@ const LandingFooter = () => (
             </div>
         </div>
         <div className="max-w-7xl mx-auto pt-8 border-t border-border-subtle flex flex-col md:flex-row justify-between items-center gap-4 text-xs font-medium text-slate-custom/40">
-            <p>© 2026 Vizzy Pro Enterprise. All rights reserved.</p>
+            <p>© 2026 Vizzy Pilot Enterprise. All rights reserved.</p>
             <div className="flex items-center gap-8">
                 <a className="hover:text-slate-custom transition-colors" href="#">Privacy</a>
                 <a className="hover:text-slate-custom transition-colors" href="#">Terms</a>
@@ -402,7 +402,7 @@ export default function Landing() {
               </div>
               <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-indigo-accent/20 to-transparent"></div>
               <div className="relative z-10">
-                <h2 className="text-5xl md:text-7xl font-headline font-bold text-white mb-8 leading-tight tracking-tight">Experience <span className="italic text-emerald-accent">Vizzy Pro.</span></h2>
+                <h2 className="text-5xl md:text-7xl font-headline font-bold text-white mb-8 leading-tight tracking-tight">Experience <span className="italic text-emerald-accent">Vizzy Pilot.</span></h2>
                 <p className="text-xl text-white/70 mb-14 max-w-2xl mx-auto leading-relaxed">
                   Join 500+ global enterprises orchestrating data with conversational intelligence. Secure, deterministic, and blazing fast.
                 </p>

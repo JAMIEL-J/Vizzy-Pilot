@@ -86,6 +86,81 @@ const renderInsightPoints = (content: string) => {
     );
 };
 
+const splitInsightIntoPoints = (content: string): string[] => {
+    if (!content) return [];
+    // First, try splitting on newlines (in case the LLM already emitted bullet points)
+    const newlinePoints = content
+        .split(/\n+/)
+        .map((line) => line.replace(/^\s*(?:-\s*|\d+[.)]\s*)/, '').trim())
+        .filter(Boolean);
+    if (newlinePoints.length > 1) {
+        return newlinePoints;
+    }
+    // Otherwise, split a paragraph into sentences (handling common abbreviations gracefully)
+    const normalized = content.replace(/\s+/g, ' ').trim();
+    if (!normalized) return [];
+    const sentenceRegex = /[^.!?]+(?:[.!?]+|$)/g;
+    const matches = normalized.match(sentenceRegex);
+    if (matches && matches.length > 1) {
+        return matches.map((s) => s.trim()).filter(Boolean);
+    }
+    return [normalized];
+};
+
+const renderAnalysisInsight = (msg: ChatMessage) => {
+    const explanation = msg.output_data?.explanation;
+    const keyInsight = (explanation?.key_insight || '').toString().trim();
+    // Prefer the rich `detailed` explanation from the backend, then the raw content
+    const detailedSource =
+        (explanation?.detailed && String(explanation.detailed).trim()) ||
+        (explanation?.summary && String(explanation.summary).trim()) ||
+        msg.content ||
+        '';
+    // Strip a trailing "**Key Insight:** ..." line from the source so we don't duplicate it
+    let source = detailedSource;
+    if (keyInsight) {
+        const kiLower = keyInsight.toLowerCase();
+        const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const kiRegex = new RegExp(`\\*?\\*?Key Insight:?\\*?\\*?:?\\s*${escapeRegExp(kiLower)}.*$`, 'i');
+        source = source.replace(kiRegex, '').trim();
+    }
+    const points = splitInsightIntoPoints(source);
+    if (points.length === 0 && !keyInsight) {
+        return <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>;
+    }
+    return (
+        <div className="space-y-3">
+            {points.length > 0 && (
+                <ul className="list-disc pl-5 space-y-2 marker:text-primary/60">
+                    {points.map((point, idx) => (
+                        <li key={idx} className="pl-1 leading-relaxed text-foreground/90">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ p: 'span' }}>
+                                {point}
+                            </ReactMarkdown>
+                        </li>
+                    ))}
+                </ul>
+            )}
+            {keyInsight && (
+                <div className="relative mt-3 overflow-hidden rounded-xl border border-white/20 bg-gradient-to-br from-white/[0.08] to-white/[0.02] px-4 py-3 shadow-lg shadow-primary/5 backdrop-blur-2xl before:pointer-events-none before:absolute before:inset-0 before:rounded-xl before:bg-gradient-to-br before:from-primary/10 before:to-transparent">
+                    <div className="absolute left-0 top-2 bottom-2 w-0.5 rounded-full bg-gradient-to-b from-primary/80 via-primary/40 to-transparent" />
+                    <div className="absolute -right-6 -top-6 h-16 w-16 rounded-full bg-primary/10 blur-2xl" />
+                    <div className="relative flex items-start gap-3">
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/20 text-[10px] font-bold tracking-wider text-primary backdrop-blur-sm">
+                            <svg className="h-3 w-3" viewBox="0 0 16 16" fill="none"><path d="M8 1L10 5.5L15 6L11.5 9.5L12.5 15L8 12L3.5 15L4.5 9.5L1 6L6 5.5L8 1Z" fill="currentColor"/></svg>
+                        </span>
+                        <span className="text-sm leading-relaxed text-foreground/90 [&_strong]:text-primary [&_strong]:font-semibold">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ p: 'span' }}>
+                                {keyInsight}
+                            </ReactMarkdown>
+                        </span>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
 const parseUtcTimestamp = (value?: string): Date | null => {
     if (!value) return null;
     const raw = value.trim();
@@ -771,7 +846,7 @@ export default function ChatInterface() {
         return <div className="text-[13px] leading-relaxed text-foreground/90 whitespace-pre-wrap">{msg.content}</div>;
     };
     return (
-        <div ref={splitContainerRef} className="flex h-[calc(100vh-84px)] overflow-hidden bg-background text-foreground font-display antialiased relative selection:bg-primary selection:text-white">
+        <div ref={splitContainerRef} className="flex h-[calc(100vh-85px)] overflow-hidden bg-background text-foreground font-display antialiased relative selection:bg-primary selection:text-white">
             {messages.length > 0 && (
                 <>
                     <div className="absolute inset-0 z-0 transition-all duration-700 invert hue-rotate-180 opacity-60 dark:invert-0 dark:hue-rotate-0 dark:opacity-100" style={{ backgroundImage: "url('https://pub-940ccf6255b54fa799a9b01050e6c227.s3.amazonaws.com/ruixen_moon_2.png')", backgroundSize: 'cover', backgroundPosition: 'center', backgroundAttachment: 'fixed' }} />
@@ -799,7 +874,7 @@ export default function ChatInterface() {
                         </BtnGhost>
                     </div>
                 )}
-                <div className="flex-1 overflow-y-auto w-full">
+                <div className="flex-1 overflow-y-auto w-full min-h-0">
                     {messages.length === 0 ? (
                         <RuixenMoonChat 
                             onSendMessage={handleSendMessage} 
@@ -879,7 +954,7 @@ export default function ChatInterface() {
                                                     })()
                                                 ) : ['analysis', 'visualization', 'dashboard', 'comparative', 'aggregative', 'trend', 'text_query', 'clarification'].includes(msg.intent_type || '') ? (
                                                     <div className="chat-insight-container text-sm leading-relaxed">
-                                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                                                        {renderAnalysisInsight(msg)}
                                                         {msg.output_data?.type === 'clarification' && msg.output_data?.ambiguity && (
                                                             <div className="mt-3.5 space-y-2">
                                                                 <div className="flex flex-wrap gap-2">
@@ -1045,7 +1120,7 @@ export default function ChatInterface() {
                                             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-muted-foreground" />
                                             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-muted-foreground [animation-delay:120ms]" />
                                             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-muted-foreground [animation-delay:240ms]" />
-                                            <span className="ml-1 text-[11px] text-muted-foreground">Helix is thinking...</span>
+                                            <span className="ml-1 text-[11px] text-muted-foreground">Vizzy Pilot is thinking...</span>
                                         </div>
                                     )}
                                 </div>

@@ -95,7 +95,7 @@ export default function AdminLayout() {
                             </svg>
                         </div>
                         <span className={`text-xl font-bold transition-all duration-300 origin-left ${isCollapsed ? 'scale-0 w-0 opacity-0' : 'scale-100 opacity-100'}`}>
-                            Vizzy
+                            Vizzy Pilot
                         </span>
                     </div>
 

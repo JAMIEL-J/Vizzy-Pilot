@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import Dict, Any, List, Optional
 
 # -- Imports under test --
-from app.services.semantic_audit import ROLE_TAXONOMY, ROLE_VOCABULARY_FOR_LLM
+from app.services.role_taxonomy import ROLE_TAXONOMY, ROLE_VOCABULARY_FOR_LLM
 from app.services.analytics.role_resolver import _KNOWN_ROLES, detect_map_format, normalize_to_col_role
 from app.services.analytics.pre_mapper import PreMapper
 from app.services.analytics.data_profiler import ColumnProfile, DataProfiler

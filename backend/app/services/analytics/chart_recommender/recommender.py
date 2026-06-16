@@ -764,9 +764,15 @@ def _generate_all_columns_charts(
     return charts
 
 
-def recommend_charts(df: pd.DataFrame, domain: DomainType, classification: ColumnClassification, overrides: Optional[Dict[str, Any]] = None, all_columns: bool = False) -> Dict[str, Any]:
+def recommend_charts(df: pd.DataFrame, domain: DomainType, classification: ColumnClassification, overrides: Optional[Dict[str, Any]] = None, all_columns: bool = False, column_profiles: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[str, Any]:
     """
     Recommend charts based on domain and data classification.
+    
+    When `column_profiles` is provided (from profile_dataset_duckdb()), its
+    DuckDB-accurate cardinality values are used to refine the classification:
+    dimensions with very high full-dataset cardinality are excluded (they would
+    produce unusably wide charts), and low-cardinality numeric columns are
+    promoted to dimensions.
     
     Returns dict of charts for API response.
     """
@@ -788,6 +794,37 @@ def recommend_charts(df: pd.DataFrame, domain: DomainType, classification: Colum
         classification = classification or filter_columns(df, domain)
     elif classification is None:
         classification = filter_columns(df, domain)
+
+    # ── P1 Fix: Refine classification with DuckDB-accurate cardinality ──
+    if column_profiles:
+        new_dims = list(classification.dimensions)
+        new_metrics = list(classification.metrics)
+        new_excluded = list(classification.excluded)
+
+        for col, profile in column_profiles.items():
+            card = profile.get("cardinality", 0)
+            if col in new_dims and card > 0.3:
+                # High cardinality dimension -> would produce unusably wide charts
+                new_dims.remove(col)
+                if col not in new_excluded:
+                    new_excluded.append(col)
+                logger.debug("P1: Moved high-cardinality col '%s' (card=%.3f) from dims to excluded", col, card)
+            elif col in new_metrics and card < 0.02 and card > 0:
+                # Very low cardinality numeric -> actually a categorical dimension
+                new_metrics.remove(col)
+                if col not in new_dims:
+                    new_dims.append(col)
+                logger.debug("P1: Moved low-cardinality col '%s' (card=%.3f) from metrics to dims", col, card)
+
+        classification = ColumnClassification(
+            metrics=new_metrics,
+            dimensions=new_dims,
+            targets=classification.targets,
+            dates=classification.dates,
+            excluded=new_excluded,
+            mappings=classification.mappings,
+        )
+
     # PRE-FILTER & NORMALIZATION
     # Ensure numeric columns in string format are normalized
     # Drop NaN/NaT residues after coercion to prevent poison data in charts

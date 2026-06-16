@@ -71,7 +71,7 @@ export default function ConnectDatabase() {
             <PageHeader
                 breadcrumb={["Datasets", "Connect source"]}
                 title="Connect a database"
-                description="Stream tables into Vizzy"
+                description="Stream tables into Vizzy Pilot"
             />
             <div className="grid grid-cols-12 gap-4 px-5 py-4">
                 {/* providers */}
@@ -117,7 +117,7 @@ export default function ConnectDatabase() {
                     <Panel>
                         <PanelHeader
                             title={`${providers.find(p => p.id === config.type)?.name || "Database"} connection`}
-                            subtitle="Vizzy will create a read-only role automatically"
+                            subtitle="Vizzy Pilot will create a read-only role automatically"
                             icon={<Server className="h-3.5 w-3.5" />}
                         />
                         

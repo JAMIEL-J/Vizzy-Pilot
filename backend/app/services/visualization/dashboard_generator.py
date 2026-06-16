@@ -6,6 +6,9 @@ Auto-generates multi-widget BI dashboards powered by:
 - column_filter    → classifies columns (metrics, dimensions, targets, dates)
 - kpi_engine       → generates domain-specific KPIs with trends and formatting
 - chart_recommender → smart chart selection with deduplication and geo maps
+
+DuckDB-first: generate_overview_dashboard_duckdb() uses DuckDBReader for
+accurate aggregations instead of relying on a pandas sample DataFrame.
 """
 
 import logging
@@ -13,7 +16,7 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 from app.services.analytics.domain_detector import detect_domain, DomainType
-from app.services.analytics.column_filter import filter_columns
+from app.services.analytics.column_filter import filter_columns, filter_columns_duckdb
 from app.services.analytics.kpi_engine import generate_kpis
 from app.services.analytics.chart_recommender import recommend_charts
 
@@ -146,6 +149,194 @@ def generate_overview_dashboard(
 
     return {
         "dashboard": dsl_layout
+    }
+
+
+# ──────────────────────────────────────────────────────────────
+# DuckDB-native dashboard generation
+# ──────────────────────────────────────────────────────────────
+
+
+def generate_overview_dashboard_duckdb(
+    df: pd.DataFrame,
+    reader: "DuckDBReader",
+    schema: Dict[str, Any],
+    semantic_map_json: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Generate dashboard using DuckDB for accurate aggregations.
+
+    DuckDB-first replacement for generate_overview_dashboard() that:
+    1. Uses the sample df for domain detection, column classification, and chart
+       recommendations (these depend on column types and data patterns, which a
+       200-row sample represents accurately).
+    2. Uses DuckDBReader for KPI value computation (sum, avg, count, etc.) so
+       dashboard metrics reflect the FULL dataset, not just the sample.
+    3. Uses DuckDB reader for accurate total_records in the DSL layout.
+    """
+    # ── 1. Domain Detection ──
+    domain, domain_scores = detect_domain(df)
+    logger.info(f"Dashboard domain: {domain.value} (scores: {domain_scores})")
+
+    # ── 2. Column Classification (DuckDB-profiled cardinality) ──
+    classification = filter_columns_duckdb(df, domain, reader)
+
+    # 2b. Apply semantic overrides (same logic as generate_overview_dashboard)
+    if semantic_map_json:
+        try:
+            from app.services.analytics.role_resolver import normalize_to_col_role, invert_to_role_map
+            from app.services.role_taxonomy import ROLE_TAXONOMY
+
+            col_role_map = normalize_to_col_role(semantic_map_json)
+
+            for col, role in col_role_map.items():
+                if col not in df.columns:
+                    continue
+
+                if col in classification.metrics:
+                    classification.metrics.remove(col)
+                if col in classification.dimensions:
+                    classification.dimensions.remove(col)
+                if col in classification.dates:
+                    classification.dates.remove(col)
+                if col in classification.targets:
+                    classification.targets.remove(col)
+                if col in classification.excluded:
+                    classification.excluded.remove(col)
+
+                role_lower = role.lower()
+                role_info = ROLE_TAXONOMY.get(role_lower, {})
+                affinity = role_info.get("affinity")
+
+                if affinity == "time_series_x" or role_lower in (
+                    "date", "datetime", "year_month", "fiscal_period"
+                ):
+                    if col not in classification.dates:
+                        classification.dates.append(col)
+                elif affinity in ("measure_y", "gauge_measure") or role_lower in (
+                    "metric", "revenue", "cost", "profit", "quantity", "amount"
+                ):
+                    if col not in classification.metrics:
+                        classification.metrics.append(col)
+                elif affinity == "groupby_x" or role_lower in (
+                    "dimension", "category", "region"
+                ):
+                    if col not in classification.dimensions:
+                        classification.dimensions.append(col)
+                elif role_lower == "target":
+                    if col not in classification.targets:
+                        classification.targets.append(col)
+                elif role_lower in ["excluded", "identifier", "generic", "unclassified"] or affinity == "filter_only":
+                    if col not in classification.excluded:
+                        classification.excluded.append(col)
+
+                ROLE_TO_CANONICAL = {
+                    "date": "dim_date",
+                    "datetime": "dim_date",
+                    "year_month": "dim_date",
+                    "fiscal_period": "dim_date",
+                    "revenue": "metric_revenue",
+                    "sales": "metric_revenue",
+                    "profit": "metric_profit",
+                    "quantity": "metric_qty",
+                    "count": "metric_qty",
+                    "geography": "dim_region",
+                    "target": "attr_status",
+                }
+                canonical_key = ROLE_TO_CANONICAL.get(role_lower)
+                if canonical_key:
+                    classification.mappings[canonical_key] = col
+
+                if role_lower == "revenue":
+                    if domain == DomainType.CHURN:
+                        classification.mappings["metric_mrr"] = col
+                    elif domain == DomainType.FINANCE:
+                        classification.mappings["metric_income"] = col
+                    else:
+                        classification.mappings["metric_revenue"] = col
+                elif role_lower == "target":
+                    classification.mappings["attr_status"] = col
+                elif role_lower in ("date", "datetime", "year_month", "fiscal_period"):
+                    classification.mappings["dim_date"] = col
+        except Exception as e:
+            logger.error(f"Failed to apply semantic override: {e}")
+
+    logger.info(
+        f"Classified columns — metrics: {classification.metrics}, "
+        f"dimensions: {classification.dimensions}, "
+        f"targets: {classification.targets}, "
+        f"dates: {classification.dates}"
+    )
+
+    # ── 3. DuckDB-accurate KPIs ──
+    # Uses generate_kpis_duckdb() from kpi_engine.py which routes all
+    # _safe_sum / _safe_mean / _count_target_positive calls through
+    # DuckDBReader, so domain-specific KPIs (churn rate, conversion,
+    # ARPU, etc.) get accurate values from the FULL dataset.
+    from app.services.analytics.kpi_engine import generate_kpis_duckdb
+
+    kpi_dict = generate_kpis_duckdb(
+        reader=reader,
+        domain=domain,
+        classification=classification,
+        sample_df=df,
+        semantic_map_json=semantic_map_json,
+    )
+
+    # ── 4. Smart Chart Recommendations (DuckDB-accurate cardinality) ──
+    overrides = None
+    if semantic_map_json:
+        try:
+            from app.services.analytics.role_resolver import invert_to_role_map
+            overrides = invert_to_role_map(semantic_map_json)
+        except Exception:
+            pass
+
+    # Compute DuckDB-accurate column profiles for better chart type decisions
+    column_profiles = None
+    try:
+        from app.services.analytics.metadata_profiler import profile_dataset_duckdb
+        column_profiles = profile_dataset_duckdb(reader, list(df.columns))
+    except Exception:
+        pass
+
+    chart_dict = recommend_charts(
+        df, domain, classification,
+        overrides=overrides,
+        column_profiles=column_profiles,
+    )
+
+    # ── 5. Assemble DSL Layout Specification ──
+    dsl_layout = generate_dsl_layout(
+        domain=domain.value,
+        classification=classification,
+        kpi_dict=kpi_dict,
+        chart_dict=chart_dict,
+    )
+    dsl_layout["layout"] = "grid"
+
+    # Accurate total_records from DuckDB
+    try:
+        dsl_layout["total_records"] = reader.row_count()
+    except Exception:
+        dsl_layout["total_records"] = len(df)
+
+    logger.info(
+        f"Generated DuckDB Dashboard DSL spec with "
+        f"{len(dsl_layout.get('widgets', []))} widgets"
+    )
+
+    from app.services.analytics import get_domain_confidence
+    confidence = get_domain_confidence(domain_scores)
+
+    return {
+        "dashboard": dsl_layout,
+        "domain": domain,
+        "confidence": confidence,
+        "classification": classification,
+        "kpis": kpi_dict,
+        "charts": chart_dict,
+        "total_rows": reader.row_count(),
     }
 
 

@@ -66,6 +66,47 @@ def _index_name(table_name: str, column_name: str) -> str:
     return f"ix_{safe_table}_{safe_col}"
 
 
+def _batch_compute_cardinality(
+    conn: duckdb.DuckDBPyConnection,
+    table_name: str,
+    varchar_cols: List[str],
+    threshold: float = 0.05,
+) -> List[str]:
+    """Compute cardinality ratio for all VARCHAR columns in a single query.
+    
+    Returns column names where ratio (distinct / total) <= threshold
+    (i.e., low-cardinality columns worth indexing).
+    """
+    if not varchar_cols:
+        return []
+
+    # Build a UNNEST query that computes ratios for all columns in one pass
+    union_parts = []
+    for col in varchar_cols:
+        union_parts.append(
+            f'SELECT \'{col}\' AS col_name, '
+            f'COUNT(DISTINCT "{col}") AS u, '
+            f'COUNT(*) AS c '
+            f'FROM "{table_name}"'
+        )
+    combined = " UNION ALL ".join(union_parts)
+
+    try:
+        result = conn.execute(
+            f"""
+            SELECT col_name
+            FROM ({combined}) t
+            WHERE c > 0 AND u * 1.0 / c <= ?
+            """,
+            parameters=[threshold],
+        ).fetchall()
+        return [row[0] for row in result]
+    except Exception as e:
+        logger.warning("Batch cardinality computation failed: %s", e)
+        # Fallback: return empty, no indices created
+        return []
+
+
 def create_performance_indices(
     conn: duckdb.DuckDBPyConnection,
     table_name: str,
@@ -73,8 +114,14 @@ def create_performance_indices(
     """Analyze table schema and create ART indices on date + categorical columns.
     
     Skips tables already indexed in this process lifetime.
+    Uses a single-pass batch query for cardinality checks instead of
+    per-column COUNT(DISTINCT) queries. Does NOT reorder the table
+    on ingest (defers to an explicit optimization step if needed).
     Returns list of index names created.
     """
+    import time as _time
+    _t0 = _time.perf_counter()
+
     if table_name in _INDEX_CACHE:
         logger.debug("Table '%s' already indexed, skipping.", table_name)
         return []
@@ -88,38 +135,43 @@ def create_performance_indices(
         logger.warning("Could not describe table '%s' for indexing: %s", table_name, e)
         return []
 
-    # Re-order table by date columns for better row-group pruning in DuckDB
-    # MUST happen BEFORE index creation (re-ordering drops/recreates table)
-    _order_table_by_date(conn, table_name, date_types)
-
+    # -- Date columns: create indexes (fast, no full scan) --
+    date_cols = []
+    varchar_cols = []
     for _, row in schema_df.iterrows():
         col_name = row["column_name"]
         col_type = row["column_type"].upper()
-
-        # Index DATE / TIMESTAMP columns
         if col_type in date_types:
-            idx = _index_name(table_name, col_name)
-            try:
-                conn.execute(f'CREATE INDEX IF NOT EXISTS "{idx}" ON "{table_name}" ("{col_name}")')
-                created.append(idx)
-                logger.debug("Created index '%s' on date column '%s'", idx, col_name)
-            except Exception as e:
-                logger.warning("Failed to create index on '%s': %s", col_name, e)
-            continue
+            date_cols.append(col_name)
+        elif col_type.startswith("VARCHAR") or col_type == "STRING":
+            varchar_cols.append(col_name)
 
-        # Index low-cardinality VARCHAR columns (categoricals)
-        if col_type.startswith("VARCHAR") or col_type == "STRING":
-            if _is_low_cardinality_categorical(conn, table_name, col_name):
-                idx = _index_name(table_name, col_name)
-                try:
-                    conn.execute(f'CREATE INDEX IF NOT EXISTS "{idx}" ON "{table_name}" ("{col_name}")')
-                    created.append(idx)
-                    logger.debug("Created index '%s' on categorical column '%s'", idx, col_name)
-                except Exception as e:
-                    logger.warning("Failed to create index on '%s': %s", col_name, e)
+    # Index date columns (these are always worth indexing)
+    for col_name in date_cols:
+        idx = _index_name(table_name, col_name)
+        try:
+            conn.execute(f'CREATE INDEX IF NOT EXISTS "{idx}" ON "{table_name}" ("{col_name}")')
+            created.append(idx)
+        except Exception as e:
+            logger.warning("Failed to create index on '%s': %s", col_name, e)
+
+    # -- Categorical columns: single-pass cardinality check + index --
+    low_card_cols = _batch_compute_cardinality(conn, table_name, varchar_cols, threshold=0.05)
+    for col_name in low_card_cols:
+        idx = _index_name(table_name, col_name)
+        try:
+            conn.execute(f'CREATE INDEX IF NOT EXISTS "{idx}" ON "{table_name}" ("{col_name}")')
+            created.append(idx)
+        except Exception as e:
+            logger.warning("Failed to create index on '%s': %s", col_name, e)
 
     _INDEX_CACHE.add(table_name)
-    logger.info("Created %d performance indices on table '%s'", len(created), table_name)
+    _elapsed = _time.perf_counter() - _t0
+    logger.info(
+        "Created %d performance indices on table '%s' in %.2fs (%d date, %d varchar: %d low-card)",
+        len(created), table_name, _elapsed,
+        len(date_cols), len(varchar_cols), len(low_card_cols),
+    )
     return created
 
 

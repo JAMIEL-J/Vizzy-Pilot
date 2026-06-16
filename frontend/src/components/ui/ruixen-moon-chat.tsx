@@ -54,7 +54,7 @@ export default function RuixenMoonChat({
       <div className="flex flex-col items-center justify-center z-10 mb-8 mt-[-10vh]">
         <div className="text-center">
           <h1 className="text-5xl font-semibold text-neutral-800 dark:text-white drop-shadow-sm dark:drop-shadow-lg tracking-tight mb-2">
-            Vizzy AI
+            Vizzy Pilot
           </h1>
           <p className="mt-2 text-neutral-600 dark:text-neutral-200 text-lg">
             What insights do you want to explore today?

@@ -6,14 +6,24 @@ Provides domain-specific KPIs with calculated metrics (rates, ratios, comparison
 
 import logging
 import re
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, TYPE_CHECKING
 from dataclasses import dataclass
 import warnings
 import pandas as pd
 from .domain_detector import DomainType
 from .column_filter import ColumnClassification
 
+if TYPE_CHECKING:
+    from .duckdb_reader import DuckDBReader
+
 logger = logging.getLogger(__name__)
+
+
+# ── No module-level DuckDB state ────────────────────────────
+# DuckDBReader is passed explicitly via `reader` keyword argument
+# to _safe_sum, _safe_mean, _count_target_positive and all domain
+# KPI generators.  This avoids concurrency bugs where two uploads
+# share mutable module-level state.
 
 
 def _safe_to_datetime(series: pd.Series) -> pd.Series:
@@ -81,15 +91,33 @@ def _find_column(df: pd.DataFrame, keywords: List[str], classification: ColumnCl
     return None
 
 
-def _safe_sum(df: pd.DataFrame, col: str) -> float:
-    """Safely sum a column with numeric coercion."""
+def _safe_sum(df: pd.DataFrame, col: str, *, reader: Optional["DuckDBReader"] = None) -> float:
+    """Safely sum a column with numeric coercion.
+
+    When `reader` is provided, computes the sum from the
+    full dataset via DuckDB instead of the pandas sample DataFrame.
+    """
+    if reader is not None:
+        try:
+            return float(reader.sum_col(col) or 0.0)
+        except Exception:
+            return 0.0
     if col and col in df.columns:
         return float(pd.to_numeric(df[col], errors='coerce').sum())
     return 0.0
 
 
-def _safe_mean(df: pd.DataFrame, col: str) -> float:
-    """Safely calculate mean of a column with numeric coercion."""
+def _safe_mean(df: pd.DataFrame, col: str, *, reader: Optional["DuckDBReader"] = None) -> float:
+    """Safely calculate mean of a column with numeric coercion.
+
+    When `reader` is provided, computes the mean from the
+    full dataset via DuckDB instead of the pandas sample DataFrame.
+    """
+    if reader is not None:
+        try:
+            return float(reader.avg_col(col) or 0.0)
+        except Exception:
+            return 0.0
     if col and col in df.columns:
         return float(pd.to_numeric(df[col], errors='coerce').mean())
     return 0.0
@@ -181,8 +209,41 @@ def _pick_best_churn_value_metric(candidates: List[str]) -> Optional[str]:
     return candidates[0]
 
 
-def _count_target_positive(df: pd.DataFrame, target_col: str) -> int:
-    """Count positive cases in target column."""
+def _count_target_positive(df: pd.DataFrame, target_col: str, *, reader: Optional["DuckDBReader"] = None) -> int:
+    """Count positive cases in target column.
+
+    When `reader` is provided, queries the full dataset
+    via DuckDB instead of the pandas sample DataFrame.
+    """
+    if reader is not None:
+        try:
+            from .query_utils import safe_identifier, execute_df
+
+            conn = reader._conn
+            table = reader._table or safe_identifier("data")
+            # Get all unique values and their counts from DuckDB
+            result = execute_df(
+                conn,
+                f"""
+                SELECT
+                    {safe_identifier(target_col)},
+                    COUNT(*) AS cnt
+                FROM {table}
+                GROUP BY {safe_identifier(target_col)}
+                ORDER BY cnt DESC
+                """,
+            )
+            if result.empty:
+                return 0
+            positive_keywords = ['yes', 'true', '1', 'churned', 'converted', 'active', 'positive']
+            col_name = result.columns[0]
+            for _, row in result.iterrows():
+                if str(row[col_name]).lower() in positive_keywords:
+                    return int(row["cnt"])
+            return 0
+        except Exception:
+            logger.warning(f"DuckDB count_target_positive failed, falling back to pandas", exc_info=True)
+    
     if not target_col or target_col not in df.columns:
         return 0
     
@@ -445,10 +506,15 @@ def _find_marketing_entity_identifier(df: pd.DataFrame, classification: ColumnCl
 # =============================================================================
 
 
-def _generate_sales_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None) -> List[KPI]:
+def _generate_sales_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None, reader: Optional["DuckDBReader"] = None, total_rows: int = 0) -> List[KPI]:
     """Generate KPIs for Sales domain - answers key business questions."""
+    # Local aliases with explicit reader injection (no module-level state)
+    _s = (lambda _df, _col, _reader=reader: _safe_sum(_df, _col, reader=_reader)) if reader is not None else _safe_sum
+    _m = (lambda _df, _col, _reader=reader: _safe_mean(_df, _col, reader=_reader)) if reader is not None else _safe_mean
+    _ct = (lambda _df, _col, _reader=reader: _count_target_positive(_df, _col, reader=_reader)) if reader is not None else _count_target_positive
+
     kpis = []
-    
+
     # Find key columns
     revenue_col = _find_column(df, ['revenue', 'sales', 'amount', 'total_sales', 'totalsales'], classification, semantic_map_json=semantic_map_json)
     profit_col = _find_column(df, ['profit', 'gross_profit', 'net_profit'], classification, semantic_map_json=semantic_map_json)
@@ -585,22 +651,22 @@ def _generate_sales_kpis(df: pd.DataFrame, classification: ColumnClassification,
     # 1. Total Revenue (Primary KPI)
     total_revenue = 0
     if revenue_col:
-        total_revenue = _safe_sum(df, revenue_col)
+        total_revenue = _s(df, revenue_col)
         
         # Calculate Trend (prefer YTD trend for executive view if available)
         trend = None
         trend_label = None
         
         if df_ytd_curr is not None and not df_ytd_curr.empty:
-            ytd_curr_rev = _safe_sum(df_ytd_curr, revenue_col)
-            ytd_prev_rev = _safe_sum(df_ytd_prev, revenue_col) if df_ytd_prev is not None else 0
+            ytd_curr_rev = _s(df_ytd_curr, revenue_col)
+            ytd_prev_rev = _s(df_ytd_prev, revenue_col) if df_ytd_prev is not None else 0
             trend = _calc_trend(ytd_curr_rev, ytd_prev_rev)
             if trend is not None:
                 trend_label = "YoY (YTD)"
         
         if trend is None and has_trend and df_prev is not None:
-            curr_rev = _safe_sum(df_curr, revenue_col)
-            prev_rev = _safe_sum(df_prev, revenue_col)
+            curr_rev = _s(df_curr, revenue_col)
+            prev_rev = _s(df_prev, revenue_col)
             trend = _calc_trend(curr_rev, prev_rev)
             if trend is not None:
                 trend_label = "30d momentum"
@@ -620,7 +686,7 @@ def _generate_sales_kpis(df: pd.DataFrame, classification: ColumnClassification,
         # New KPIs for YTD and Last Year Revenue
         try:
             if df_ytd_curr is not None and not df_ytd_curr.empty:
-                ytd_curr_rev = _safe_sum(df_ytd_curr, revenue_col)
+                ytd_curr_rev = _s(df_ytd_curr, revenue_col)
                 kpis.append(KPI(
                     key="ytd_revenue",
                     title="YTD Revenue",
@@ -632,7 +698,7 @@ def _generate_sales_kpis(df: pd.DataFrame, classification: ColumnClassification,
                 ))
                 
             if df_full_prev_year is not None and not df_full_prev_year.empty:
-                full_prev_rev = _safe_sum(df_full_prev_year, revenue_col)
+                full_prev_rev = _s(df_full_prev_year, revenue_col)
                 kpis.append(KPI(
                     key="prev_year_revenue",
                     title="Previous Year Revenue",
@@ -647,12 +713,12 @@ def _generate_sales_kpis(df: pd.DataFrame, classification: ColumnClassification,
     
     # 2. Sales Volume (Quantity)
     if quantity_col:
-        total_quantity = _safe_sum(df, quantity_col)
+        total_quantity = _s(df, quantity_col)
         
         trend = None
         if has_trend and df_prev is not None:
-            curr_qty = _safe_sum(df_curr, quantity_col)
-            prev_qty = _safe_sum(df_prev, quantity_col)
+            curr_qty = _s(df_curr, quantity_col)
+            prev_qty = _s(df_prev, quantity_col)
             trend = _calc_trend(curr_qty, prev_qty)
             
         kpis.append(KPI(
@@ -676,8 +742,8 @@ def _generate_sales_kpis(df: pd.DataFrame, classification: ColumnClassification,
             curr_orders = df_curr[order_col].nunique() if order_col and order_col in df_curr.columns else len(df_curr)
             prev_orders = df_prev[order_col].nunique() if order_col and order_col in df_prev.columns else len(df_prev)
             
-            curr_aov = _safe_sum(df_curr, revenue_col) / curr_orders if curr_orders > 0 else 0
-            prev_aov = _safe_sum(df_prev, revenue_col) / prev_orders if prev_orders > 0 else 0
+            curr_aov = _s(df_curr, revenue_col) / curr_orders if curr_orders > 0 else 0
+            prev_aov = _s(df_prev, revenue_col) / prev_orders if prev_orders > 0 else 0
             trend = _calc_trend(curr_aov, prev_aov)
             
         kpis.append(KPI(
@@ -698,7 +764,7 @@ def _generate_sales_kpis(df: pd.DataFrame, classification: ColumnClassification,
     
     # 4. Gross Margin %
     if profit_col and revenue_col and total_revenue > 0:
-        total_profit = _safe_sum(df, profit_col)
+        total_profit = _s(df, profit_col)
         margin = (total_profit / total_revenue) * 100
         kpis.append(KPI(
             key="gross_margin",
@@ -712,9 +778,9 @@ def _generate_sales_kpis(df: pd.DataFrame, classification: ColumnClassification,
     
     # 5. Discount Impact %
     if discount_col and revenue_col and total_revenue > 0:
-        total_discount = _safe_sum(df, discount_col)
+        total_discount = _s(df, discount_col)
         # Check if discount is a ratio (mean < 1 means values like 0.2, 0.15)
-        col_mean = _safe_mean(df, discount_col)
+        col_mean = _m(df, discount_col)
         if col_mean < 1:  # It's a ratio/percentage column
             discount_impact = col_mean * 100  # Average discount rate
         else:
@@ -731,7 +797,7 @@ def _generate_sales_kpis(df: pd.DataFrame, classification: ColumnClassification,
     
     # 6. Total Profit
     if profit_col:
-        total_profit = _safe_sum(df, profit_col)
+        total_profit = _s(df, profit_col)
         kpis.append(KPI(
             key="total_profit",
             title="Total Profit",
@@ -762,7 +828,7 @@ def _generate_sales_kpis(df: pd.DataFrame, classification: ColumnClassification,
     # 8. Total Orders
     # Main value = total records (line items).
     # Subtitle = unique order identifiers (if found).
-    total_records = len(df)
+    total_records = total_rows if total_rows > 0 else len(df)
     order_subtitle = None
     order_reason = "Total transaction line items"
     
@@ -897,8 +963,13 @@ def _generate_sales_kpis(df: pd.DataFrame, classification: ColumnClassification,
 
 
 
-def _generate_churn_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None) -> List[KPI]:
+def _generate_churn_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None, reader: Optional["DuckDBReader"] = None, total_rows: int = 0) -> List[KPI]:
     """Generate KPIs for Churn domain - works for Telco, Banking, SaaS, HR."""
+    # Local aliases with explicit reader injection (no module-level state)
+    _s = (lambda _df, _col, _reader=reader: _safe_sum(_df, _col, reader=_reader)) if reader is not None else _safe_sum
+    _m = (lambda _df, _col, _reader=reader: _safe_mean(_df, _col, reader=_reader)) if reader is not None else _safe_mean
+    _ct = (lambda _df, _col, _reader=reader: _count_target_positive(_df, _col, reader=_reader)) if reader is not None else _count_target_positive
+
     kpis = []
     
     # Find key columns using semantic hints
@@ -1040,7 +1111,7 @@ def _generate_churn_kpis(df: pd.DataFrame, classification: ColumnClassification,
     # 7. ARPU (Average Revenue Per User)
     arpu = 0
     if value_col:
-        arpu = _safe_mean(df, value_col)
+        arpu = _m(df, value_col)
         if arpu > 0:
             kpis.append(KPI(
                 key="arpu",
@@ -1069,7 +1140,7 @@ def _generate_churn_kpis(df: pd.DataFrame, classification: ColumnClassification,
         ))
     elif arpu > 0 and lifecycle_col:
         # Fallback LTV estimate based on tenure if no churn detected
-        avg_tenure = _safe_mean(df, lifecycle_col)
+        avg_tenure = _m(df, lifecycle_col)
         ltv = arpu * avg_tenure
         kpis.append(KPI(
             key="ltv",
@@ -1085,7 +1156,7 @@ def _generate_churn_kpis(df: pd.DataFrame, classification: ColumnClassification,
     # 9. Support Intensity (Tickets/Calls)
     ticket_col = _find_column(df, ['ticket', 'complaint', 'incident', 'call', 'support', 'issue'], classification, semantic_map_json=semantic_map_json)
     if ticket_col:
-        total_tickets = _safe_sum(df, ticket_col)
+        total_tickets = _s(df, ticket_col)
         avg_tickets = total_tickets / total_customers if total_customers > 0 else 0
         kpis.append(KPI(
             key="support_intensity",
@@ -1113,7 +1184,7 @@ def _generate_churn_kpis(df: pd.DataFrame, classification: ColumnClassification,
     )
 
     if tech_ticket_col and tech_ticket_col in df.columns:
-        total_tech_tickets = _safe_sum(df, tech_ticket_col)
+        total_tech_tickets = _s(df, tech_ticket_col)
         kpis.append(KPI(
             key="total_tech_tickets",
             title="Total Tech Tickets",
@@ -1125,7 +1196,7 @@ def _generate_churn_kpis(df: pd.DataFrame, classification: ColumnClassification,
         ))
 
     if admin_ticket_col and admin_ticket_col in df.columns:
-        total_admin_tickets = _safe_sum(df, admin_ticket_col)
+        total_admin_tickets = _s(df, admin_ticket_col)
         kpis.append(KPI(
             key="total_admin_tickets",
             title="Total Admin Tickets",
@@ -1137,8 +1208,8 @@ def _generate_churn_kpis(df: pd.DataFrame, classification: ColumnClassification,
         ))
 
     if tech_ticket_col and admin_ticket_col and tech_ticket_col in df.columns and admin_ticket_col in df.columns:
-        tech_total = _safe_sum(df, tech_ticket_col)
-        admin_total = _safe_sum(df, admin_ticket_col)
+        tech_total = _s(df, tech_ticket_col)
+        admin_total = _s(df, admin_ticket_col)
         total_service_tickets = tech_total + admin_total
         if total_service_tickets > 0:
             tech_share = (tech_total / total_service_tickets) * 100
@@ -1174,8 +1245,13 @@ def _generate_churn_kpis(df: pd.DataFrame, classification: ColumnClassification,
     return kpis
 
 
-def _generate_marketing_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None) -> List[KPI]:
+def _generate_marketing_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None, reader: Optional["DuckDBReader"] = None, total_rows: int = 0) -> List[KPI]:
     """Generate KPIs for Marketing domain."""
+    # Local aliases with explicit reader injection (no module-level state)
+    _s = (lambda _df, _col, _reader=reader: _safe_sum(_df, _col, reader=_reader)) if reader is not None else _safe_sum
+    _m = (lambda _df, _col, _reader=reader: _safe_mean(_df, _col, reader=_reader)) if reader is not None else _safe_mean
+    _ct = (lambda _df, _col, _reader=reader: _count_target_positive(_df, _col, reader=_reader)) if reader is not None else _count_target_positive
+
     kpis = []
 
     # Primary volume columns
@@ -1222,7 +1298,7 @@ def _generate_marketing_kpis(df: pd.DataFrame, classification: ColumnClassificat
     )
 
     # 1) Total Impressions
-    total_imp = _safe_sum(df, imp_col) if imp_col else 0.0
+    total_imp = _s(df, imp_col) if imp_col else 0.0
     if imp_col:
         kpis.append(KPI(
             key="impressions",
@@ -1235,7 +1311,7 @@ def _generate_marketing_kpis(df: pd.DataFrame, classification: ColumnClassificat
         ))
 
     # 2) Total Clicks
-    total_clicks = _safe_sum(df, click_col) if click_col else 0.0
+    total_clicks = _s(df, click_col) if click_col else 0.0
     if click_col:
         kpis.append(KPI(
             key="clicks",
@@ -1294,7 +1370,7 @@ def _generate_marketing_kpis(df: pd.DataFrame, classification: ColumnClassificat
             conversion_rate = binary_share
             conversion_reason = f"Positive class share in {_beautify_column_name(conv_col)}"
         else:
-            total_conv = _safe_sum(df, conv_col)
+            total_conv = _s(df, conv_col)
             if click_col and total_clicks > 0:
                 conversion_rate = (total_conv / total_clicks) * 100.0
                 conversion_reason = f"Sum {_beautify_column_name(conv_col)} / Clicks × 100"
@@ -1370,27 +1446,27 @@ def _generate_marketing_kpis(df: pd.DataFrame, classification: ColumnClassificat
             title_prefix = 'Avg'
             reason = f"Average {metric_name} (normalized to percent)"
         elif role == 'ratio':
-            kpi_value = _safe_mean(df, metric_col)
+            kpi_value = _m(df, metric_col)
             kpi_format = 'number'
             title_prefix = 'Avg'
             reason = f"Average {metric_name}"
         elif role == 'currency_avg':
-            kpi_value = _safe_mean(df, metric_col)
+            kpi_value = _m(df, metric_col)
             kpi_format = 'currency'
             title_prefix = 'Avg'
             reason = f"Mean of {metric_col}"
         elif role == 'currency_sum':
-            kpi_value = _safe_sum(df, metric_col)
+            kpi_value = _s(df, metric_col)
             kpi_format = 'currency'
             title_prefix = 'Total'
             reason = f"Sum of {metric_col}"
         elif role == 'number_avg':
-            kpi_value = _safe_mean(df, metric_col)
+            kpi_value = _m(df, metric_col)
             kpi_format = 'number'
             title_prefix = 'Avg'
             reason = f"Mean of {metric_col}"
         else:
-            kpi_value = _safe_sum(df, metric_col)
+            kpi_value = _s(df, metric_col)
             kpi_format = 'number'
             title_prefix = 'Total'
             reason = f"Sum of {metric_col}"
@@ -1474,14 +1550,19 @@ def _generate_marketing_kpis(df: pd.DataFrame, classification: ColumnClassificat
     return kpis
 
 
-def _generate_finance_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None) -> List[KPI]:
+def _generate_finance_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None, reader: Optional["DuckDBReader"] = None, total_rows: int = 0) -> List[KPI]:
     """Generate KPIs for Finance domain."""
+    # Local aliases with explicit reader injection (no module-level state)
+    _s = (lambda _df, _col, _reader=reader: _safe_sum(_df, _col, reader=_reader)) if reader is not None else _safe_sum
+    _m = (lambda _df, _col, _reader=reader: _safe_mean(_df, _col, reader=_reader)) if reader is not None else _safe_mean
+    _ct = (lambda _df, _col, _reader=reader: _count_target_positive(_df, _col, reader=_reader)) if reader is not None else _count_target_positive
+
     kpis = []
     
     # 1. Total Income/Revenue
     income_col = _find_column(df, ['income', 'revenue', 'total', 'amount'], classification, semantic_map_json=semantic_map_json)
     if income_col:
-        total_income = _safe_sum(df, income_col)
+        total_income = _s(df, income_col)
         kpis.append(KPI(
             key="total_income",
             title="Total Income",
@@ -1495,7 +1576,7 @@ def _generate_finance_kpis(df: pd.DataFrame, classification: ColumnClassificatio
     # 2. Total Expenses
     expense_col = _find_column(df, ['expense', 'cost', 'spending'], classification, semantic_map_json=semantic_map_json)
     if expense_col:
-        total_expense = _safe_sum(df, expense_col)
+        total_expense = _s(df, expense_col)
         kpis.append(KPI(
             key="total_expenses",
             title="Total Expenses",
@@ -1533,8 +1614,13 @@ def _generate_finance_kpis(df: pd.DataFrame, classification: ColumnClassificatio
     return kpis
 
 
-def _generate_healthcare_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None) -> List[KPI]:
+def _generate_healthcare_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None, reader: Optional["DuckDBReader"] = None, total_rows: int = 0) -> List[KPI]:
     """Generate operational/clinical KPIs for Healthcare domain."""
+    # Local aliases with explicit reader injection (no module-level state)
+    _s = (lambda _df, _col, _reader=reader: _safe_sum(_df, _col, reader=_reader)) if reader is not None else _safe_sum
+    _m = (lambda _df, _col, _reader=reader: _safe_mean(_df, _col, reader=_reader)) if reader is not None else _safe_mean
+    _ct = (lambda _df, _col, _reader=reader: _count_target_positive(_df, _col, reader=_reader)) if reader is not None else _count_target_positive
+
     kpis = []
     
     # Detect key columns
@@ -1560,7 +1646,7 @@ def _generate_healthcare_kpis(df: pd.DataFrame, classification: ColumnClassifica
     
     # 2. Average Age
     if age_col:
-        avg_age = _safe_mean(df, age_col)
+        avg_age = _m(df, age_col)
         kpis.append(KPI(
             key="avg_age",
             title="Avg Patient Age",
@@ -1595,11 +1681,11 @@ def _generate_healthcare_kpis(df: pd.DataFrame, classification: ColumnClassifica
     # 4. Insurance Coverage Ratio
     if insurance_col and insurance_col in df.columns:
         try:
-            total_rows = len(df)
+            local_total = total_rows if total_rows > 0 else len(df)
             # Self-pay detection
             self_pay_keywords = ['self', 'self-pay', 'selfpay', 'none', 'no insurance', 'uninsured', 'cash']
             insured = df[~df[insurance_col].astype(str).str.lower().str.strip().isin(self_pay_keywords)]
-            coverage_pct = round((len(insured) / total_rows) * 100, 1) if total_rows > 0 else 0
+            coverage_pct = round((len(insured) / local_total) * 100, 1) if local_total > 0 else 0
             kpis.append(KPI(
                 key="insurance_coverage",
                 title="Insurance Coverage",
@@ -1608,14 +1694,14 @@ def _generate_healthcare_kpis(df: pd.DataFrame, classification: ColumnClassifica
                 icon="shield",
                 confidence="HIGH",
                 reason=f"Patients with insurance coverage",
-                subtitle=f"{len(insured)} of {total_rows} covered"
+                subtitle=f"{len(insured)} of {local_total} covered"
             ))
         except Exception:
             pass
     
     # 5. Total Billing
     if cost_col:
-        total_cost = _safe_sum(df, cost_col)
+        total_cost = _s(df, cost_col)
         kpis.append(KPI(
             key="total_billing",
             title="Total Billing",
@@ -1629,7 +1715,7 @@ def _generate_healthcare_kpis(df: pd.DataFrame, classification: ColumnClassifica
     return kpis
 
 
-def _generate_hr_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None) -> List[KPI]:
+def _generate_hr_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None, reader: Optional["DuckDBReader"] = None, total_rows: int = 0) -> List[KPI]:
     """Generate KPIs for HR domain — senior HR analyst grade.
 
     Covers the 10 most important workforce metrics:
@@ -1644,6 +1730,11 @@ def _generate_hr_kpis(df: pd.DataFrame, classification: ColumnClassification, se
     9. Employee Satisfaction Index (composite)
     10. Avg Training Investment
     """
+    # Local aliases with explicit reader injection (no module-level state)
+    _s = (lambda _df, _col, _reader=reader: _safe_sum(_df, _col, reader=_reader)) if reader is not None else _safe_sum
+    _m = (lambda _df, _col, _reader=reader: _safe_mean(_df, _col, reader=_reader)) if reader is not None else _safe_mean
+    _ct = (lambda _df, _col, _reader=reader: _count_target_positive(_df, _col, reader=_reader)) if reader is not None else _count_target_positive
+
     kpis = []
 
     # ── Column Resolution ──────────────────────────────────────────────
@@ -1717,7 +1808,7 @@ def _generate_hr_kpis(df: pd.DataFrame, classification: ColumnClassification, se
 
     # ── 2. Attrition Rate ──────────────────────────────────────────────
     if target_col and target_col in df.columns:
-        positive_count = _count_target_positive(df, target_col)
+        positive_count = _ct(df, target_col)
         rate = (positive_count / len(df)) * 100 if len(df) > 0 else 0
         kpis.append(KPI(
             key="attrition_rate",
@@ -1732,7 +1823,7 @@ def _generate_hr_kpis(df: pd.DataFrame, classification: ColumnClassification, se
 
     # ── 3. Avg Monthly Income / Salary ─────────────────────────────────
     if salary_col and salary_col in df.columns:
-        avg_salary = _safe_mean(df, salary_col)
+        avg_salary = _m(df, salary_col)
         if avg_salary > 0:
             kpis.append(KPI(
                 key="avg_income",
@@ -1746,7 +1837,7 @@ def _generate_hr_kpis(df: pd.DataFrame, classification: ColumnClassification, se
 
     # ── 4. Avg Tenure ──────────────────────────────────────────────────
     if tenure_col and tenure_col in df.columns:
-        avg_tenure = _safe_mean(df, tenure_col)
+        avg_tenure = _m(df, tenure_col)
         kpis.append(KPI(
             key="avg_tenure",
             title=f"Avg {_beautify_column_name(tenure_col)}",
@@ -1760,7 +1851,7 @@ def _generate_hr_kpis(df: pd.DataFrame, classification: ColumnClassification, se
 
     # ── 5. Avg Performance Rating ──────────────────────────────────────
     if performance_col and performance_col in df.columns:
-        avg_perf = _safe_mean(df, performance_col)
+        avg_perf = _m(df, performance_col)
         # Determine scale (1-4, 1-5, 1-10, etc.)
         perf_max = float(pd.to_numeric(df[performance_col], errors='coerce').max())
         scale_label = f"out of {int(perf_max)}" if perf_max <= 10 else ""
@@ -1777,7 +1868,7 @@ def _generate_hr_kpis(df: pd.DataFrame, classification: ColumnClassification, se
 
     # ── 6. Avg Job Satisfaction ────────────────────────────────────────
     if satisfaction_col and satisfaction_col in df.columns:
-        avg_sat = _safe_mean(df, satisfaction_col)
+        avg_sat = _m(df, satisfaction_col)
         sat_max = float(pd.to_numeric(df[satisfaction_col], errors='coerce').max())
         kpis.append(KPI(
             key="avg_satisfaction",
@@ -1809,7 +1900,7 @@ def _generate_hr_kpis(df: pd.DataFrame, classification: ColumnClassification, se
 
     # ── 8. Avg Work-Life Balance ───────────────────────────────────────
     if worklife_col and worklife_col in df.columns:
-        avg_wl = _safe_mean(df, worklife_col)
+        avg_wl = _m(df, worklife_col)
         wl_max = float(pd.to_numeric(df[worklife_col], errors='coerce').max())
         kpis.append(KPI(
             key="avg_worklife",
@@ -1855,7 +1946,7 @@ def _generate_hr_kpis(df: pd.DataFrame, classification: ColumnClassification, se
 
     # ── 10. Avg Training Times ─────────────────────────────────────────
     if training_col and training_col in df.columns:
-        avg_training = _safe_mean(df, training_col)
+        avg_training = _m(df, training_col)
         kpis.append(KPI(
             key="avg_training",
             title=f"Avg {_beautify_column_name(training_col)}",
@@ -1870,8 +1961,13 @@ def _generate_hr_kpis(df: pd.DataFrame, classification: ColumnClassification, se
     return kpis
 
 
-def _generate_logistics_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None) -> List[KPI]:
+def _generate_logistics_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None, reader: Optional["DuckDBReader"] = None, total_rows: int = 0) -> List[KPI]:
     """Generate KPIs for Logistics domain."""
+    # Local aliases with explicit reader injection (no module-level state)
+    _s = (lambda _df, _col, _reader=reader: _safe_sum(_df, _col, reader=_reader)) if reader is not None else _safe_sum
+    _m = (lambda _df, _col, _reader=reader: _safe_mean(_df, _col, reader=_reader)) if reader is not None else _safe_mean
+    _ct = (lambda _df, _col, _reader=reader: _count_target_positive(_df, _col, reader=_reader)) if reader is not None else _count_target_positive
+
     kpis = []
 
     shipment_col = _find_column(
@@ -1893,7 +1989,7 @@ def _generate_logistics_kpis(df: pd.DataFrame, classification: ColumnClassificat
 
     delivery_time_col = _find_column(df, ['delivery time', 'transit time', 'lead time', 'days for shipment'], classification, semantic_map_json=semantic_map_json)
     if delivery_time_col:
-        avg_delivery = _safe_mean(df, delivery_time_col)
+        avg_delivery = _m(df, delivery_time_col)
         kpis.append(KPI(
             key="avg_delivery_time",
             title="Avg Delivery Time",
@@ -1906,7 +2002,7 @@ def _generate_logistics_kpis(df: pd.DataFrame, classification: ColumnClassificat
 
     shipping_cost_col = _find_column(df, ['shipping cost', 'freight', 'transport cost', 'logistics cost'], classification, semantic_map_json=semantic_map_json)
     if shipping_cost_col:
-        total_cost = _safe_sum(df, shipping_cost_col)
+        total_cost = _s(df, shipping_cost_col)
         kpis.append(KPI(
             key="total_shipping_cost",
             title="Total Shipping Cost",
@@ -1924,7 +2020,7 @@ def _generate_logistics_kpis(df: pd.DataFrame, classification: ColumnClassificat
         search_excluded=True
     )
     if late_col:
-        positive_count = _count_target_positive(df, late_col)
+        positive_count = _ct(df, late_col)
         rate = (positive_count / len(df)) * 100 if len(df) > 0 else 0
         low = _normalized_col(late_col)
         if any(tok in low for tok in ['late', 'delay', 'risk']):
@@ -1943,7 +2039,7 @@ def _generate_logistics_kpis(df: pd.DataFrame, classification: ColumnClassificat
 
     inventory_col = _find_column(df, ['inventory', 'stock', 'on hand', 'inventory level'], classification, semantic_map_json=semantic_map_json)
     if inventory_col:
-        inventory_total = _safe_sum(df, inventory_col)
+        inventory_total = _s(df, inventory_col)
         kpis.append(KPI(
             key="inventory_on_hand",
             title="Inventory On Hand",
@@ -1957,8 +2053,13 @@ def _generate_logistics_kpis(df: pd.DataFrame, classification: ColumnClassificat
     return kpis
 
 
-def _generate_education_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None) -> List[KPI]:
+def _generate_education_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None, reader: Optional["DuckDBReader"] = None, total_rows: int = 0) -> List[KPI]:
     """Generate KPIs for Education domain."""
+    # Local aliases with explicit reader injection (no module-level state)
+    _s = (lambda _df, _col, _reader=reader: _safe_sum(_df, _col, reader=_reader)) if reader is not None else _safe_sum
+    _m = (lambda _df, _col, _reader=reader: _safe_mean(_df, _col, reader=_reader)) if reader is not None else _safe_mean
+    _ct = (lambda _df, _col, _reader=reader: _count_target_positive(_df, _col, reader=_reader)) if reader is not None else _count_target_positive
+
     kpis = []
 
     student_col = _find_column(
@@ -1980,7 +2081,7 @@ def _generate_education_kpis(df: pd.DataFrame, classification: ColumnClassificat
 
     gpa_col = _find_column(df, ['gpa', 'grade', 'score', 'marks'], classification, semantic_map_json=semantic_map_json)
     if gpa_col:
-        avg_gpa = _safe_mean(df, gpa_col)
+        avg_gpa = _m(df, gpa_col)
         kpis.append(KPI(
             key="avg_gpa",
             title="Avg GPA",
@@ -1995,7 +2096,7 @@ def _generate_education_kpis(df: pd.DataFrame, classification: ColumnClassificat
     if attendance_col:
         attendance_rate = _rate_series_to_percent(df[attendance_col])
         if attendance_rate is None:
-            attendance_rate = _safe_mean(df, attendance_col)
+            attendance_rate = _m(df, attendance_col)
         kpis.append(KPI(
             key="attendance_rate",
             title="Attendance Rate",
@@ -2010,7 +2111,7 @@ def _generate_education_kpis(df: pd.DataFrame, classification: ColumnClassificat
         df, ['graduated', 'passed', 'completed', 'outcome'], classification, search_excluded=True
     )
     if target_col:
-        positive_count = _count_target_positive(df, target_col)
+        positive_count = _ct(df, target_col)
         rate = (positive_count / len(df)) * 100 if len(df) > 0 else 0
         kpis.append(KPI(
             key="completion_rate",
@@ -2025,8 +2126,13 @@ def _generate_education_kpis(df: pd.DataFrame, classification: ColumnClassificat
     return kpis
 
 
-def _generate_ecommerce_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None) -> List[KPI]:
+def _generate_ecommerce_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None, reader: Optional["DuckDBReader"] = None, total_rows: int = 0) -> List[KPI]:
     """Generate KPIs for Ecommerce domain."""
+    # Local aliases with explicit reader injection (no module-level state)
+    _s = (lambda _df, _col, _reader=reader: _safe_sum(_df, _col, reader=_reader)) if reader is not None else _safe_sum
+    _m = (lambda _df, _col, _reader=reader: _safe_mean(_df, _col, reader=_reader)) if reader is not None else _safe_mean
+    _ct = (lambda _df, _col, _reader=reader: _count_target_positive(_df, _col, reader=_reader)) if reader is not None else _count_target_positive
+
     kpis = []
 
     revenue_col = _find_column(df, ['revenue', 'sales', 'gmv', 'amount', 'total'], classification, semantic_map_json=semantic_map_json)
@@ -2049,7 +2155,7 @@ def _generate_ecommerce_kpis(df: pd.DataFrame, classification: ColumnClassificat
     ))
 
     if revenue_col:
-        total_revenue = _safe_sum(df, revenue_col)
+        total_revenue = _s(df, revenue_col)
         kpis.append(KPI(
             key="total_revenue",
             title="Total Revenue",
@@ -2076,7 +2182,7 @@ def _generate_ecommerce_kpis(df: pd.DataFrame, classification: ColumnClassificat
     if conversion_col:
         conversion_rate = _rate_series_to_percent(df[conversion_col])
         if conversion_rate is None:
-            conversion_rate = _safe_mean(df, conversion_col)
+            conversion_rate = _m(df, conversion_col)
         kpis.append(KPI(
             key="conversion_rate",
             title="Conversion Rate",
@@ -2091,7 +2197,7 @@ def _generate_ecommerce_kpis(df: pd.DataFrame, classification: ColumnClassificat
     if abandonment_col:
         abandonment_rate = _rate_series_to_percent(df[abandonment_col])
         if abandonment_rate is None:
-            abandonment_rate = _safe_mean(df, abandonment_col)
+            abandonment_rate = _m(df, abandonment_col)
         kpis.append(KPI(
             key="abandonment_rate",
             title="Cart Abandonment Rate",
@@ -2105,8 +2211,13 @@ def _generate_ecommerce_kpis(df: pd.DataFrame, classification: ColumnClassificat
     return kpis
 
 
-def _generate_real_estate_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None) -> List[KPI]:
+def _generate_real_estate_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None, reader: Optional["DuckDBReader"] = None, total_rows: int = 0) -> List[KPI]:
     """Generate KPIs for Real Estate domain."""
+    # Local aliases with explicit reader injection (no module-level state)
+    _s = (lambda _df, _col, _reader=reader: _safe_sum(_df, _col, reader=_reader)) if reader is not None else _safe_sum
+    _m = (lambda _df, _col, _reader=reader: _safe_mean(_df, _col, reader=_reader)) if reader is not None else _safe_mean
+    _ct = (lambda _df, _col, _reader=reader: _count_target_positive(_df, _col, reader=_reader)) if reader is not None else _count_target_positive
+
     kpis = []
 
     listing_col = _find_column(
@@ -2128,7 +2239,7 @@ def _generate_real_estate_kpis(df: pd.DataFrame, classification: ColumnClassific
 
     price_col = _find_column(df, ['price', 'rent', 'listing price', 'sale price'], classification, semantic_map_json=semantic_map_json)
     if price_col:
-        avg_price = _safe_mean(df, price_col)
+        avg_price = _m(df, price_col)
         kpis.append(KPI(
             key="avg_price",
             title="Avg Price",
@@ -2141,7 +2252,7 @@ def _generate_real_estate_kpis(df: pd.DataFrame, classification: ColumnClassific
 
     dom_col = _find_column(df, ['days on market', 'dom', 'time on market'], classification, semantic_map_json=semantic_map_json)
     if dom_col:
-        avg_dom = _safe_mean(df, dom_col)
+        avg_dom = _m(df, dom_col)
         kpis.append(KPI(
             key="avg_days_on_market",
             title="Avg Days on Market",
@@ -2156,7 +2267,7 @@ def _generate_real_estate_kpis(df: pd.DataFrame, classification: ColumnClassific
         df, ['occupied', 'vacant', 'available', 'leased'], classification, search_excluded=True
     )
     if target_col:
-        positive_count = _count_target_positive(df, target_col)
+        positive_count = _ct(df, target_col)
         # Detect semantic inversion: vacancy/available columns indicate
         # the opposite of occupancy, so invert the count.
         col_lower = target_col.lower()
@@ -2181,8 +2292,13 @@ def _generate_real_estate_kpis(df: pd.DataFrame, classification: ColumnClassific
     return kpis
 
 
-def _generate_customer_support_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None) -> List[KPI]:
+def _generate_customer_support_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None, reader: Optional["DuckDBReader"] = None, total_rows: int = 0) -> List[KPI]:
     """Generate KPIs for Customer Support domain."""
+    # Local aliases with explicit reader injection (no module-level state)
+    _s = (lambda _df, _col, _reader=reader: _safe_sum(_df, _col, reader=_reader)) if reader is not None else _safe_sum
+    _m = (lambda _df, _col, _reader=reader: _safe_mean(_df, _col, reader=_reader)) if reader is not None else _safe_mean
+    _ct = (lambda _df, _col, _reader=reader: _count_target_positive(_df, _col, reader=_reader)) if reader is not None else _count_target_positive
+
     kpis = []
 
     ticket_col = _find_column(
@@ -2204,7 +2320,7 @@ def _generate_customer_support_kpis(df: pd.DataFrame, classification: ColumnClas
 
     resolution_col = _find_column(df, ['resolution time', 'time to resolve', 'mttr'], classification, semantic_map_json=semantic_map_json)
     if resolution_col:
-        avg_resolution = _safe_mean(df, resolution_col)
+        avg_resolution = _m(df, resolution_col)
         kpis.append(KPI(
             key="avg_resolution_time",
             title="Avg Resolution Time",
@@ -2217,7 +2333,7 @@ def _generate_customer_support_kpis(df: pd.DataFrame, classification: ColumnClas
 
     response_col = _find_column(df, ['response time', 'first response'], classification, semantic_map_json=semantic_map_json)
     if response_col:
-        avg_response = _safe_mean(df, response_col)
+        avg_response = _m(df, response_col)
         kpis.append(KPI(
             key="avg_response_time",
             title="Avg First Response",
@@ -2230,7 +2346,7 @@ def _generate_customer_support_kpis(df: pd.DataFrame, classification: ColumnClas
 
     csat_col = _find_column(df, ['csat', 'satisfaction', 'survey score'], classification, semantic_map_json=semantic_map_json)
     if csat_col:
-        avg_csat = _safe_mean(df, csat_col)
+        avg_csat = _m(df, csat_col)
         kpis.append(KPI(
             key="avg_csat",
             title="Avg CSAT",
@@ -2245,7 +2361,7 @@ def _generate_customer_support_kpis(df: pd.DataFrame, classification: ColumnClas
     if sla_col:
         sla_rate = _rate_series_to_percent(df[sla_col])
         if sla_rate is None:
-            sla_rate = _safe_mean(df, sla_col)
+            sla_rate = _m(df, sla_col)
         kpis.append(KPI(
             key="sla_compliance",
             title="SLA Compliance",
@@ -2257,7 +2373,7 @@ def _generate_customer_support_kpis(df: pd.DataFrame, classification: ColumnClas
         ))
     elif classification.targets:
         target_col = classification.targets[0]
-        positive_count = _count_target_positive(df, target_col)
+        positive_count = _ct(df, target_col)
         rate = (positive_count / len(df)) * 100 if len(df) > 0 else 0
         kpis.append(KPI(
             key="sla_compliance",
@@ -2287,8 +2403,13 @@ def _generate_customer_support_kpis(df: pd.DataFrame, classification: ColumnClas
     return kpis
 
 
-def _generate_it_operations_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None) -> List[KPI]:
+def _generate_it_operations_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None, reader: Optional["DuckDBReader"] = None, total_rows: int = 0) -> List[KPI]:
     """Generate KPIs for IT Operations domain."""
+    # Local aliases with explicit reader injection (no module-level state)
+    _s = (lambda _df, _col, _reader=reader: _safe_sum(_df, _col, reader=_reader)) if reader is not None else _safe_sum
+    _m = (lambda _df, _col, _reader=reader: _safe_mean(_df, _col, reader=_reader)) if reader is not None else _safe_mean
+    _ct = (lambda _df, _col, _reader=reader: _count_target_positive(_df, _col, reader=_reader)) if reader is not None else _count_target_positive
+
     kpis = []
 
     incident_col = _find_column(
@@ -2312,7 +2433,7 @@ def _generate_it_operations_kpis(df: pd.DataFrame, classification: ColumnClassif
     if uptime_col:
         uptime_rate = _rate_series_to_percent(df[uptime_col])
         if uptime_rate is None:
-            uptime_rate = _safe_mean(df, uptime_col)
+            uptime_rate = _m(df, uptime_col)
         kpis.append(KPI(
             key="uptime_rate",
             title="Uptime",
@@ -2325,7 +2446,7 @@ def _generate_it_operations_kpis(df: pd.DataFrame, classification: ColumnClassif
 
     downtime_col = _find_column(df, ['downtime', 'outage'], classification, semantic_map_json=semantic_map_json)
     if downtime_col:
-        avg_downtime = _safe_mean(df, downtime_col)
+        avg_downtime = _m(df, downtime_col)
         kpis.append(KPI(
             key="avg_downtime",
             title="Avg Downtime",
@@ -2338,7 +2459,7 @@ def _generate_it_operations_kpis(df: pd.DataFrame, classification: ColumnClassif
 
     latency_col = _find_column(df, ['latency', 'response time'], classification, semantic_map_json=semantic_map_json)
     if latency_col:
-        avg_latency = _safe_mean(df, latency_col)
+        avg_latency = _m(df, latency_col)
         kpis.append(KPI(
             key="avg_latency",
             title="Avg Latency",
@@ -2351,7 +2472,7 @@ def _generate_it_operations_kpis(df: pd.DataFrame, classification: ColumnClassif
 
     cpu_col = _find_column(df, ['cpu', 'utilization'], classification, semantic_map_json=semantic_map_json)
     if cpu_col:
-        avg_cpu = _safe_mean(df, cpu_col)
+        avg_cpu = _m(df, cpu_col)
         kpis.append(KPI(
             key="avg_cpu",
             title="Avg CPU Utilization",
@@ -2365,8 +2486,13 @@ def _generate_it_operations_kpis(df: pd.DataFrame, classification: ColumnClassif
     return kpis
 
 
-def _generate_cybersecurity_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None) -> List[KPI]:
+def _generate_cybersecurity_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None, reader: Optional["DuckDBReader"] = None, total_rows: int = 0) -> List[KPI]:
     """Generate KPIs for Cybersecurity domain."""
+    # Local aliases with explicit reader injection (no module-level state)
+    _s = (lambda _df, _col, _reader=reader: _safe_sum(_df, _col, reader=_reader)) if reader is not None else _safe_sum
+    _m = (lambda _df, _col, _reader=reader: _safe_mean(_df, _col, reader=_reader)) if reader is not None else _safe_mean
+    _ct = (lambda _df, _col, _reader=reader: _count_target_positive(_df, _col, reader=_reader)) if reader is not None else _count_target_positive
+
     kpis = []
 
     alert_col = _find_column(
@@ -2394,7 +2520,7 @@ def _generate_cybersecurity_kpis(df: pd.DataFrame, classification: ColumnClassif
 
     vuln_col = _find_column(df, ['vulnerability', 'cve', 'exposure'], classification, semantic_map_json=semantic_map_json)
     if vuln_col:
-        total_vuln = _safe_sum(df, vuln_col)
+        total_vuln = _s(df, vuln_col)
         kpis.append(KPI(
             key="total_vulnerabilities",
             title="Total Vulnerabilities",
@@ -2407,7 +2533,7 @@ def _generate_cybersecurity_kpis(df: pd.DataFrame, classification: ColumnClassif
 
     risk_col = _find_column(df, ['risk', 'risk score'], classification, semantic_map_json=semantic_map_json)
     if risk_col:
-        avg_risk = _safe_mean(df, risk_col)
+        avg_risk = _m(df, risk_col)
         kpis.append(KPI(
             key="avg_risk_score",
             title="Avg Risk Score",
@@ -2420,7 +2546,7 @@ def _generate_cybersecurity_kpis(df: pd.DataFrame, classification: ColumnClassif
 
     mttr_col = _find_column(df, ['remediate', 'mttr', 'resolution time'], classification, semantic_map_json=semantic_map_json)
     if mttr_col:
-        avg_mttr = _safe_mean(df, mttr_col)
+        avg_mttr = _m(df, mttr_col)
         kpis.append(KPI(
             key="avg_remediation_time",
             title="Avg Remediation Time",
@@ -2449,15 +2575,20 @@ def _generate_cybersecurity_kpis(df: pd.DataFrame, classification: ColumnClassif
     return kpis
 
 
-def _generate_generic_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None) -> List[KPI]:
+def _generate_generic_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None, reader: Optional["DuckDBReader"] = None, total_rows: int = 0) -> List[KPI]:
     """Generate generic KPIs when domain is unknown."""
+    # Local aliases with explicit reader injection (no module-level state)
+    _s = (lambda _df, _col, _reader=reader: _safe_sum(_df, _col, reader=_reader)) if reader is not None else _safe_sum
+    _m = (lambda _df, _col, _reader=reader: _safe_mean(_df, _col, reader=_reader)) if reader is not None else _safe_mean
+    _ct = (lambda _df, _col, _reader=reader: _count_target_positive(_df, _col, reader=_reader)) if reader is not None else _count_target_positive
+
     kpis = []
     
-    # 1. Total Records
+    # 1. Total Records (use total_rows when DuckDB is available)
     kpis.append(KPI(
         key="total_records",
         title="Total Records",
-        value=len(df),
+        value=total_rows if total_rows > 0 else len(df),
         format="number",
         icon="database",
         confidence="HIGH",
@@ -2482,7 +2613,7 @@ def _generate_generic_kpis(df: pd.DataFrame, classification: ColumnClassificatio
         else:
             title_name = primary_metric.replace('_', ' ').title()
 
-        total = _safe_sum(df, primary_metric)
+        total = _s(df, primary_metric)
         kpis.append(KPI(
             key="primary_total",
             title=f"Total {title_name}",
@@ -2494,7 +2625,7 @@ def _generate_generic_kpis(df: pd.DataFrame, classification: ColumnClassificatio
         ))
         
         # 3. Primary Metric Average
-        avg = _safe_mean(df, primary_metric)
+        avg = _m(df, primary_metric)
         kpis.append(KPI(
             key="primary_avg",
             title=f"Avg {title_name}",
@@ -2508,7 +2639,7 @@ def _generate_generic_kpis(df: pd.DataFrame, classification: ColumnClassificatio
     # 4. Target distribution if exists
     if classification.targets:
         target_col = classification.targets[0]
-        positive_count = _count_target_positive(df, target_col)
+        positive_count = _ct(df, target_col)
         rate = (positive_count / len(df)) * 100 if len(df) > 0 else 0
         kpis.append(KPI(
             key="target_rate",
@@ -2561,6 +2692,7 @@ def _dynamic_kpi_limit(
     domain: DomainType,
     classification: ColumnClassification,
     available_count: int,
+    total_rows: int = 0,
 ) -> int:
     """Compute KPI count dynamically from dataset signal strength and domain complexity."""
     if available_count <= 0:
@@ -2601,7 +2733,8 @@ def _dynamic_kpi_limit(
     }.get(domain, 3)
 
     dynamic_target = domain_baseline + max(0, signal_count - 1) // 2
-    if len(df) >= 50_000:
+    row_count = total_rows if total_rows > 0 else len(df)
+    if row_count >= 50_000:
         dynamic_target += 1
 
     # Keep within practical UI limits and available KPI count.
@@ -2670,11 +2803,45 @@ def _select_top_kpis(kpis: List[KPI], limit: int, domain: DomainType) -> List[KP
 # =============================================================================
 
 
-def generate_kpis(df: pd.DataFrame, domain: DomainType, classification: ColumnClassification, semantic_map_json: Optional[str] = None) -> Dict[str, Any]:
+def generate_kpis_duckdb(
+    reader: "DuckDBReader",
+    domain: DomainType,
+    classification: ColumnClassification,
+    sample_df: Optional[pd.DataFrame] = None,
+    semantic_map_json: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Generate domain-specific KPIs using DuckDB-accurate aggregations.
+
+    Passes `reader` and `total_rows` explicitly to generate_kpis(),
+    which threads them through to all domain-specific generators.
+    No module-level state is used — every helper function receives
+    `reader` as an explicit keyword argument.
+    """
+    df = sample_df if sample_df is not None else pd.DataFrame()
+    total_rows = reader.row_count()
+    return generate_kpis(
+        df, domain, classification,
+        semantic_map_json=semantic_map_json,
+        reader=reader,
+        total_rows=total_rows,
+    )
+
+
+def generate_kpis(
+    df: pd.DataFrame,
+    domain: DomainType,
+    classification: ColumnClassification,
+    semantic_map_json: Optional[str] = None,
+    reader: Optional["DuckDBReader"] = None,
+    total_rows: int = 0,
+) -> Dict[str, Any]:
     """
     Generate KPIs based on domain and data classification.
     
-    Returns dict of KPIs for API response.
+    When `reader` is provided, all numeric aggregations route through
+    DuckDB for full-dataset accuracy.  `total_rows` overrides len(df)
+    for rate/density calculations.
     """
     generators = {
         DomainType.SALES: _generate_sales_kpis,
@@ -2694,9 +2861,10 @@ def generate_kpis(df: pd.DataFrame, domain: DomainType, classification: ColumnCl
     }
     
     generator = generators.get(domain, _generate_generic_kpis)
-    kpis = generator(df, classification, semantic_map_json=semantic_map_json)
+    kpis = generator(df, classification, semantic_map_json=semantic_map_json, reader=reader, total_rows=total_rows)
     kpis = _dedupe_kpis(kpis)
-    dynamic_limit = _dynamic_kpi_limit(df, domain, classification, len(kpis))
+    effective_rows = total_rows if total_rows > 0 and reader is not None else len(df)
+    dynamic_limit = _dynamic_kpi_limit(df, domain, classification, len(kpis), total_rows=effective_rows)
     kpis = _select_top_kpis(kpis, dynamic_limit, domain)
     
     # Convert to dict format for API

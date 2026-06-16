@@ -70,10 +70,10 @@ export default function Register() {
                         <div className="space-y-8">
                             {/* Brand Logo */}
                             <div className="flex items-center gap-2">
-                                <Link to="/" className="text-2xl font-bold font-headline text-primary tracking-tight hover:opacity-80 transition-opacity">Vizzy AI</Link>
+                                <Link to="/" className="text-2xl font-bold font-headline text-primary tracking-tight hover:opacity-80 transition-opacity">Vizzy Pilot</Link>
                             </div>
                             <div className="space-y-4">
-                                <h1 className="text-3xl md:text-4xl font-headline font-bold text-on-surface leading-tight">Create your Vizzy Account</h1>
+                                <h1 className="text-3xl md:text-4xl font-headline font-bold text-on-surface leading-tight">Create your Vizzy Pilot Account</h1>
                                 <p className="text-on-surface-variant text-lg leading-relaxed">
                                     One account gives you access to the world's most intuitive data curation platform.
                                 </p>
@@ -111,7 +111,7 @@ export default function Register() {
                         <div className="max-w-md mx-auto w-full">
                             {/* Mobile Logo */}
                             <div className="md:hidden flex items-center gap-2 mb-8">
-                                <Link to="/" className="text-2xl font-bold font-headline text-primary tracking-tight">Vizzy AI</Link>
+                                <Link to="/" className="text-2xl font-bold font-headline text-primary tracking-tight">Vizzy Pilot</Link>
                             </div>
                             
                             {/* Step Indicator */}
@@ -220,7 +220,7 @@ export default function Register() {
                                 <span className="material-symbols-outlined text-on-primary text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>auto_awesome</span>
                             </div>
                             <Link to="/">
-                                <span className="font-headline font-bold text-xl tracking-tight text-on-surface hover:opacity-80 transition-opacity">Vizzy AI</span>
+                                <span className="font-headline font-bold text-xl tracking-tight text-on-surface hover:opacity-80 transition-opacity">Vizzy Pilot</span>
                             </Link>
                         </div>
                         <h1 className="font-headline text-4xl font-bold text-on-surface leading-tight mb-6">
@@ -271,7 +271,7 @@ export default function Register() {
                                 <span className="material-symbols-outlined text-on-primary text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>auto_awesome</span>
                             </div>
                             <Link to="/">
-                                <span className="font-headline font-bold text-xl tracking-tight text-on-surface">Vizzy AI</span>
+                                <span className="font-headline font-bold text-xl tracking-tight text-on-surface">Vizzy Pilot</span>
                             </Link>
                         </div>
                         

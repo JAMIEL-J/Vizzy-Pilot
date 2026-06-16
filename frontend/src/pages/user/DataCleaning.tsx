@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle, CheckCircle2, Sparkles, Play, Database, Loader2, Info,
-  ArrowRight, CornerDownRight, Trash2, Edit3, Clock, FileSpreadsheet, ChevronLeft,
+  ArrowRight, CornerDownRight, Trash2, Edit3, Clock, ChevronLeft,
   Activity, Table, Eye, Check
 } from "lucide-react";
 import { ArcElement, Chart as ChartJS, Tooltip as ChartTooltip, type ChartOptions } from "chart.js";
@@ -481,16 +481,6 @@ export default function DataCleaning() {
                                         <span className="text-success font-semibold flex items-center gap-1">
                                             <CheckCircle2 className="h-3 w-3" /> SUCCESS
                                         </span>
-                                    </div>
-                                </div>
-
-                                <div className="bg-surface-2 rounded-none p-3 border border-border space-y-2">
-                                    <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
-                                        <FileSpreadsheet className="h-3.5 w-3.5 text-accent" />
-                                        <span className="font-sans">Cleaned Reference Path</span>
-                                    </div>
-                                    <div className="font-mono text-[9.5px] text-muted-foreground break-all bg-surface p-2 border border-border select-all" title={executionReport.cleaned_path}>
-                                        {executionReport.cleaned_path}
                                     </div>
                                 </div>
 

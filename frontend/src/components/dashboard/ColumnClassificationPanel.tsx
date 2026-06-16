@@ -98,7 +98,7 @@ export const ColumnClassificationPanel: React.FC<ColumnClassificationPanelProps>
                         Column Classification
                     </h3>
                     <p className="text-[14px] mt-1 text-muted-foreground" style={{ fontFamily: '"Be Vietnam Pro", sans-serif', fontWeight: 400 }}>
-                        Review how Vizzy detected your columns. Override roles if necessary.
+                        Review how Vizzy Pilot detected your columns. Override roles if necessary.
                     </p>
                 </div>
                 <svg

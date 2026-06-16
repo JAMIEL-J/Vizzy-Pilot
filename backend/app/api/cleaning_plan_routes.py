@@ -376,7 +376,6 @@ async def execute_cleaning_plan(
         return {
             "success": True,
             "version_id": str(new_version.id),
-            "cleaned_path": str(cleaned_path),
             "rows_before": len(df),
             "rows_after": rows_after,
             "started_at": summary.get("started_at", now_str),

@@ -42,7 +42,7 @@ class _FakeChatService:
 
 @pytest.mark.asyncio
 async def test_send_message_without_dataset_skips_replay_lookup(monkeypatch):
-    chat_session = SimpleNamespace(id=uuid4(), dataset_version_id=None, message_count=3)
+    chat_session = SimpleNamespace(id=uuid4(), dataset_id=None, dataset_version_id=None, message_count=3)
     fake_service = _FakeChatService(chat_session)
     user = SimpleNamespace(user_id=str(uuid4()), role="user")
     request = chat_routes.SendMessageRequest(content="What is total sales?")
@@ -70,7 +70,7 @@ async def test_send_message_without_dataset_skips_replay_lookup(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_send_message_without_dataset_allows_simple_greeting(monkeypatch):
-    chat_session = SimpleNamespace(id=uuid4(), dataset_version_id=None, message_count=1)
+    chat_session = SimpleNamespace(id=uuid4(), dataset_id=None, dataset_version_id=None, message_count=1)
     fake_service = _FakeChatService(chat_session)
     user = SimpleNamespace(user_id=str(uuid4()), role="user")
     request = chat_routes.SendMessageRequest(content="Hi there")

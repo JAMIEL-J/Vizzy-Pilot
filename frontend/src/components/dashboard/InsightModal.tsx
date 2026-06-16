@@ -51,7 +51,7 @@ export const InsightModal: React.FC<InsightModalProps> = ({
                             <div className="space-y-2">
                                 <h4 className="text-lg font-semibold text-foreground">Analyzing your data...</h4>
                                 <p className="text-sm text-muted-foreground max-w-xs">
-                                    Vizzy is scanning your KPIs and charts to find the most meaningful insights.
+                                    Vizzy Pilot is scanning your KPIs and charts to find the most meaningful insights.
                                 </p>
                             </div>
                             <div className="w-48 h-1 bg-surface-2 rounded-full overflow-hidden">
@@ -78,7 +78,7 @@ export const InsightModal: React.FC<InsightModalProps> = ({
                 {!isLoading && narrative && (
                     <div className="p-6 border-t border-border bg-surface-2/30 flex justify-end">
                         <BtnAccent onClick={onDeepDive} className="group">
-                            Deep Dive with Vizzy
+                            Deep Dive with Vizzy Pilot
                             <ArrowRight className="h-3.5 w-3.5 ml-2 transition-transform group-hover:translate-x-1" />
                         </BtnAccent>
                     </div>

@@ -110,7 +110,7 @@ describe('ColumnClassificationPanel Component', () => {
 
         // Verify headers and main text
         expect(screen.getByText('Column Classification')).toBeInTheDocument();
-        expect(screen.getByText(/Review how Vizzy detected your columns/)).toBeInTheDocument();
+        expect(screen.getByText(/Review how Vizzy Pilot detected your columns/)).toBeInTheDocument();
 
         // Verify column names exist in the classification view
         expect(screen.getByText('category')).toBeInTheDocument();

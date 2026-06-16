@@ -21,17 +21,17 @@ if os.name == 'nt':
 
 import magic
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, status
 
 from app.api.deps import DBSession, RateLimitedUser
 from app.services.ingestion_service import ingest_file_upload, generate_initial_dashboard
 from app.services.analytics.duckdb_builder import (
-    build_duckdb_from_csv,
-    mark_duckdb_building,
-    mark_duckdb_failed,
+    get_or_build_duckdb,
     get_duckdb_build_status,
 )
 from app.services.dataset_version_service import get_latest_version
+from app.models.dataset import Dataset
+from app.services.dataset_service import create_dataset
 from app.core.exceptions import InvalidOperation, ResourceNotFound, AuthorizationError
 from app.core.logger import get_logger
 from app.core.config import get_settings
@@ -160,41 +160,7 @@ def _validate_file_security(file: UploadFile, max_size_mb: int) -> None:
             pass  # Size check is best-effort
 
 
-def _build_duckdb_background(dataset_id: UUID, version_id: UUID, csv_path: str):
-    """Background task to build DuckDB file asynchronously."""
-    import asyncio
-    async def run_build():
-        try:
-            logger.info(f"[Background] Building DuckDB for dataset={dataset_id}, version={version_id}")
-            await build_duckdb_from_csv(dataset_id, version_id, csv_path)
-            _update_version_status(version_id, "ready")
-            logger.info(f"[Background] DuckDB built successfully")
-        except Exception as e:
-            mark_duckdb_failed(dataset_id, version_id, str(e))
-            _update_version_status(version_id, "error")
-            logger.error(f"[Background] DuckDB build failed: {e}", exc_info=True)
 
-    asyncio.run(run_build())
-
-
-
-def _update_version_status(version_id: UUID, status: str) -> None:
-    """Best-effort status update for DatasetVersion without reusing request session."""
-    try:
-        from app.models.database import get_session
-        from app.services.dataset_version_service import get_version_by_id
-
-        session_gen = get_session()
-        session = next(session_gen)
-        try:
-            version = get_version_by_id(session=session, version_id=version_id)
-            version.status = status
-            session.add(version)
-            session.commit()
-        finally:
-            session_gen.close()
-    except Exception as e:
-        logger.warning(f"Failed to update version status to '{status}': {e}")
 
 
 @router.post(
@@ -204,7 +170,6 @@ def _update_version_status(version_id: UUID, status: str) -> None:
 async def upload_dataset_file(
     dataset_id: UUID,
     file: UploadFile = File(...),
-    background_tasks: BackgroundTasks = None,
     session: DBSession = None,
     current_user: RateLimitedUser = None,
 ):
@@ -215,10 +180,10 @@ async def upload_dataset_file(
     - Infers schema
     - Stores raw data
     - Creates immutable dataset version
-    - **Builds DuckDB file in background** for PowerBI-like analytics
+    - Builds DuckDB file synchronously for analytics queries
+    - Generates initial dashboard (Zero-Input First Render)
 
-    Note: Current implementation reads file into memory for schema inference.
-    Phase 1 migration will shift to stream-to-disk + lightweight schema extraction.
+    If DuckDB build fails, returns HTTP 422 with a clear user-facing message.
     """
     logger.info(f"Upload started: dataset_id={dataset_id}, filename={file.filename}, content_type={file.content_type}")
     
@@ -257,6 +222,8 @@ async def upload_dataset_file(
         logger.info(f"Upload complete: version_id={result.get('version_id')}")
         
         # Generate initial dashboard with auto semantic mapping (Zero-Input First Render)
+        # DuckDB is built synchronously inside generate_initial_dashboard.
+        # If DuckDB build fails, a RuntimeError is raised → caught below as 422.
         version_id = result.get('version_id')
         dashboard_data = None
         if version_id:
@@ -272,28 +239,19 @@ async def upload_dataset_file(
                         raw_path=csv_path,
                     )
                     logger.info(f"Initial dashboard generated for version {version_id}")
+                except RuntimeError as e:
+                    # DuckDB build failure — hard error, no fallback
+                    raise HTTPException(
+                        status_code=422,
+                        detail={
+                            "message": "Failed to build analytics index. The file was uploaded successfully, "
+                                       "but initial dashboard generation could not complete.",
+                            "reason": "duckdb_build_failed",
+                            "error": str(e),
+                        },
+                    )
                 except Exception as e:
                     logger.warning(f"Failed to generate initial dashboard: {e}")
-        
-        # Build DuckDB file in background (doesn't block response)
-        if version_id:
-            csv_path = result.get('raw_path') or result.get('file_path') or result.get('source_reference')
-            if csv_path and background_tasks:
-                # Mark immediately so frontend can poll deterministic status right after upload.
-                mark_duckdb_building(dataset_id, UUID(version_id))
-                background_tasks.add_task(
-                    _build_duckdb_background,
-                    dataset_id=dataset_id,
-                    version_id=UUID(version_id),
-                    csv_path=csv_path
-                )
-                logger.info(f"Scheduled DuckDB build in background for version {version_id}")
-            else:
-                logger.warning(
-                    "Skipped DuckDB background build scheduling: "
-                    f"version_id={version_id}, csv_path_present={bool(csv_path)}, "
-                    f"background_tasks_present={background_tasks is not None}"
-                )
         
         # Include dashboard in response
         if dashboard_data:
@@ -325,6 +283,157 @@ async def upload_dataset_file(
     except Exception as e:
         logger.exception(f"Unexpected error during upload: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+
+@router.post(
+    "/datasets/upload",
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_dataset(
+    file: UploadFile = File(...),
+    name: str = Form(...),
+    description: str = Form("Uploaded via Web Interface"),
+    session: DBSession = None,
+    current_user: RateLimitedUser = None,
+):
+    """
+    Upload a dataset file and create the dataset atomically.
+
+    Combines dataset creation + file upload into a single request so the
+    dataset record is only committed to the database if the upload succeeds.
+
+    - Validates file extension and size
+    - Creates dataset record
+    - Infers schema
+    - Stores raw data
+    - Creates immutable dataset version
+    - Builds DuckDB file synchronously for analytics queries
+    - Generates initial dashboard (Zero-Input First Render)
+
+    If DuckDB build fails, returns HTTP 422 with a clear user-facing message.
+    On other failures, the dataset is soft-deleted to prevent orphaned records.
+    """
+    dataset = None
+    try:
+        # 1. Security validation before any DB writes
+        _validate_file_security(file, get_settings().storage.max_file_size_mb)
+
+        # 2. Create dataset
+        dataset = create_dataset(
+            session=session,
+            name=name,
+            owner_id=UUID(current_user.user_id),
+            description=description,
+        )
+        dataset_id = dataset.id
+        logger.info(
+            f"Upload + dataset create: dataset_id={dataset_id}, "
+            f"filename={file.filename}, content_type={file.content_type}"
+        )
+
+        # 3. Ingest file
+        try:
+            file.file.seek(0)
+        except Exception:
+            pass
+        file_size = _get_file_size(file)
+        file_stream = file.file
+
+        logger.info("Starting ingestion...")
+        result = ingest_file_upload(
+            session=session,
+            dataset_id=dataset_id,
+            user_id=UUID(current_user.user_id),
+            role=current_user.role,
+            file_stream=file_stream,
+            filename=file.filename or name,
+            file_size=file_size,
+        )
+        logger.info(f"Upload complete: version_id={result.get('version_id')}")
+
+        # 4. Generate initial dashboard (Zero-Input First Render)
+        # DuckDB is built synchronously inside generate_initial_dashboard.
+        # If DuckDB build fails, a RuntimeError is raised → caught below as 422.
+        version_id = result.get('version_id')
+        dashboard_data = None
+        if version_id:
+            csv_path = (
+                result.get('raw_path')
+                or result.get('file_path')
+                or result.get('source_reference')
+            )
+            if csv_path:
+                try:
+                    dashboard_data = await generate_initial_dashboard(
+                        session=session,
+                        dataset_id=dataset_id,
+                        version_id=UUID(version_id),
+                        user_id=UUID(current_user.user_id),
+                        schema=result.get('schema', []),
+                        raw_path=csv_path,
+                    )
+                    logger.info(f"Initial dashboard generated for version {version_id}")
+                except RuntimeError as e:
+                    # DuckDB build failure — hard error, no fallback
+                    raise HTTPException(
+                        status_code=422,
+                        detail={
+                            "message": "Failed to build analytics index. The file was uploaded successfully, "
+                                       "but initial dashboard generation could not complete.",
+                            "reason": "duckdb_build_failed",
+                            "error": str(e),
+                        },
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to generate initial dashboard: {e}")
+
+        # 5. Include dashboard in response
+        if dashboard_data:
+            result["dashboard"] = dashboard_data.get("dashboard")
+            result["semantic_map"] = dashboard_data.get("semantic_map")
+
+        result["dataset_id"] = str(dataset_id)
+        return result
+
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is (includes 422 from DuckDB build failure)
+        raise
+    except Exception as e:
+        # On failure, soft-delete the dataset so it doesn't appear in lists
+        if dataset and dataset.id:
+            try:
+                db_dataset = session.get(Dataset, dataset.id)
+                if db_dataset:
+                    db_dataset.is_active = False
+                    session.add(db_dataset)
+                    session.commit()
+                    logger.info(f"Dataset {dataset.id} marked inactive due to upload failure")
+            except Exception as cleanup_err:
+                logger.error(f"Failed to clean up dataset after upload failure: {cleanup_err}")
+
+        # Re-raise as appropriate HTTP exception
+        if isinstance(e, ResourceNotFound):
+            raise HTTPException(status_code=404, detail=e.message)
+        if isinstance(e, AuthorizationError):
+            raise HTTPException(status_code=403, detail=e.message)
+        if isinstance(e, InvalidOperation):
+            detail_payload = {"detail": e.message, "reason": e.reason}
+            if e.details:
+                detail_payload["details"] = e.details
+            raise HTTPException(status_code=400, detail=detail_payload)
+        logger.exception(f"Unexpected error during upload: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+
+def _get_file_size(file: UploadFile) -> int | None:
+    """Get file size without consuming the stream."""
+    try:
+        file.file.seek(0, 2)
+        size = file.file.tell()
+        file.file.seek(0)
+        return size
+    except Exception:
+        return None
 
 
 @router.get(

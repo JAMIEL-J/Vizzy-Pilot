@@ -58,9 +58,9 @@ export default function Login() {
                         <div className="hidden md:flex flex-col justify-between w-1/2 p-12 bg-surface-container-low border-r border-outline-variant/10">
                             <div className="flex flex-col">
                                 <Link to="/">
-                                    <span className="font-headline text-3xl font-extrabold text-primary tracking-tight mb-12 block hover:opacity-80 transition-opacity">Vizzy</span>
+                                    <span className="font-headline text-3xl font-extrabold text-primary tracking-tight mb-12 block hover:opacity-80 transition-opacity">Vizzy Pilot</span>
                                 </Link>
-                                <h2 className="font-headline text-4xl font-bold text-on-surface leading-tight mb-4">One account. All of Vizzy working for you.</h2>
+                                <h2 className="font-headline text-4xl font-bold text-on-surface leading-tight mb-4">One account. All of Vizzy Pilot working for you.</h2>
                                 <p className="text-on-surface-variant text-lg font-medium max-w-sm">Sign in to continue to your workspace, tools, and personalized settings.</p>
                             </div>
                             <div className="flex items-center space-x-4 opacity-40 grayscale group hover:grayscale-0 hover:opacity-100 transition-all duration-500">
@@ -74,12 +74,12 @@ export default function Login() {
                         <div className="w-full md:w-1/2 p-10 md:p-16 flex flex-col justify-center">
                             <div className="md:hidden mb-10 text-center">
                                 <Link to="/">
-                                    <span className="font-headline text-3xl font-extrabold text-primary tracking-tight hover:opacity-80 transition-opacity">Vizzy</span>
+                                    <span className="font-headline text-3xl font-extrabold text-primary tracking-tight hover:opacity-80 transition-opacity">Vizzy Pilot</span>
                                 </Link>
                             </div>
                             <div className="mb-10">
                                 <h1 className="font-headline text-2xl font-bold text-on-surface mb-2">Sign in</h1>
-                                <p className="text-on-surface-variant font-medium">Use your Vizzy Account</p>
+                                <p className="text-on-surface-variant font-medium">Use your Vizzy Pilot Account</p>
                             </div>
                             {error && (
                                 <div className="mb-6 p-4 border border-error/30 bg-error-container rounded text-on-error-container text-xs font-label uppercase tracking-widest text-center">
@@ -158,7 +158,7 @@ export default function Login() {
                                     <span className="material-symbols-outlined text-white" style={{ fontVariationSettings: "'FILL' 1" }}>dataset</span>
                                 </div>
                                 <Link to="/">
-                                    <span className="font-headline text-3xl font-extrabold text-primary tracking-tight hover:opacity-80 transition-opacity">Vizzy</span>
+                                    <span className="font-headline text-3xl font-extrabold text-primary tracking-tight hover:opacity-80 transition-opacity">Vizzy Pilot</span>
                                 </Link>
                             </div>
                             <div className="max-w-md">
@@ -267,7 +267,7 @@ export default function Login() {
                                 </div>
                             </form>
                             <div className="md:hidden mt-20 text-center">
-                                <span className="font-label text-[10px] font-semibold uppercase tracking-wider text-outline-variant">Vizzy Security Stack</span>
+                                <span className="font-label text-[10px] font-semibold uppercase tracking-wider text-outline-variant">Vizzy Pilot Security Stack</span>
                             </div>
                         </div>
                     </section>

@@ -187,7 +187,7 @@ export default function DatasetList() {
     return (
         <div className="bg-noise min-h-full">
             <PageHeader
-                breadcrumb={["Workspaces", "Vizzy", "Datasets"]}
+                breadcrumb={["Workspaces", "Vizzy Pilot", "Datasets"]}
                 title="Dataset catalog"
                 description={`${filteredDatasets.length} datasets available`}
                 actions={(

@@ -30,28 +30,55 @@ class QuerySafetyError(ValueError):
 
 def safe_identifier(name: str) -> str:
     """Validate and return a double-quoted SQL identifier.
-    
-    Supports column names with spaces, hyphens, and other non-standard
-    characters by double-quoting them. Embedded double-quotes are escaped
-    per SQL standard (doubled). Rejects truly unsafe identifiers:
-    empty strings, null bytes, or excessively long names.
+
+    Accepts any string as a SQL identifier by double-quoting it with
+    proper escaping. Rejects identifiers that are unsafe to use even
+    within double-quotes: empty, null bytes, control characters,
+    format/overpower characters (bidi, zero-width), or excessively long.
+
+    Embedded double-quotes are escaped per SQL standard (doubled: " → "").
+
+    DuckDB accepts any character inside a double-quoted identifier
+    except the double-quote itself (which must be doubled), so this
+    function is safe for all real-world CSV column names including
+    spaces, hyphens, periods, numeric prefixes, and unicode characters.
     """
     if not name or not name.strip():
         raise QuerySafetyError("Empty SQL identifier is not allowed.")
     if '\x00' in name:
         raise QuerySafetyError(
-            f"Unsafe SQL identifier: '{name}'. Null bytes are not allowed."
+            f"Unsafe SQL identifier: '{name[:50]}...'. Null bytes are not allowed."
         )
     if len(name) > 256:
         raise QuerySafetyError(
             f"Unsafe SQL identifier: '{name[:50]}...'. "
             f"Identifier too long ({len(name)} chars, max 256)."
         )
-    if not _IDENTIFIER_SIMPLE_RE.match(name):
-        raise QuerySafetyError(
-            f"Unsafe SQL identifier: '{name}'. Identifier must start with a letter/underscore and contain only alphanumeric/underscore characters."
-        )
-    # Escape any embedded double-quotes (SQL standard: " -> "")
+
+    # Reject ASCII control characters (0x00-0x1F, 0x7F)
+    # These can truncate or corrupt SQL parsing even inside double-quotes.
+    for i, ch in enumerate(name):
+        code = ord(ch)
+        if code < 0x20 or code == 0x7F:
+            raise QuerySafetyError(
+                f"Unsafe SQL identifier: '{name[:50]}...'. "
+                f"Character {i} is an ASCII control character (U+{code:04X})."
+            )
+
+    # Reject Unicode format / control / surrogate characters (category Cc, Cf, Cs)
+    # Includes bidi overrides (U+202A-U+202E), zero-width spaces (U+200B),
+    # language indicators, and other invisible characters.
+    import unicodedata
+    for i, ch in enumerate(name):
+        cat = unicodedata.category(ch)
+        if cat in ('Cc', 'Cf', 'Cs'):
+            raise QuerySafetyError(
+                f"Unsafe SQL identifier: '{name[:50]}...'. "
+                f"Character {i} is a disallowed Unicode {cat} character "
+                f"(U+{ord(ch):04X})."
+            )
+
+    # Escape any embedded double-quotes (SQL standard: " → "")
     escaped = name.replace('"', '""')
     return f'"{escaped}"'
 

@@ -41,8 +41,10 @@ from app.services.analytics import (
 )
 from app.services.analytics.csv_loader import safe_read_csv
 from app.services.analytics.pivot_generator import generate_pivot_config, generate_pivot_data
-from app.services.analytics.duckdb_builder import get_or_build_duckdb
+from app.services.analytics.duckdb_builder import get_or_build_duckdb, duckdb_exists, get_duckdb_path
 from app.services.analytics.duckdb_chart_builder import execute_chart_queries, execute_kpi_queries
+from app.services.analytics.duckdb_reader import DuckDBReader
+from app.services.visualization.dashboard_generator import generate_overview_dashboard_duckdb
 from sqlmodel import select
 import pandas as pd
 import numpy as np
@@ -83,6 +85,7 @@ class DashboardAnalyticsResponse(BaseModel):
 class DashboardStateRequest(BaseModel):
     """Request payload containing the full dashboard state from Zustand."""
     dataset_id: UUID
+    version_id: Optional[UUID] = None
     target_value: Optional[str] = None
     active_filters: Dict[str, List[str]] = {}
     chart_overrides: Dict[str, Any] = {}
@@ -615,101 +618,186 @@ async def auto_render_dashboard(
             if version.cleaned_reference
             else version.source_reference
         )
-        df = safe_read_csv(file_path)
 
-        # 3. Domain detection & Classification
-        domain, scores = detect_domain(df)
-        confidence = get_domain_confidence(scores)
-        classification = filter_columns(df, domain)
-
-        # 4. Identify target column for the "Zero-Input" state
-        target_col = classification.targets[0] if classification.targets else _find_target_column(df)
-        target_values = []
-        if target_col:
-            target_values = [str(x) for x in df[target_col].dropna().unique()]
-            target_values = _normalize_binary_target_values(target_col, target_values)
-
-        # 5. Generate high-value recommendations (The core of Auto-render)
-        # Note: all_columns=False for the primary landing view
-        charts_full_result = recommend_charts(df, domain, classification, all_columns=False)
-
-        # recommend_charts returns a dict if all_columns=True, otherwise a list of ChartRecommendation
-        # We normalize it to a dict for the response
-        charts_mapped: Dict[str, Any] = {}
-        if isinstance(charts_full_result, list):
-            for i, chart in enumerate(charts_full_result):
-                slot = f"slot_{i+1}"
-                charts_mapped[slot] = {
-                    "title": chart.title,
-                    "type": chart.chart_type,
-                    "data": chart.data,
-                    "confidence": chart.confidence,
-                    "reason": chart.reason,
-                    "dimension": chart.dimension,
-                    "metric": chart.metric,
-                    "aggregation": chart.aggregation,
-                    "format_type": getattr(chart, "format_type", None),
-                    "section": getattr(chart, "section", "Key Insights"),
-                }
-        else:
-            charts_mapped = charts_full_result.get("charts", {})
-
-        # 6. Generate KPIs
-        kpis = generate_kpis(df, domain, classification)
-
-        # 7. Generate DSL Layout
-        from app.services.analytics.dsl_layout_generator import generate_dsl_layout
-        dsl_layout = generate_dsl_layout(
-            domain=domain.value,
-            classification=classification,
-            kpi_dict=kpis,
-            chart_dict=charts_mapped
+        # Debug: check DuckDB existence
+        _ddb_exists = duckdb_exists(version.dataset_id, version_id)
+        _ddb_path = get_duckdb_path(version.dataset_id, version_id)
+        logger.info(
+            "auto_render: version=%s source_type=%s duckdb_exists=%s path=%s",
+            version_id, version.source_type, _ddb_exists, _ddb_path,
         )
 
-        # 8. Prepare raw data payload (stratified sample)
-        max_raw_rows = 50000
-        if len(df) <= max_raw_rows:
+        if _ddb_exists:
+            duckdb_path = _ddb_path
+            reader = None
+            try:
+                reader = DuckDBReader(str(duckdb_path))
+            except Exception as e:
+                logger.warning("auto_render: DuckDBReader failed for %s: %s", duckdb_path, e)
+
+            if reader is not None:
+                try:
+                    df = reader.sample_rows(200)
+                    res = generate_overview_dashboard_duckdb(
+                        df=df,
+                        reader=reader,
+                        schema={"columns": []},
+                        semantic_map_json=version.semantic_map_json
+                    )
+                    
+                    domain = res["domain"]
+                    confidence = res["confidence"]
+                    classification = res["classification"]
+                    kpis = res["kpis"]
+                    charts_mapped = res["charts"]
+                    dsl_layout = res["dashboard"]
+                    total_rows = res["total_rows"]
+                    
+                    # Identify target column and values using DuckDB for accuracy
+                    target_col = classification.targets[0] if classification.targets else _find_target_column(df)
+                    target_values = []
+                    if target_col:
+                        target_values = [str(x) for x in reader.distinct_values(target_col, limit=100)]
+                        target_values = _normalize_binary_target_values(target_col, target_values)
+                    
+                    # Prepare raw data payload (use the sample)
+                    df_raw = df.copy()
+                    raw_data_payload = df_raw.replace([np.inf, -np.inf], np.nan).where(pd.notnull(df_raw), None).to_dict(orient="records")
+                    
+                    # Chart Configs for hybrid engine
+                    chart_configs = {}
+                    for slot, chart in charts_mapped.items():
+                        chart_configs[slot] = {
+                            "title": chart["title"],
+                            "type": chart["type"],
+                            "dimension": chart.get("dimension"),
+                            "metric": chart.get("metric"),
+                            "aggregation": chart.get("aggregation"),
+                            "is_date": chart.get("dimension") in classification.dates if chart.get("dimension") else False
+                        }
+                    
+                    return DashboardAnalyticsResponse(
+                        dataset_name=version.source_reference.split('/')[-1],
+                        total_rows=total_rows,
+                        domain=domain.value,
+                        domain_confidence=confidence,
+                        kpis=kpis,
+                        charts=charts_mapped,
+                        columns={
+                            "dimensions": classification.dimensions,
+                            "metrics": classification.metrics,
+                            "targets": classification.targets,
+                            "dates": classification.dates,
+                            "excluded": classification.excluded
+                        },
+                        target_column=target_col,
+                        target_values=target_values,
+                        geo_filters={},
+                        raw_data=raw_data_payload,
+                        chart_configs=chart_configs,
+                        dsl_layout=dsl_layout,
+                        all_columns_charts={},
+                        all_columns_count=0,
+                    )
+                except Exception as e:
+                    logger.warning("auto_render: DuckDB generate_overview failed for %s: %s", version_id, e, exc_info=True)
+                    # Fall through to pandas fallback below
+                finally:
+                    try:
+                        reader.close()
+                    except Exception:
+                        pass
+
+        # Fallback to pandas (only sample, avoids OOM)
+        if reader is None or 'df' not in locals():
+            logger.info("auto_render: using pandas fallback for version %s", version_id)
+            df = pd.read_csv(file_path, nrows=200)
+            total_rows = version.row_count or len(df)
+            # 3. Domain detection & Classification
+            domain, scores = detect_domain(df)
+            confidence = get_domain_confidence(scores)
+            classification = filter_columns(df, domain)
+
+            # 4. Identify target column for the "Zero-Input" state
+            target_col = classification.targets[0] if classification.targets else _find_target_column(df)
+            target_values = []
+            if target_col:
+                target_values = [str(x) for x in df[target_col].dropna().unique()]
+                target_values = _normalize_binary_target_values(target_col, target_values)
+
+            # 5. Generate high-value recommendations
+            charts_full_result = recommend_charts(df, domain, classification, all_columns=False)
+
+            charts_mapped: Dict[str, Any] = {}
+            if isinstance(charts_full_result, list):
+                for i, chart in enumerate(charts_full_result):
+                    slot = f"slot_{i+1}"
+                    charts_mapped[slot] = {
+                        "title": chart.title,
+                        "type": chart.chart_type,
+                        "data": chart.data,
+                        "confidence": chart.confidence,
+                        "reason": chart.reason,
+                        "dimension": chart.dimension,
+                        "metric": chart.metric,
+                        "aggregation": chart.aggregation,
+                        "format_type": getattr(chart, "format_type", None),
+                        "section": getattr(chart, "section", "Key Insights"),
+                    }
+            else:
+                charts_mapped = charts_full_result.get("charts", {})
+
+            # 6. Generate KPIs
+            kpis = generate_kpis(df, domain, classification)
+
+            # 7. Generate DSL Layout
+            from app.services.analytics.dsl_layout_generator import generate_dsl_layout
+            dsl_layout = generate_dsl_layout(
+                domain=domain.value,
+                classification=classification,
+                kpi_dict=kpis,
+                chart_dict=charts_mapped
+            )
+
+            # 8. Prepare raw data payload
             df_raw = df.copy()
-        else:
-            df_raw = df.sample(n=max_raw_rows, random_state=42).reset_index(drop=True)
+            raw_data_payload = df_raw.replace([np.inf, -np.inf], np.nan).where(pd.notnull(df_raw), None).to_dict(orient="records")
 
-        raw_data_payload = df_raw.replace([np.inf, -np.inf], np.nan).where(pd.notnull(df_raw), None).to_dict(orient="records")
+            # 9. Chart Configs for hybrid engine
+            chart_configs = {}
+            for slot, chart in charts_mapped.items():
+                chart_configs[slot] = {
+                    "title": chart["title"],
+                    "type": chart["type"],
+                    "dimension": chart.get("dimension"),
+                    "metric": chart.get("metric"),
+                    "aggregation": chart.get("aggregation"),
+                    "is_date": chart.get("dimension") in classification.dates if chart.get("dimension") else False
+                }
 
-        # 9. Chart Configs for hybrid engine
-        chart_configs = {}
-        for slot, chart in charts_mapped.items():
-            chart_configs[slot] = {
-                "title": chart["title"],
-                "type": chart["type"],
-                "dimension": chart.get("dimension"),
-                "metric": chart.get("metric"),
-                "aggregation": chart.get("aggregation"),
-                "is_date": chart.get("dimension") in classification.dates if chart.get("dimension") else False
-            }
-
-        return DashboardAnalyticsResponse(
-            dataset_name=version.source_reference.split('/')[-1],
-            total_rows=len(df),
-            domain=domain.value,
-            domain_confidence=confidence,
-            kpis=kpis,
-            charts=charts_mapped,
-            columns={
-                "dimensions": classification.dimensions,
-                "metrics": classification.metrics,
-                "targets": classification.targets,
-                "dates": classification.dates,
-                "excluded": classification.excluded
-            },
-            target_column=target_col,
-            target_values=target_values,
-            geo_filters={}, # Populate in first render if needed
-            raw_data=raw_data_payload,
-            chart_configs=chart_configs,
-            dsl_layout=dsl_layout,
-            all_columns_charts={},
-            all_columns_count=0,
-        )
+            return DashboardAnalyticsResponse(
+                dataset_name=version.source_reference.split('/')[-1],
+                total_rows=total_rows,
+                domain=domain.value,
+                domain_confidence=confidence,
+                kpis=kpis,
+                charts=charts_mapped,
+                columns={
+                    "dimensions": classification.dimensions,
+                    "metrics": classification.metrics,
+                    "targets": classification.targets,
+                    "dates": classification.dates,
+                    "excluded": classification.excluded
+                },
+                target_column=target_col,
+                target_values=target_values,
+                geo_filters={},
+                raw_data=raw_data_payload,
+                chart_configs=chart_configs,
+                dsl_layout=dsl_layout,
+                all_columns_charts={},
+                all_columns_count=0,
+            )
     except Exception as e:
         logger.exception(f"Auto-render failed for version {version_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Auto-render failed: {str(e)}")
@@ -750,13 +838,21 @@ async def get_dashboard_analytics(  # pyright: ignore
             sum(len(v) for v in (state.active_filters or {}).values() if isinstance(v, list)),
         )
         
-        # Load dataset
-        latest_version = get_latest_version(session=session, dataset_id=state.dataset_id)
-        if not latest_version:
-            raise HTTPException(status_code=404, detail="Version not found")
+        # Load dataset — use version_id if provided, otherwise fall back to latest
+        if state.version_id:
+            from app.models.dataset_version import DatasetVersion
+            latest_version = session.query(DatasetVersion).filter(
+                DatasetVersion.id == state.version_id,
+                DatasetVersion.dataset_id == state.dataset_id,
+            ).first()
+            if not latest_version:
+                raise HTTPException(status_code=404, detail="Version not found")
+        else:
+            latest_version = get_latest_version(session=session, dataset_id=state.dataset_id)
+            if not latest_version:
+                raise HTTPException(status_code=404, detail="Version not found")
 
-
-        # Prefer cleaned data when available, fall back to raw
+        # Use cleaned_reference if available (cleaned version), else source_reference
         file_path = (
             latest_version.cleaned_reference
             if latest_version.cleaned_reference

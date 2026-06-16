@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Optional
 import pandas as pd
 from .domain_detector import DomainType
-from .metadata_profiler import profile_dataset
+from .metadata_profiler import profile_dataset, profile_dataset_duckdb
 
 logger = logging.getLogger(__name__)
 
@@ -333,20 +333,66 @@ def _is_date_column(df: pd.DataFrame, col: str) -> bool:
     temporal_keywords = ['date', 'time', 'datetime', 'timestamp', 'created', 'updated', 'shipped', 'opened', 'closed', 'year', 'month', 'quarter', 'period', 'discharge', 'admitted']
     if any(kw in col_lower for kw in temporal_keywords):
         import pandas as pd
+        import warnings
         try:
             # For strings, try parsing
             sample = df[col].dropna().astype(str).head(100)
             if sample.empty: return False
-            parsed = pd.to_datetime(sample, errors='coerce')
-            
-            # If parsing failed or is very sparse, try with dayfirst=True
-            if parsed.notna().mean() < 0.4:
-                parsed_df = pd.to_datetime(sample, errors='coerce', dayfirst=True)
-                if parsed_df.notna().mean() > parsed.notna().mean():
-                    parsed = parsed_df
+
+            # Try common date formats explicitly to avoid the dateutil fallback warning.
+            # This is both faster and more consistent than letting pandas guess.
+            _COMMON_DATE_FORMATS = [
+                # ISO 8601 with timezone (most common from APIs / databases)
+                '%Y-%m-%dT%H:%M:%S.%f%z',   # 2024-01-15T13:30:00.123456+00:00
+                '%Y-%m-%dT%H:%M:%S.%fZ',    # 2024-01-15T13:30:00.123456Z
+                '%Y-%m-%dT%H:%M:%S%z',      # 2024-01-15T13:30:00+00:00
+                '%Y-%m-%dT%H:%M:%SZ',       # 2024-01-15T13:30:00Z
+                '%Y-%m-%dT%H:%M:%S.%f',     # 2024-01-15T13:30:00.123456
+                '%Y-%m-%dT%H:%M:%S',        # 2024-01-15T13:30:00
+                # Standard date + time
+                '%Y-%m-%d %H:%M:%S.%f',     # 2024-01-15 13:30:00.123456
+                '%Y-%m-%d %H:%M:%S%z',      # 2024-01-15 13:30:00+00:00
+                '%Y-%m-%d %H:%M:%S',        # 2024-01-15 13:30:00
+                # Date only
+                '%Y-%m-%d',                 # 2024-01-15
+                '%Y/%m/%d',                 # 2024/01/15
+                '%Y%m%d',                   # 20240115
+                # US / EU slash formats
+                '%m/%d/%Y',                 # 01/15/2024
+                '%d/%m/%Y',                 # 15/01/2024
+                '%m-%d-%Y',                 # 01-15-2024
+                '%d-%m-%Y',                 # 15-01-2024
+                # Month name formats
+                '%B %d, %Y',               # January 15, 2024
+                '%d %B %Y',                # 15 January 2024
+                '%b %d, %Y',               # Jan 15, 2024
+                '%d %b %Y',                # 15 Jan 2024
+            ]
+            parsed = None
+            for fmt in _COMMON_DATE_FORMATS:
+                candidate = pd.to_datetime(sample, format=fmt, errors='coerce')
+                if candidate.notna().mean() > 0.6:
+                    parsed = candidate
+                    break
+
+            # Fallback: no format matched, try generic parser with dayfirst
+            if parsed is None or parsed.notna().mean() < 0.4:
+                with warnings.catch_warnings():
+                    warnings.filterwarnings('ignore', category=UserWarning)
+                    fallback = pd.to_datetime(sample, errors='coerce')
+                    if parsed is None or fallback.notna().mean() > parsed.notna().mean():
+                        parsed = fallback
+
+                # Also try with dayfirst=True if still sparse
+                if parsed.notna().mean() < 0.4:
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings('ignore', category=UserWarning)
+                        dayfirst = pd.to_datetime(sample, errors='coerce', dayfirst=True)
+                        if dayfirst.notna().mean() > parsed.notna().mean():
+                            parsed = dayfirst
 
             # Require at least 40% valid parsed dates if it's explicitly named 'date', 'time', etc.
-            if parsed.notna().mean() > 0.4:
+            if parsed is not None and parsed.notna().mean() > 0.4:
                 return True
         except:
             pass
@@ -650,5 +696,235 @@ def filter_columns(df: pd.DataFrame, domain: DomainType) -> ColumnClassification
     except Exception as e:
         logger.error(f"Canonical mapping failed: {e}")
     
+    return classification
+
+
+def filter_columns_duckdb(
+    df: pd.DataFrame,
+    domain: DomainType,
+    reader: "DuckDBReader",
+) -> ColumnClassification:
+    """
+    Classify columns using DuckDB-accurate profiling for cardinality and null rates.
+
+    Same logic as filter_columns() but uses profile_dataset_duckdb() for
+    accurate unique_count, null_ratio, and cardinality from the FULL dataset.
+    This prevents misclassification of moderate-cardinality columns as IDs
+    (e.g. a column with 200 unique values in a 200-row sample would be
+    flagged as an ID by the sample-based profiler, but DuckDB reveals it
+    has only 1000 unique values out of 1M total rows).
+    """
+    classification = ColumnClassification()
+
+    # ── Phase 1: Type sanitization (uses sample df — accurate enough) ──
+    df_typed = df.copy()
+    for col in df_typed.select_dtypes(include=["object"]).columns:
+        try:
+            sample = df_typed[col].head(100).dropna()
+            if sample.empty:
+                continue
+            sample_clean = sample.astype(str).str.replace(r"[$,% ]", "", regex=True)
+            sample_converted = pd.to_numeric(sample_clean, errors="coerce")
+            if len(sample) > 0 and (sample_converted.notna().sum() / len(sample)) < 0.5:
+                continue
+
+            clean_str = df_typed[col].astype(str).str.replace(r"[$,% ]", "", regex=True)
+            converted = pd.to_numeric(clean_str, errors="coerce")
+
+            if len(df_typed) > 0 and (converted.notna().sum() / len(df_typed)) > 0.8:
+                df_typed[col] = converted.fillna(0)
+            else:
+                valid_ratio = (
+                    converted.notna().sum() / df_typed[col].notna().sum()
+                    if df_typed[col].notna().sum() > 0
+                    else 0
+                )
+                if valid_ratio > 0.5:
+                    df_typed[col] = converted
+        except Exception:
+            pass
+
+    # ── DuckDB-accurate profiling ──
+    metadata = profile_dataset_duckdb(reader, list(df_typed.columns))
+
+    # ── Domain-protected columns ──
+    domain_schema = DOMAIN_SCHEMAS.get(domain, {})
+    _domain_attr_kws = []
+    for key, kws in domain_schema.items():
+        if key.startswith("attr_"):
+            _domain_attr_kws.extend(kws)
+    if domain == DomainType.HEALTHCARE:
+        _domain_attr_kws.extend(
+            ["hospital", "doctor", "physician", "clinic", "facility", "provider", "ward", "department"]
+        )
+
+    def _is_domain_protected(col_name: str) -> bool:
+        col_norm = col_name.lower().replace("_", "").replace("-", "").replace(" ", "")
+        return any(kw.replace("_", "").replace(" ", "") in col_norm for kw in _domain_attr_kws)
+
+    # ── Column classification ──
+    for col in df_typed.columns:
+        meta = metadata.get(col, {})
+        # Use DuckDB-accurate cardinality for identifier detection
+        meta_cardinality = meta.get("cardinality", 0)
+        meta_unique = meta.get("unique_count", 0)
+
+        # Check exclusions — SKIP for domain-protected columns
+        if not _is_domain_protected(col):
+            is_id_from_tags = "identity:surrogate" in meta.get("semantic_tags", [])
+            # Use DuckDB-accurate cardinality for ID detection.
+            # For the DuckDB path, name-based tag detection (e.g. "Id" in "CustomerId")
+            # is only accepted as evidence when DuckDB cardinality ALSO confirms it.
+            # This prevents false exclusion of moderate-cardinality categorical columns
+            # that happen to have "Id" in their name (e.g. CustomerId with 80/2000 unique).
+            is_id_from_cardinality = meta_cardinality > 0.9 and df_typed[col].dtype not in [
+                "int64", "float64", "int32", "float32",
+            ]
+            # Type guard: numeric columns are never excluded as IDs,
+            # regardless of "Id" in their name or DuckDB cardinality
+            is_numeric_col = df_typed[col].dtype in [
+                "int64", "float64", "int32", "float32", "float", "int",
+            ]
+            if not is_numeric_col and (is_id_from_cardinality or (is_id_from_tags and meta_cardinality > 0.9)):
+                classification.excluded.append(col)
+                continue
+
+        # Check dates (uses sample dtype + name patterns — accurate from sample)
+        if df_typed[col].dtype in ["datetime64[ns]", "datetime64"] or _is_date_column(df_typed, col):
+            classification.dates.append(col)
+            continue
+
+        # Check targets (uses sample value patterns — accurate from sample)
+        if _is_target_column(df_typed, col):
+            classification.targets.append(col)
+            continue
+
+        # Classify remaining columns
+        is_numeric = df_typed[col].dtype in ["int64", "float64", "int32", "float32", "float", "int"]
+        is_bool = meta.get("logical_type") == "boolean" or df_typed[col].dtype == "bool"
+
+        if is_numeric:
+            if is_bool or _is_binary_flag(df_typed, col):
+                classification.excluded.append(col)
+            else:
+                col_norm = col.lower().replace("_", "").replace("-", "").replace(" ", "")
+                is_noise = any(p.replace("_", "") in col_norm for p in NOISE_METRIC_PATTERNS)
+                if is_noise:
+                    classification.excluded.append(col)
+                else:
+                    classification.metrics.append(col)
+                    if "financial:monetary" in meta.get("semantic_tags", []):
+                        classification.currency_columns.append(col)
+        else:
+            # Categorical column — use DuckDB-accurate cardinality for dimension detection
+            col_lower = col.lower().replace("_", "").replace("-", "")
+
+            try:
+                from .semantic_resolver import semantic_similarity
+
+                def _semantic_match(keywords, col_name, threshold=0.55):
+                    return any(semantic_similarity(kw, col_name) >= threshold for kw in keywords)
+            except ImportError:
+
+                def _semantic_match(keywords, col_name, threshold=0.55):
+                    col_norm = col_name.lower().replace("_", "").replace("-", "")
+                    return any(kw in col_norm for kw in keywords)
+
+            product_kw = ["product", "productname", "item", "sku", "category", "subcategory", "segment", "brand", "type"]
+            is_important_dim = _semantic_match(product_kw, col)
+
+            geo_kw = [
+                "country", "state", "city", "region", "province", "territory",
+                "district", "location", "market", "zone",
+            ]
+            is_geo_col = (
+                _semantic_match(geo_kw, col, threshold=0.8)
+                or "geo:region" in meta.get("semantic_tags", [])
+                or "geo:city" in meta.get("semantic_tags", [])
+                or "geo:country" in meta.get("semantic_tags", [])
+            )
+
+            customer_kw = ["customername", "customer_name", "firstname", "lastname", "clientname"]
+            is_customer_name = _semantic_match(customer_kw, col)
+
+            domain_kws = []
+            for key, kws in domain_schema.items():
+                if key.startswith("attr_"):
+                    domain_kws.extend(kws)
+            is_domain_dim = _semantic_match(domain_kws, col) if domain_kws else False
+
+            if (is_important_dim and domain == DomainType.SALES) or is_domain_dim:
+                classification.dimensions.append(col)
+            elif is_geo_col:
+                classification.dimensions.append(col)
+            elif is_customer_name and meta_unique > 100:
+                classification.excluded.append(col)
+            else:
+                # DuckDB-accurate cardinality for dimension/exclusion decision
+                if meta_unique > 1 and (meta_cardinality < 0.2 or meta_unique < 500):
+                    classification.dimensions.append(col)
+                else:
+                    classification.excluded.append(col)
+
+    # Sort by domain priority
+    classification.metrics.sort(key=lambda x: _get_column_priority(df_typed, x, domain), reverse=True)
+    classification.dimensions.sort(key=lambda x: _get_column_priority(df_typed, x, domain), reverse=True)
+
+    # Modifier detection
+    for col in df_typed.columns:
+        mods = _detect_modifiers(col)
+        if mods:
+            classification.modifiers[col] = mods
+
+    # Canonical Mapping (same as filter_columns)
+    try:
+        from .semantic_resolver import semantic_similarity
+
+        for canonical_key, keywords in UNIVERSAL_SCHEMA.items():
+            if canonical_key == "dim_date" and classification.dates:
+                classification.mappings[canonical_key] = classification.dates[0]
+                continue
+            elif canonical_key == "dim_date":
+                continue
+            best_col = None
+            best_score = 0
+            for col in classification.dimensions:
+                score = max(semantic_similarity(kw, col) for kw in keywords)
+                if score > best_score and score >= 0.8:
+                    best_score = score
+                    best_col = col
+            if best_col:
+                classification.mappings[canonical_key] = best_col
+
+        domain_schema = DOMAIN_SCHEMAS.get(domain, {})
+        for canonical_key, keywords in domain_schema.items():
+            best_col = None
+            best_score = 0
+            for col in df_typed.columns:
+                if col in classification.excluded:
+                    continue
+                is_numeric_col = df_typed[col].dtype in ["int64", "float64", "int32", "float32"]
+                is_metric_key = canonical_key.startswith("metric")
+                if is_metric_key and not is_numeric_col:
+                    continue
+                cleaned_col = _clean_header(col)
+                score = 0
+                p_sim = semantic_similarity(keywords[0], cleaned_col)
+                if p_sim >= 0.7:
+                    score += p_sim * 5.0
+                if len(keywords) > 1:
+                    s_sim = max(semantic_similarity(kw, cleaned_col) for kw in keywords[1:])
+                    if s_sim >= 0.6:
+                        score += s_sim * 3.0
+                if is_metric_key == is_numeric_col:
+                    score += 2.0
+                if score >= 4.0 and score > best_score:
+                    best_score = score
+                    best_col = col
+            if best_col:
+                classification.mappings[canonical_key] = best_col
+    except Exception as e:
+        logger.error(f"Canonical mapping failed: {e}")
+
     return classification
 

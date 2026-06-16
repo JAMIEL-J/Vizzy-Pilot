@@ -118,7 +118,8 @@ export const analyticsService = {
         classificationOverrides?: Record<string, any>,
         selectedDomain?: string | null,
         signal?: AbortSignal,
-        allColumns?: boolean
+        allColumns?: boolean,
+        versionId?: string
     ) => {
         const payload: any = {
             active_filters: {},
@@ -128,6 +129,7 @@ export const analyticsService = {
             all_columns: allColumns || false
         };
         if (datasetId) payload.dataset_id = datasetId;
+        if (versionId) payload.version_id = versionId;
         if (targetValue) payload.target_value = targetValue;
         if (filters && Object.keys(filters).length > 0) {
             // Only send non-empty filter arrays

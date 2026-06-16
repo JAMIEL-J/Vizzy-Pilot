@@ -27,11 +27,16 @@ export interface DatasetVersionSummary {
     dataset_id: string;
     version_number: number;
     source_type: string;
-    source_reference: string;
     row_count?: number | null;
     schema_hash: string;
     created_by: string;
     is_active: boolean;
+    parent_version_id?: string | null;
+    semantic_map_json?: string | null;
+}
+
+export interface VersionListResponse {
+    versions: DatasetVersionSummary[];
 }
 
 export interface DatasetMetadata {
@@ -102,6 +107,11 @@ export const datasetService = {
         return response.data;
     },
 
+    listVersionsForDataset: async (datasetId: string) => {
+        const response = await apiClient.get<VersionListResponse>(`/datasets/${datasetId}/versions`);
+        return response.data.versions;
+    },
+
     getLatestVersion: async (datasetId: string) => {
         const response = await apiClient.get<DatasetVersionSummary>(`/datasets/${datasetId}/versions/latest`);
         return response.data;
@@ -150,6 +160,30 @@ export const uploadService = {
             headers: { 'Content-Type': 'multipart/form-data' },
         });
         return response.data;
+    },
+
+    /** Upload a file and create the dataset atomically (single request). */
+    uploadNewDataset: async (file: File, name: string, description?: string) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('name', name);
+        if (description) {
+            formData.append('description', description);
+        }
+        const response = await apiClient.post('/datasets/upload', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        return response.data as {
+            dataset_id: string;
+            version_id: string;
+            version_number: number;
+            row_count: number;
+            schema_hash: string;
+            raw_path: string;
+            schema: Array<{ name: string; dtype: string }>;
+            dashboard?: any;
+            semantic_map?: string | null;
+        };
     }
 };
 

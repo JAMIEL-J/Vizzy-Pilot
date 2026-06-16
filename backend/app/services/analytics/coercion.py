@@ -87,15 +87,9 @@ def coerce_column(
         if original_type != 'VARCHAR':
             return None
 
-        # Step 1: Handle null strings — parameterized IN clause
-        in_clause, null_params = build_in_clause(list(NULL_STRINGS))
-        execute(conn, f"""
-            UPDATE "{table_name}"
-            SET "{column}" = NULL
-            WHERE LOWER(TRIM("{column}")) {in_clause}
-        """, params=null_params)
-
-        # Step 2: Detect patterns from a sample — parameterized LIMIT
+        # (Null-string cleanup is handled once for all columns in _batch_nullify_strings
+        #  called by run_coercion_pipeline before the per-column loop.)
+        # Step 1: Detect patterns from a sample — parameterized LIMIT
         sample_df = execute(conn, f"""
             SELECT "{column}"
             FROM "{table_name}"
@@ -181,16 +175,53 @@ def coerce_column(
         logger.error(f"Error coercing column {column}: {e}")
         return None
 
+def _batch_nullify_strings(conn: duckdb.DuckDBPyConnection, table_name: str, varchar_cols: List[str]) -> None:
+    """Single-pass nullification of known null-string values across all VARCHAR columns.
+    
+    Instead of running one UPDATE per column (which scans the table each time),
+    this runs a single UPDATE that nullifies all columns simultaneously.
+    """
+    if not varchar_cols:
+        return
+
+    # Build IN clause once, shared by all columns
+    in_clause, null_params = build_in_clause(list(NULL_STRINGS))
+
+    # Build CASE expressions for each column
+    case_exprs = ", ".join(
+        f'"{col}" = CASE WHEN LOWER(TRIM("{col}")) {in_clause} THEN NULL ELSE "{col}" END'
+        for col in varchar_cols
+    )
+
+    sql = f'UPDATE "{table_name}" SET {case_exprs}'
+    execute(conn, sql, params=null_params + null_params * (len(varchar_cols) - 1))
+
+
 def run_coercion_pipeline(conn: duckdb.DuckDBPyConnection, table_name: str) -> List[ColumnCoercionResult]:
     """Run coercion on all VARCHAR columns in a table."""
+    import time as _time
+    _t0 = _time.perf_counter()
+
     results = []
     schema_df = execute(conn, f'DESCRIBE "{table_name}"').df()
     varchar_cols = schema_df[schema_df['column_type'] == 'VARCHAR']['column_name'].tolist()
     
+    if varchar_cols:
+        _batch_nullify_strings(conn, table_name, varchar_cols)
+        _t_nullify = _time.perf_counter()
+        nullify_time = _t_nullify - _t0
+        if nullify_time > 0.5:
+            logger.info("coercion: batch nullify %d VARCHAR cols in %.2fs", len(varchar_cols), nullify_time)
+
     for col in varchar_cols:
         res = coerce_column(conn, table_name, col)
         if res:
             results.append(res)
             logger.info(f"Coerced column {col}: {res.coercion_applied} -> DOUBLE")
+    
+    _t_total = _time.perf_counter()
+    total_time = _t_total - _t0
+    if total_time > 0.5:
+        logger.info("coercion pipeline total: %.2fs (%d cols, %d coercions)", total_time, len(varchar_cols), len(results))
             
     return results

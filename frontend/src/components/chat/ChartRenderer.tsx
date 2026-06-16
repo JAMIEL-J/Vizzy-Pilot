@@ -289,19 +289,8 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
         return raw.replace(/_/g, ' ').replace(/\s+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
     };
 
-    const truncateTick = (value: any, max = 14) => {
-        const str = String(value ?? '');
-        return str.length > max ? `${str.slice(0, max)}…` : str;
-    };
-
-    const compactCategoryLabel = (value: any) => {
-        const str = String(value ?? '').trim();
-        if (!str) return '';
-        const firstWord = str.split(/\s+/)[0] || str;
-        if (firstWord.length <= 8 && str.length > firstWord.length) {
-            return `${firstWord}...`;
-        }
-        return truncateTick(str, 10);
+    const fullLabel = (value: any) => {
+        return String(value ?? '').trim() || '';
     };
 
     const parseTopNFromTitle = () => {
@@ -377,7 +366,15 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
         scales: isScale ? {
             x: {
                 grid: { display: indexAxis === 'y', color: gridColor, drawBorder: false },
-                ticks: { color: axisColor, font: { size: 11 } }
+                ticks: {
+                    color: axisColor,
+                    font: { size: 11 },
+                    maxRotation: 45,
+                    minRotation: 0,
+                    autoSkip: true,
+                    autoSkipPadding: 8,
+                    maxTicksLimit: 20,
+                }
             },
             y: {
                 grid: { display: indexAxis === 'x', color: gridColor, drawBorder: false },
@@ -398,13 +395,13 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
                 const keys = Object.keys(row);
                 valueKey = keys[1] || valueKey;
                 return {
-                    name: compactCategoryLabel(row[keys[0]]),
+                    name: fullLabel(row[keys[0]]),
                     value: row[keys[1]]
                 };
             });
         } else if (data.x && data.y) {
             chartData = data.x.map((x: any, i: number) => ({
-                name: compactCategoryLabel(x),
+                name: fullLabel(x),
                 value: data.y[i]
             }));
         }
@@ -612,8 +609,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
         const dimensionKey = (data.dimension as string) || rowKeys.find((k: string) => !metricKeys.includes(k)) || rowKeys[0] || 'name';
 
         let chartData = rows.map((row: any) => {
-            const fullName = String(row[dimensionKey] ?? '');
-            const shaped: any = { name: compactCategoryLabel(fullName) };
+            const shaped: any = { name: fullLabel(row[dimensionKey]) };
             metricKeys.forEach((metric: string) => {
                 shaped[metric] = Number(row[metric] || 0);
             });
