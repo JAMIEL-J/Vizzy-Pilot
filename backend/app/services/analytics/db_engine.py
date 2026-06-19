@@ -62,12 +62,19 @@ class DBEngine:
     async def load_dataframe(self, table_name: str, df: pd.DataFrame):
         """Register a Pandas dataframe as a queryable DuckDB table and run coercion."""
         async with _write_lock:
+
             try:
                 self._write_con.unregister(f"_tmp_{table_name}")
             except Exception:
                 pass
 
-            self._write_con.register(f"_tmp_{table_name}", df)
+            # Pandas 3 + DuckDB < 1.0 workaround
+            df_reg = df.copy()
+            for col in df_reg.select_dtypes(include=['string']).columns:
+                df_reg[col] = df_reg[col].astype('object')
+
+            self._write_con.register(f"_tmp_{table_name}", df_reg)
+
             self._write_con.execute(f'DROP TABLE IF EXISTS "{table_name}"')
             self._write_con.execute(f'CREATE TABLE "{table_name}" AS SELECT * FROM "_tmp_{table_name}"')
             self._write_con.unregister(f"_tmp_{table_name}")

@@ -238,7 +238,7 @@ async def upload_dataset_file(
                         schema=result.get('schema', []),
                         raw_path=csv_path,
                     )
-                    logger.info(f"Initial dashboard generated for version {version_id}")
+                    logger.info(f"Initial semantic map generated for version {version_id}")
                 except RuntimeError as e:
                     # DuckDB build failure — hard error, no fallback
                     raise HTTPException(
@@ -251,7 +251,7 @@ async def upload_dataset_file(
                         },
                     )
                 except Exception as e:
-                    logger.warning(f"Failed to generate initial dashboard: {e}")
+                    logger.warning(f"Failed to generate initial semantic map: {e}")
         
         # Include dashboard in response
         if dashboard_data:
@@ -372,7 +372,7 @@ async def upload_dataset(
                         schema=result.get('schema', []),
                         raw_path=csv_path,
                     )
-                    logger.info(f"Initial dashboard generated for version {version_id}")
+                    logger.info(f"Initial semantic map generated for version {version_id}")
                 except RuntimeError as e:
                     # DuckDB build failure — hard error, no fallback
                     raise HTTPException(
@@ -385,7 +385,7 @@ async def upload_dataset(
                         },
                     )
                 except Exception as e:
-                    logger.warning(f"Failed to generate initial dashboard: {e}")
+                    logger.warning(f"Failed to generate initial semantic map: {e}")
 
         # 5. Include dashboard in response
         if dashboard_data:

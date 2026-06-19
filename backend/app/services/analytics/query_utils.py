@@ -92,7 +92,7 @@ def execute(
     conn: duckdb.DuckDBPyConnection,
     query: str,
     params: Optional[List[Any]] = None,
-) -> duckdb.DuckDBPyResult:
+) -> duckdb.DuckDBPyConnection:
     """Execute a DuckDB query with parameterized values.
     
     Args:

@@ -645,7 +645,8 @@ async def auto_render_dashboard(
                         df=df,
                         reader=reader,
                         schema={"columns": []},
-                        semantic_map_json=semantic_map_json
+                        semantic_map_json=semantic_map_json,
+                        all_columns=True
                     )
                     
                     domain = res["domain"]
