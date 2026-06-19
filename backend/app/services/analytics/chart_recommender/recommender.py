@@ -523,7 +523,11 @@ def _generate_all_columns_charts(
                     continue
                 score = 10 if 5 <= n <= 12 else (8 if 3 <= n <= 5 else 5)
             else:
-                if n < 2 or n > 200:
+                adaptive_limit = 200
+                if column_profiles and d in column_profiles:
+                    total_rows = column_profiles[d].get("unique_count", 0) / (column_profiles[d].get("cardinality", 1.0) or 1.0)
+                    adaptive_limit = max(200, int(total_rows * 0.05))
+                if n < 2 or n > adaptive_limit:
                     continue
                 score = 6 if 2 <= n <= 5 else (8 if 5 < n <= 15 else (5 if 15 < n <= 50 else 3))
             if score > best_score:
@@ -609,7 +613,11 @@ def _generate_all_columns_charts(
             nunique = df[dim].nunique()
         except Exception:
             continue
-        if nunique < 2 or nunique > 200:
+        adaptive_limit = 200
+        if column_profiles and dim in column_profiles:
+            total_rows = column_profiles[dim].get("unique_count", 0) / (column_profiles[dim].get("cardinality", 1.0) or 1.0)
+            adaptive_limit = max(200, int(total_rows * 0.05))
+        if nunique < 2 or nunique > adaptive_limit:
             continue
 
         metric = _best_metric_for_dim(dim, used_metrics_global, allow_reuse=True, forbidden_pairs=curated_pairs_norm)

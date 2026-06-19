@@ -326,6 +326,13 @@ def generate_overview_dashboard_duckdb(
         f"{len(dsl_layout.get('widgets', []))} widgets"
     )
 
+    # Strip data from charts so the frontend is forced to fetch the true DuckDB data
+    if "widgets" in dsl_layout:
+        for widget in dsl_layout["widgets"]:
+            if widget.get("type") != "kpi" and "data" in widget:
+                widget["data"] = []
+
+
     from app.services.analytics import get_domain_confidence
     confidence = get_domain_confidence(domain_scores)
 
