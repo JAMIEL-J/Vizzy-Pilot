@@ -200,12 +200,15 @@ IMPORTANT: Return ONLY raw JSON enclosed in {{}}. No markdown, no explanation.
             if isinstance(r, dict):
                 final_response.update(r)
 
+        # Merge pre-mappings into final response before structuring
+        final_response.update(pre_mappings)
+
         # Validate and structure the output
         structured = self._structure_response(final_response)
 
         # Fallback: Ensure all original columns are present
         for col_name in columns_profiles.keys():
-            if col_name not in pre_mappings and col_name not in structured["mappings"]:
+            if col_name not in structured["mappings"]:
                 structured["mappings"][col_name] = "unclassified"
                 structured["metadata"]["proposals"].append(asdict(ColumnMapping(
                     column_name=col_name,
