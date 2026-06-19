@@ -2,7 +2,7 @@
 BI Dashboard Prioritization - Rank metrics and dimensions by business importance.
 """
 
-from typing import List, Optional
+from typing import Any, List, Optional
 
 METRIC_PRIORITY_KEYWORDS = [
     # Tier 1: Revenue & Sales (highest priority) & Critical Health Outcomes
@@ -55,7 +55,7 @@ def _is_whole_number_average_metric(metric: Optional[str]) -> bool:
     metric_lower = str(metric).lower().replace('-', '').replace('_', '').replace(' ', '')
     return any(kw in metric_lower for kw in WHOLE_NUMBER_AVERAGE_KEYWORDS)
 
-def _round_mean_value(value: Any, metric: Optional[str]) -> float:
+def _round_mean_value(value: "Any", metric: Optional[str]) -> float:
     """Apply metric-aware rounding for mean aggregations."""
     numeric_value = float(value)
     if _is_whole_number_average_metric(metric):
