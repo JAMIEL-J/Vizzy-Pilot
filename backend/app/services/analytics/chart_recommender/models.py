@@ -38,3 +38,8 @@ class ChartRecommendation:
         if isinstance(self.data, AggregationData) and self.data.outliers:
             self.outliers = self.data.outliers
             self.data_without_outliers = self.data.data_without_outliers
+        
+        # Clean title to avoid duplicate aggregation prefixes (like "Total Total Charges")
+        if self.title:
+            from .titles import _clean_title
+            self.title = _clean_title(self.title)

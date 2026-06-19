@@ -474,6 +474,13 @@ export default function UserDashboard() {
             setSelectedVersionId(null);
             return;
         }
+        
+        // Immediately reset version states synchronously on dataset switch
+        // to prevent debounced load effects from fetching with a stale version ID.
+        setVersionId(null);
+        setSelectedVersionId(null);
+        setVersions([]);
+
         // Fetch all versions and set default to latest
         Promise.all([
             datasetService.listVersionsForDataset(selectedDatasetId),
@@ -508,6 +515,9 @@ export default function UserDashboard() {
         setSelectedVersionId(newVersionId);
         setVersionId(newVersionId);
         setVersionPickerOpen(false);
+        // Clear previous dashboard state immediately to avoid stale sample data
+        setAnalytics(null);
+        setDashboardData([], {}, {}, 0, null, selectedDatasetId, newVersionId);
         triggerAutoRender(newVersionId);
     };
 
@@ -524,6 +534,11 @@ export default function UserDashboard() {
             const response = await apiClient.get<DashboardAnalytics>(`/analytics/auto-render/${versionId}`);
             const data = response.data;
 
+            // Validate response structure before setting state
+            if (!data) {
+                throw new Error("Empty response from auto-render");
+            }
+
             setAnalytics(data);
             // Write to cache so subsequent interactive refreshes find the right version
             const cacheKey = stableSerialize({
@@ -538,25 +553,34 @@ export default function UserDashboard() {
             cacheRef.current.analytics.set(cacheKey, { value: data, createdAt: Date.now() });
             setSessionCachedAnalytics(cacheKey, data);
 
-            if (data.raw_data && data.chart_configs) {
-                const initial: Record<string, any> = {};
-                if (data.charts) {
-                    Object.entries(data.charts).forEach(([key, chart]: [string, any]) => {
+            // Build initial chart data from analytics.charts
+            const initial: Record<string, any> = {};
+            if (data.charts && typeof data.charts === 'object') {
+                Object.entries(data.charts).forEach(([key, chart]: [string, any]) => {
+                    if (chart && typeof chart === 'object') {
                         initial[key] = chart.data;
-                    });
-                }
-                setDashboardData(
-                    data.raw_data,
-                    data.chart_configs,
-                    initial,
-                    data.total_rows,
-                    data.target_column,
-                    selectedDatasetId
-                );
+                    }
+                });
             }
+
+            // Always call setDashboardData to ensure dashboard state is synced
+            setDashboardData(
+                data.raw_data || [],
+                data.chart_configs || {},
+                initial,
+                data.total_rows || 0,
+                data.target_column || null,
+                selectedDatasetId,
+                versionId
+            );
         } catch (err: any) {
+            const errorMsg = err?.response?.data?.detail || err?.message || "Unknown error";
             console.error("Auto-render failed:", err);
-            toast.error("Failed to auto-generate dashboard. Please refresh.");
+            console.error("Error detail:", errorMsg);
+            toast.error(`Dashboard generation failed: ${errorMsg}`);
+            // Clear dashboard state on failure to avoid showing stale data
+            setAnalytics(null);
+            setDashboardData([], {}, {}, 0, null, selectedDatasetId, versionId);
         } finally {
             setIsLoading(false);
         }
@@ -579,6 +603,11 @@ export default function UserDashboard() {
             setProposals([]);
             return;
         }
+        const versionExists = versions.some(v => v.id === versionId);
+        if (!versionExists) {
+            setProposals([]);
+            return;
+        }
         semanticMappingService.proposeMapping(selectedDatasetId, versionId)
             .then(data => {
                 const proposedList = data?.proposal?.metadata?.proposals || [];
@@ -588,7 +617,7 @@ export default function UserDashboard() {
                 console.error("Failed to load mapping proposals on dashboard:", err);
                 setProposals([]);
             });
-    }, [selectedDatasetId, versionId]);
+    }, [selectedDatasetId, versionId, versions]);
 
     useEffect(() => {
         const prev = previousDatasetIdRef.current;
@@ -644,7 +673,11 @@ export default function UserDashboard() {
 
     // Debounce the analytics load
     useEffect(() => {
-        if (!selectedDatasetId) return;
+        if (!selectedDatasetId || !selectedVersionId) return;
+
+        // Ensure the selected version belongs to the current dataset by validating it exists in the versions array
+        const versionExists = versions.some(v => v.id === selectedVersionId);
+        if (!versionExists) return;
 
         // Route-switch fast path: restore from in-memory/session cache immediately
         // so Dashboard <-> Upload navigation does not show a full reload.
@@ -703,7 +736,7 @@ export default function UserDashboard() {
         return () => {
             clearTimeout(timer);
         };
-    }, [selectedDatasetId, classificationOverridesSignature, selected_domain]);
+    }, [selectedDatasetId, selectedVersionId, versions, classificationOverridesSignature, selected_domain]);
 
     const buildDashboardCacheKey = () => {
         return stableSerialize({
@@ -871,7 +904,11 @@ export default function UserDashboard() {
     };
 
     useEffect(() => {
-        if (!selectedDatasetId) return;
+        if (!selectedDatasetId || !selectedVersionId) return;
+
+        // Ensure the selected version belongs to the current dataset by validating it exists in the versions array
+        const versionExists = versions.some(v => v.id === selectedVersionId);
+        if (!versionExists) return;
 
         const hasTargetFilter = !!(target_value && target_value.toLowerCase() !== 'all');
         const hasActiveFilters = Object.keys(normalizedActiveFilters).length > 0;
@@ -908,7 +945,7 @@ export default function UserDashboard() {
         return () => {
             clearTimeout(timer);
         };
-    }, [selectedDatasetId, selected_domain, classificationOverridesSignature, normalizedActiveFiltersSignature, serverChartOverridesSignature, target_value]);
+    }, [selectedDatasetId, selectedVersionId, versions, selected_domain, classificationOverridesSignature, normalizedActiveFiltersSignature, serverChartOverridesSignature, target_value]);
 
     const handleChartFilterClick = (col: string, val: string) => {
         const rawCol = String(col || '').trim();
@@ -1580,7 +1617,7 @@ export default function UserDashboard() {
             <PageHeader
                 breadcrumb={["Workspaces", "Vizzy Pilot", analytics?.dataset_name || "Dashboard"]}
                 title={getDashboardTitle(analytics?.domain)}
-                description={analytics ? `${analytics.total_rows.toLocaleString()} rows · ${analytics.domain} domain` : "Select a dataset to start analytics"}
+                description={analytics ? `${(analytics.total_rows || 0).toLocaleString()} rows · ${analytics.domain || 'unknown'} domain` : "Select a dataset to start analytics"}
                 actions={(
                     <div className="flex items-center gap-3">
                         <BtnSecondary onClick={() => setIsJoinBuilderOpen(true)}><GitCompare className="h-3 w-3" />Join Builder</BtnSecondary>

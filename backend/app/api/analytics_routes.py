@@ -630,13 +630,17 @@ async def auto_render_dashboard(
             version_id, version.source_type, _ddb_exists, _ddb_path,
         )
 
+        # Initialize reader and df tracking
+        reader = None
+        duckdb_fallback_to_pandas = False
+        
         if _ddb_exists:
             duckdb_path = _ddb_path
-            reader = None
             try:
                 reader = DuckDBReader(str(duckdb_path))
             except Exception as e:
                 logger.warning("auto_render: DuckDBReader failed for %s: %s", duckdb_path, e)
+                duckdb_fallback_to_pandas = True
 
             if reader is not None:
                 try:
@@ -705,7 +709,7 @@ async def auto_render_dashboard(
                     )
                 except Exception as e:
                     logger.warning("auto_render: DuckDB generate_overview failed for %s: %s", version_id, e, exc_info=True)
-                    # Fall through to pandas fallback below
+                    duckdb_fallback_to_pandas = True
                 finally:
                     try:
                         reader.close()
@@ -713,9 +717,30 @@ async def auto_render_dashboard(
                         pass
 
         # Fallback to pandas (only sample, avoids OOM)
-        if reader is None or 'df' not in locals():
+        if duckdb_fallback_to_pandas or reader is None:
             logger.info("auto_render: using pandas fallback for version %s", version_id)
-            df = pd.read_csv(file_path, nrows=200)
+            
+            # Try multiple encodings to handle non-UTF-8 files
+            df = None
+            encodings_to_try = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252', 'utf-16']
+            
+            for encoding in encodings_to_try:
+                try:
+                    df = pd.read_csv(file_path, nrows=200, encoding=encoding)
+                    logger.info("auto_render: successfully read CSV with encoding=%s for version %s", encoding, version_id)
+                    break
+                except (UnicodeDecodeError, LookupError) as e:
+                    logger.debug("auto_render: encoding %s failed for version %s: %s", encoding, version_id, e)
+                    continue
+                except Exception as e:
+                    logger.warning("auto_render: unexpected error with encoding %s for version %s: %s", encoding, version_id, e)
+                    raise
+            
+            if df is None:
+                # Final fallback: read with errors='ignore' to skip bad bytes
+                logger.warning("auto_render: all encodings failed for version %s, using errors='ignore'", version_id)
+                df = pd.read_csv(file_path, nrows=200, encoding='utf-8', errors='ignore')
+            
             total_rows = version.row_count or len(df)
             # 3. Domain detection & Classification
             domain, scores = detect_domain(df)
@@ -752,56 +777,79 @@ async def auto_render_dashboard(
                 charts_mapped = charts_full_result.get("charts", {})
 
             # 6. Generate KPIs
-            kpis = generate_kpis(df, domain, classification)
+            try:
+                kpis = generate_kpis(df, domain, classification)
+            except Exception as e:
+                logger.warning("auto_render: KPI generation failed for %s: %s", version_id, e, exc_info=True)
+                kpis = {}
 
             # 7. Generate DSL Layout
-            from app.services.analytics.dsl_layout_generator import generate_dsl_layout
-            dsl_layout = generate_dsl_layout(
-                domain=domain.value,
-                classification=classification,
-                kpi_dict=kpis,
-                chart_dict=charts_mapped
-            )
+            try:
+                from app.services.analytics.dsl_layout_generator import generate_dsl_layout
+                dsl_layout = generate_dsl_layout(
+                    domain=domain.value,
+                    classification=classification,
+                    kpi_dict=kpis,
+                    chart_dict=charts_mapped
+                )
+            except Exception as e:
+                logger.warning("auto_render: DSL layout generation failed for %s: %s", version_id, e, exc_info=True)
+                dsl_layout = {}
 
             # 8. Prepare raw data payload
-            df_raw = df.copy()
-            raw_data_payload = df_raw.replace([np.inf, -np.inf], np.nan).where(pd.notnull(df_raw), None).to_dict(orient="records")
+            try:
+                df_raw = df.copy()
+                raw_data_payload = df_raw.replace([np.inf, -np.inf], np.nan).where(pd.notnull(df_raw), None).to_dict(orient="records")
+            except Exception as e:
+                logger.warning("auto_render: Raw data payload generation failed for %s: %s", version_id, e, exc_info=True)
+                raw_data_payload = []
 
             # 9. Chart Configs for hybrid engine
             chart_configs = {}
-            for slot, chart in charts_mapped.items():
-                chart_configs[slot] = {
-                    "title": chart["title"],
-                    "type": chart["type"],
-                    "dimension": chart.get("dimension"),
-                    "metric": chart.get("metric"),
-                    "aggregation": chart.get("aggregation"),
-                    "is_date": chart.get("dimension") in classification.dates if chart.get("dimension") else False
-                }
+            try:
+                for slot, chart in charts_mapped.items():
+                    if isinstance(chart, dict):
+                        chart_configs[slot] = {
+                            "title": chart.get("title", "Chart"),
+                            "type": chart.get("type", "bar"),
+                            "dimension": chart.get("dimension"),
+                            "metric": chart.get("metric"),
+                            "aggregation": chart.get("aggregation"),
+                            "is_date": chart.get("dimension") in classification.dates if chart.get("dimension") else False
+                        }
+            except Exception as e:
+                logger.warning("auto_render: Chart config generation failed for %s: %s", version_id, e, exc_info=True)
 
-            return DashboardAnalyticsResponse(
-                dataset_name=version.source_reference.split('/')[-1],
-                total_rows=total_rows,
-                domain=domain.value,
-                domain_confidence=confidence,
-                kpis=kpis,
-                charts=charts_mapped,
-                columns={
-                    "dimensions": classification.dimensions,
-                    "metrics": classification.metrics,
-                    "targets": classification.targets,
-                    "dates": classification.dates,
-                    "excluded": classification.excluded
-                },
-                target_column=target_col,
-                target_values=target_values,
-                geo_filters={},
-                raw_data=raw_data_payload,
-                chart_configs=chart_configs,
-                dsl_layout=dsl_layout,
-                all_columns_charts={},
-                all_columns_count=0,
-            )
+            # Ensure all returned values are JSON-serializable
+            try:
+                return DashboardAnalyticsResponse(
+                    dataset_name=version.source_reference.split('/')[-1],
+                    total_rows=total_rows,
+                    domain=domain.value,
+                    domain_confidence=confidence,
+                    kpis=kpis if kpis else {},
+                    charts=charts_mapped if charts_mapped else {},
+                    columns={
+                        "dimensions": classification.dimensions or [],
+                        "metrics": classification.metrics or [],
+                        "targets": classification.targets or [],
+                        "dates": classification.dates or [],
+                        "excluded": classification.excluded or []
+                    },
+                    target_column=target_col,
+                    target_values=target_values or [],
+                    geo_filters={},
+                    raw_data=raw_data_payload or [],
+                    chart_configs=chart_configs if chart_configs else {},
+                    dsl_layout=dsl_layout if dsl_layout else {},
+                    all_columns_charts={},
+                    all_columns_count=0,
+                )
+            except Exception as e:
+                logger.exception(f"auto_render: Response serialization failed for version {version_id}: {e}")
+                raise HTTPException(status_code=500, detail=f"Failed to serialize dashboard response: {str(e)}")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Auto-render failed for version {version_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Auto-render failed: {str(e)}")

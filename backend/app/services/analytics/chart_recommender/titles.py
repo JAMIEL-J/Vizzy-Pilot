@@ -239,6 +239,21 @@ def _beautify_column_name(col: str) -> str:
     # Default: preserve original column semantics with readable formatting.
     return _humanize_column_name(col)
 
+def _clean_title(title: str) -> str:
+    """Clean chart title to avoid duplicate aggregation prefixes (e.g. 'Total Total Charges')."""
+    if not title:
+        return title
+    t = title.strip()
+    # Replace starting "Total Total " (case-insensitive) with "Total "
+    t = re.sub(r'^(Total)\s+(Total\s+)', r'\2', t, flags=re.IGNORECASE)
+    # Replace starting "Total Totalcharges" with "Total Charges"
+    t = re.sub(r'^(Total)\s+(Totalcharges)', 'Total Charges', t, flags=re.IGNORECASE)
+    # Replace starting "Avg Average " or "Average Average " with "Average "
+    t = re.sub(r'^(Avg|Average)\s+(Average\s+)', r'\2', t, flags=re.IGNORECASE)
+    # Replace starting "Avg Avg " with "Avg "
+    t = re.sub(r'^(Avg)\s+(Avg\s+)', r'\2', t, flags=re.IGNORECASE)
+    return t
+
 def _create_smart_title(metric_col: Optional[str], dimension_col: str, chart_purpose: str = "") -> str:
     """Create a professional chart title with business context."""
     dim_name = _beautify_column_name(dimension_col)
@@ -250,15 +265,17 @@ def _create_smart_title(metric_col: Optional[str], dimension_col: str, chart_pur
         is_time = any(kw in dim_name.lower() for kw in ['date', 'time', 'year', 'month', 'day', 'trend', 'quarter'])
         
         if is_time:
-            return f"{metric_name} Trend Over Time"
-            
-        # This logic depends on _should_average_metric which is in prioritization.py
-        # We'll handle the aggregation prefix in the caller or import it.
-        # For now, we'll keep it simple and let the caller handle the "Average" prefix.
-        return f"{metric_name} by {dim_name}"
+            res = f"{metric_name} Trend Over Time"
+        else:
+            # This logic depends on _should_average_metric which is in prioritization.py
+            # We'll handle the aggregation prefix in the caller or import it.
+            # For now, we'll keep it simple and let the caller handle the "Average" prefix.
+            res = f"{metric_name} by {dim_name}"
     else:
         # Distribution chart
-        return f"{dim_name} Distribution"
+        res = f"{dim_name} Distribution"
+        
+    return _clean_title(res)
 
 
 # Low-value columns to EXCLUDE from primary charts (operational noise)

@@ -9,6 +9,7 @@ export type ClassificationRole = "Dimension" | "Metric" | "Target" | "Date" | "E
 
 export interface DashboardState {
     datasetId: string | null;
+    versionId: string | null;
     rawData: any[] | null;
     chartConfigs: Record<string, any> | null;
     initialChartData: Record<string, any> | null;
@@ -27,7 +28,7 @@ export interface DashboardState {
     streamDone: boolean;
     streamError: string | null;
 
-    setDashboardData: (rawData: any[], chartConfigs: Record<string, any>, initialChartData: Record<string, any>, totalRows: number, targetCol?: string | null, datasetId?: string | null) => void;
+    setDashboardData: (rawData: any[], chartConfigs: Record<string, any>, initialChartData: Record<string, any>, totalRows: number, targetCol?: string | null, datasetId?: string | null, versionId?: string | null) => void;
     syncServerChartData: (charts: Record<string, any>) => void;
     setTargetValue: (value: string) => void;
     setFilter: (column: string, value: string) => void;
@@ -833,6 +834,7 @@ const loadState = (datasetId: string | null) => {
 
 export const useFilterStore = create<DashboardState>((set, get) => ({
     datasetId: null,
+    versionId: null,
     rawData: null,
     chartConfigs: null,
     chartData: null,
@@ -851,18 +853,56 @@ export const useFilterStore = create<DashboardState>((set, get) => ({
     streamDone: false,
     streamError: null,
 
-    setDashboardData: (rawData, chartConfigs, initialChartData, totalRows, targetCol, datasetId) => {
+    setDashboardData: (rawData, chartConfigs, initialChartData, totalRows, targetCol, datasetId, versionId) => {
         const state = get();
         const activeDatasetId = datasetId || state.datasetId;
+        const activeVersionId = versionId || state.versionId;
         const finalTargetCol = targetCol || state.target_column;
 
-        // Load stored overrides/filters if any exist for this dataset
-        const stored = loadState(activeDatasetId);
-        const finalFilters = stored?.active_filters || {};
-        const finalOverrides = stored?.chart_overrides || {};
-        const finalClassOverrides = stored?.classification_overrides || {};
-        const finalTargetVal = stored?.target_value || 'all';
-        const finalDomain = stored?.selected_domain || null;
+        // Detect dataset OR version change - any change should reset filters/overrides
+        const datasetChanged = activeDatasetId !== state.datasetId;
+        const versionChanged = activeVersionId !== state.versionId;
+
+        // Only restore stored filters/overrides when neither dataset nor version changed
+        let finalFilters: Record<string, string[]> = {};
+        let finalOverrides: Record<string, ChartOverride> = {};
+        let finalClassOverrides: Record<string, ClassificationRole> = {};
+        let finalTargetVal = 'all';
+        let finalDomain: string | null = null;
+
+        if (!datasetChanged && !versionChanged) {
+            const stored = loadState(activeDatasetId);
+            finalFilters = stored?.active_filters || {};
+            finalOverrides = stored?.chart_overrides || {};
+            finalClassOverrides = stored?.classification_overrides || {};
+            finalTargetVal = stored?.target_value || 'all';
+            finalDomain = stored?.selected_domain || null;
+        }
+
+        // Handle empty data gracefully - clear chart data if no raw data
+        if (!rawData || rawData.length === 0) {
+            set({
+                datasetId: activeDatasetId,
+                versionId: activeVersionId,
+                rawData: [],
+                chartConfigs: {},
+                initialChartData: {},
+                chartData: {},
+                target_column: finalTargetCol,
+                total_records: totalRows || 0,
+                active_filters: finalFilters,
+                chart_overrides: finalOverrides,
+                classification_overrides: finalClassOverrides,
+                target_value: finalTargetVal,
+                selected_domain: finalDomain,
+                streamedKpis: {},
+                streamedCharts: {},
+                streamDone: false,
+                streamError: null,
+                dataVersion: (datasetChanged || versionChanged) ? state.dataVersion + 1 : state.dataVersion
+            });
+            return;
+        }
 
         const computedChartData = recomputeCharts(
             rawData || [],
@@ -877,10 +917,9 @@ export const useFilterStore = create<DashboardState>((set, get) => ({
             initialChartData
         );
 
-        const versionChanged = activeDatasetId !== state.datasetId;
-
         set({
             datasetId: activeDatasetId,
+            versionId: activeVersionId,
             rawData,
             chartConfigs,
             initialChartData,
@@ -892,7 +931,11 @@ export const useFilterStore = create<DashboardState>((set, get) => ({
             classification_overrides: finalClassOverrides,
             target_value: finalTargetVal,
             selected_domain: finalDomain,
-            dataVersion: versionChanged ? state.dataVersion + 1 : state.dataVersion
+            streamedKpis: {},
+            streamedCharts: {},
+            streamDone: false,
+            streamError: null,
+            dataVersion: (datasetChanged || versionChanged) ? state.dataVersion + 1 : state.dataVersion
         });
     },
 

@@ -48,7 +48,7 @@ def _generate_sales_charts(df: pd.DataFrame, classification: ColumnClassificatio
     pm = classification.metrics
     pd_ = classification.dimensions
 
-    def _find_col(keywords, cols, exclude=None, min_unique=None):
+    def _find_col(keywords, cols, exclude=None, min_unique=None, is_metric=True):
         exclude = exclude or []
         
         # Primary: Semantic mapping
@@ -58,8 +58,11 @@ def _generate_sales_charts(df: pd.DataFrame, classification: ColumnClassificatio
             best_col = None
 
             for col in cols:
+                col_lower = col.lower()
+                if is_metric and ('date' in col_lower or 'time' in col_lower or 'year' in col_lower):
+                    continue
                 # Check exclusions
-                col_norm = col.lower().replace('_', '').replace('-', '')
+                col_norm = col_lower.replace('_', '').replace('-', '')
                 if any(ex in col_norm for ex in exclude):
                     continue
                 
@@ -80,9 +83,12 @@ def _generate_sales_charts(df: pd.DataFrame, classification: ColumnClassificatio
 
         # Fallback: Substring matching
         for col in cols:
-            col_lower = col.lower().replace('_', '').replace('-', '')
-            if any(kw in col_lower for kw in keywords):
-                if not any(ex in col_lower for ex in exclude):
+            col_lower = col.lower()
+            if is_metric and ('date' in col_lower or 'time' in col_lower or 'year' in col_lower):
+                continue
+            col_norm = col_lower.replace('_', '').replace('-', '')
+            if any(kw in col_norm for kw in keywords):
+                if not any(ex in col_norm for ex in exclude):
                     if min_unique:
                         if df[col].nunique() >= min_unique:
                             return col
@@ -90,27 +96,61 @@ def _generate_sales_charts(df: pd.DataFrame, classification: ColumnClassificatio
                         return col
         return None
 
-    revenue_col = _find_col(['revenue', 'sales', 'amount', 'total', 'gmv'], pm) or (pm[0] if pm else None)
-    qty_col = _find_col(['quantity', 'qty', 'units', 'count', 'volume'], pm)
-    profit_col = _find_col(['profit', 'margin', 'net', 'earnings'], pm)
-    discount_col = _find_col(['discount', 'rebate', 'reduction', 'coupon'], pm)
-    cost_col = _find_col(['cost', 'cogs', 'expense'], pm)
+    revenue_col = _find_col(['revenue', 'sales', 'amount', 'total', 'gmv'], pm, is_metric=True)
+    if not revenue_col:
+        revenue_col = _find_col(['revenue', 'sales', 'amount', 'total', 'gmv'], df.columns, is_metric=True)
+    if not revenue_col:
+        revenue_col = pm[0] if pm else None
 
-    product_col = _find_col(['product', 'item', 'sku', 'service'], pd_)
-    category_col = _find_col(['category', 'subcategory', 'segment', 'department', 'type', 'group'], pd_)
+    qty_col = _find_col(['quantity', 'qty', 'units', 'count', 'volume'], pm, is_metric=True)
+    if not qty_col:
+        qty_col = _find_col(['quantity', 'qty', 'units', 'count', 'volume'], df.columns, is_metric=True)
+
+    profit_col = _find_col(['profit', 'margin', 'net', 'earnings'], pm, is_metric=True)
+    if not profit_col:
+        profit_col = _find_col(['profit', 'margin', 'net', 'earnings'], df.columns, is_metric=True)
+
+    discount_col = _find_col(['discount', 'rebate', 'reduction', 'coupon'], pm, is_metric=True)
+    if not discount_col:
+        discount_col = _find_col(['discount', 'rebate', 'reduction', 'coupon'], df.columns, is_metric=True)
+
+    cost_col = _find_col(['cost', 'cogs', 'expense'], pm, is_metric=True)
+    if not cost_col:
+        cost_col = _find_col(['cost', 'cogs', 'expense'], df.columns, is_metric=True)
+
+    product_col = _find_col(['product', 'item', 'sku', 'service'], pd_, is_metric=False)
+    category_col = _find_col(['category', 'subcategory', 'segment', 'department', 'type', 'group'], pd_, is_metric=False)
+    segment_col = _find_col(['segment', 'type', 'group', 'class', 'channel'], pd_, exclude=['category', 'product', 'customer', 'order'], is_metric=False)
     
     # Stricter detection for high-cardinality entities
     entity_excludes = ['segment', 'type', 'group', 'class', 'region', 'state', 'tier', 'status', 'category', 'profile', 'city', 'country', 'zip', 'postal', 'zone']
-    customer_col = _find_col(['customer', 'client', 'buyer', 'account', 'user', 'email'], pd_, exclude=entity_excludes, min_unique=5)
-    order_col = _find_col(['order', 'invoice', 'receipt', 'transaction', 'cart'], pd_, exclude=entity_excludes, min_unique=5)
+    customer_col = _find_col(['customer', 'client', 'buyer', 'account', 'user', 'email'], pd_, exclude=entity_excludes, min_unique=5, is_metric=False)
+    order_col = _find_col(['order', 'invoice', 'receipt', 'transaction', 'cart'], pd_, exclude=entity_excludes, min_unique=5, is_metric=False)
     
-    date_col = classification.dates[0] if classification.dates else None
+    # Robust date column detection fallback
+    date_col = None
+    if classification.dates:
+        date_col = classification.dates[0]
+    else:
+        # Fallback: look for any column in df that contains "date", "time", "year", or has datetime/date-like values
+        for col in df.columns:
+            col_lower = col.lower()
+            if 'date' in col_lower or 'time' in col_lower or 'year' in col_lower or pd.api.types.is_datetime64_any_dtype(df[col]):
+                if not any(ex in col_lower for ex in ['ship', 'delivery', 'late', 'risk']):
+                    date_col = col
+                    break
+        if not date_col and df.columns:
+            for col in df.columns:
+                col_lower = col.lower()
+                if 'date' in col_lower or 'time' in col_lower or pd.api.types.is_datetime64_any_dtype(df[col]):
+                    date_col = col
+                    break
 
     # Geo columns
-    country_col = _find_col(['country', 'nation'], pd_)
-    state_col = _find_col(['state', 'province'], pd_)
-    city_col = _find_col(['city', 'town'], pd_)
-    region_col = _find_col(['region', 'market', 'territory', 'zone'], pd_)
+    country_col = _find_col(['country', 'nation'], pd_, is_metric=False)
+    state_col = _find_col(['state', 'province'], pd_, is_metric=False)
+    city_col = _find_col(['city', 'town'], pd_, is_metric=False)
+    region_col = _find_col(['region', 'market', 'territory', 'zone'], pd_, is_metric=False)
     geo_col = country_col or state_col or region_col or city_col
 
     # Fallback dim
@@ -135,21 +175,37 @@ def _generate_sales_charts(df: pd.DataFrame, classification: ColumnClassificatio
     # 2. Geographic Revenue Distribution — handled by _generate_geo_charts (multi-metric)
 
     # 3. Time Intelligence (Line/Area)
-    if date_col and revenue_col:
-        data = _get_time_trend(
-            df,
-            date_col,
-            revenue_col,
-            aggregation=_trend_aggregation_for_metric(revenue_col),
-        )
-        if data:
-            add_chart(ChartRecommendation(
-                slot='', title=_create_smart_title(revenue_col, date_col),
-                chart_type='line', data=data, confidence='HIGH',
-                reason='Tier 1: Sales velocity and seasonality',
-                format_type="currency",
-                dimension=date_col, metric=revenue_col, aggregation="sum"
-            ))
+    if date_col:
+        if revenue_col:
+            data = _get_time_trend(
+                df,
+                date_col,
+                revenue_col,
+                aggregation=_trend_aggregation_for_metric(revenue_col),
+            )
+            if data:
+                add_chart(ChartRecommendation(
+                    slot='', title=_create_smart_title(revenue_col, date_col),
+                    chart_type='line', data=data, confidence='HIGH',
+                    reason='Tier 1: Sales velocity and seasonality',
+                    format_type="currency",
+                    dimension=date_col, metric=revenue_col, aggregation="sum"
+                ))
+        if profit_col:
+            data = _get_time_trend(
+                df,
+                date_col,
+                profit_col,
+                aggregation=_trend_aggregation_for_metric(profit_col),
+            )
+            if data:
+                add_chart(ChartRecommendation(
+                    slot='', title=_create_smart_title(profit_col, date_col),
+                    chart_type='line', data=data, confidence='HIGH',
+                    reason='Tier 1: Profit trend over time',
+                    format_type="currency",
+                    dimension=date_col, metric=profit_col, aggregation="sum"
+                ))
             
     # 4. Growth Benchmarking (YoY/YTD)
     if date_col and revenue_col:
@@ -187,6 +243,46 @@ def _generate_sales_charts(df: pd.DataFrame, classification: ColumnClassificatio
                 format_type="currency",
                 dimension=mix_dim, metric=revenue_col, aggregation="sum"
             ))
+
+    # ── KEY PROFIT & SALES CHARTS ACROSS ALL CORE DIMENSIONS ──────────
+    core_dims = {
+        "category": category_col,
+        "product": product_col,
+        "geography": geo_col,
+        "segment": segment_col
+    }
+
+    for dim_label, dim in core_dims.items():
+        if not dim:
+            continue
+        # Add Sales/Revenue chart for this core dimension if it's not the hero dimension
+        if revenue_col and dim != hero_dim:
+            data = _smart_aggregate(df, dim, revenue_col, limit=10)
+            if data:
+                add_chart(ChartRecommendation(
+                    slot='', title=_create_smart_title(revenue_col, dim),
+                    chart_type="hbar" if dim_label in ("product", "geography") else "bar",
+                    data=data, confidence="HIGH",
+                    reason=f"Key Insight: Revenue distribution across {dim_label}",
+                    format_type="currency",
+                    dimension=dim, metric=revenue_col, aggregation="sum"
+                ))
+        
+        # Add Profit chart for this core dimension
+        if profit_col:
+            # We skip Category Profitability if Category is category_col (as it is generated as the primary below)
+            if dim == (category_col or primary_dim):
+                continue
+            data = _smart_aggregate(df, dim, profit_col, limit=10)
+            if data:
+                add_chart(ChartRecommendation(
+                    slot='', title=_create_smart_title(profit_col, dim),
+                    chart_type="hbar" if dim_label in ("product", "geography") else "bar",
+                    data=data, confidence="HIGH",
+                    reason=f"Key Insight: Bottom-line profitability across {dim_label}",
+                    format_type="currency",
+                    dimension=dim, metric=profit_col, aggregation="sum"
+                ))
 
     # ── TIER 2: ADVANCED PROFITABILITY & ECONOMICS ───────────────────
     

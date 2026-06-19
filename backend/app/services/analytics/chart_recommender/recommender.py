@@ -80,6 +80,7 @@ from .sanitization import (
 )
 from .titles import (
     _beautify_column_name,
+    _clean_title,
     _create_smart_title,
     _format_categorical_value,
     _is_low_value_column,
@@ -369,6 +370,7 @@ def _generate_all_columns_charts(
     curated_pairs_norm: Set[Tuple[str, str]] = {(m.lower(), d.lower()) for m, d in curated_pairs}
 
     def _unique_title(base: str, max_attempts: int = 20) -> str:
+        base = _clean_title(base)
         if base not in seen_titles and base not in curated_titles:
             seen_titles.add(base)
             return base
@@ -966,6 +968,20 @@ def recommend_charts(df: pd.DataFrame, domain: DomainType, classification: Colum
             if rec and rec.title.lower() not in existing_titles:
                 existing_titles.add(rec.title.lower())
                 charts.append(rec)
+
+    # Filter out single-column distribution charts from Key Insights (unless it's the target column)
+    key_insight_charts = []
+    for chart in charts:
+        is_single_col_dist = (
+            chart.aggregation == "count"
+            and chart.metric is None
+            and chart.dimension
+            and chart.chart_type in ("pie", "donut", "hbar", "bar")
+            and (target_col is None or chart.dimension.lower() != target_col.lower())
+        )
+        if not is_single_col_dist:
+            key_insight_charts.append(chart)
+    charts = key_insight_charts
 
     # Assign sections based on registry
     for chart in charts:
