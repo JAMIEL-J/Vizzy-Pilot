@@ -910,6 +910,63 @@ def recommend_charts(df: pd.DataFrame, domain: DomainType, classification: Colum
     # ========================================
     charts = _deduplicate_charts(charts)
 
+    # ========================================
+    # EXHAUSTIVE TARGET × CATEGORICAL PAIRING
+    # Ensure every categorical dimension is paired with the target column.
+    # Domain generators only cover ~6-8 key dimensions; this phase catches ALL.
+    # ========================================
+    target_col = classification.targets[0] if classification.targets else None
+    if target_col and target_col in df.columns:
+        # Collect dimensions already paired with target in existing charts
+        already_paired_dims = set()
+        for c in charts:
+            if c.metric and c.dimension:
+                # Chart pairs target with this dimension (target as metric)
+                if c.metric.lower() == target_col.lower():
+                    already_paired_dims.add(c.dimension.lower())
+                # Chart pairs dimension with target (target as dimension)
+                if c.dimension.lower() == target_col.lower():
+                    already_paired_dims.add(c.metric.lower())
+
+        # Build pool of ALL categorical columns (dims + low-cardinality extras)
+        all_categoricals = []
+        for col in classification.dimensions:
+            if col in df.columns and col.lower() != target_col.lower():
+                all_categoricals.append(col)
+        # Also include low-cardinality numeric columns not in dims
+        for col in df.columns:
+            if col.lower() == target_col.lower():
+                continue
+            if col.lower() in [c.lower() for c in all_categoricals]:
+                continue
+            try:
+                nuniq = df[col].nunique()
+                if 2 <= nuniq <= 20 and col not in classification.metrics:
+                    all_categoricals.append(col)
+            except Exception:
+                pass
+
+        # Generate target-rate chart for every uncovered categorical
+        existing_titles = {c.title.lower() for c in charts if c.title}
+        for dim_col in all_categoricals:
+            if dim_col.lower() in already_paired_dims:
+                continue
+            try:
+                nuniq = df[dim_col].nunique()
+                if nuniq < 2 or nuniq > 50:
+                    continue
+            except Exception:
+                continue
+
+            rec = _build_target_rate_chart(
+                df, target_col, dim_col,
+                title=f'{_beautify_column_name(target_col)} Rate by {_beautify_column_name(dim_col)} (%)',
+                reason=f'Exhaustive coverage: {_beautify_column_name(target_col)} rate across {_beautify_column_name(dim_col)}',
+            )
+            if rec and rec.title.lower() not in existing_titles:
+                existing_titles.add(rec.title.lower())
+                charts.append(rec)
+
     # Assign sections based on registry
     for chart in charts:
         assignment = assign_section(
@@ -948,8 +1005,7 @@ def recommend_charts(df: pd.DataFrame, domain: DomainType, classification: Colum
     # Sort descending by variance to surface highest-impact insights
     charts.sort(key=lambda x: getattr(x, 'variance_score', 0), reverse=True)
     
-    # Allow up to 25 charts — churn domain produces 15 analytically distinct charts
-    charts = charts[:25]
+    # No hard cap — all target×categorical pairings are included
     
     # ========================================
     # ALL COLUMNS MODE: exhaustive coverage
