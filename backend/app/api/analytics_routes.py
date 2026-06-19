@@ -28,7 +28,7 @@ from app.models.dataset_version import DatasetVersion
 from app.models.analysis_contract import AnalysisContract
 from app.models.analysis_result import AnalysisResult
 from app.models.user import UserRole as ModelUserRole
-from app.services.dataset_version_service import get_latest_version
+from app.services.dataset_version_service import get_latest_version, resolve_semantic_map
 from app.services.analysis_contract_service import create_analysis_contract
 from app.services.analysis_service import create_analysis_result
 from app.services.analytics import (
@@ -612,6 +612,9 @@ async def auto_render_dashboard(
             current_user=current_user
         )
 
+        # 1.5. Resolve semantic map across all versions to establish a virtual Single Source of Truth
+        semantic_map_json = resolve_semantic_map(session, version)
+
         # 2. Load data
         file_path = (
             version.cleaned_reference
@@ -642,7 +645,7 @@ async def auto_render_dashboard(
                         df=df,
                         reader=reader,
                         schema={"columns": []},
-                        semantic_map_json=version.semantic_map_json
+                        semantic_map_json=semantic_map_json
                     )
                     
                     domain = res["domain"]
@@ -879,10 +882,12 @@ async def get_dashboard_analytics(  # pyright: ignore
         
         # Merge saved semantic mapping with runtime overrides
         effective_overrides = {}
-        if latest_version.semantic_map_json:
+        # Fetch the latest semantic map across all versions of this dataset to act as the virtual Single Source of Truth
+        resolved_semantic_map = resolve_semantic_map(session, latest_version)
+        if resolved_semantic_map:
             try:
                 from app.services.analytics.role_resolver import normalize_to_col_role
-                saved_map = normalize_to_col_role(latest_version.semantic_map_json)
+                saved_map = normalize_to_col_role(resolved_semantic_map)
                 effective_overrides.update(saved_map)
             except Exception as e:
                 logger.error(f"Failed to parse saved semantic map: {e}")
