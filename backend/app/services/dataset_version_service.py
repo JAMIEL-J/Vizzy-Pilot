@@ -521,3 +521,6 @@ def preview_remap_impact(
         "affected_charts": affected,
         "manually_customized_charts": customized_ids,
     }
+
+def resolve_semantic_map(session: Session, version: DatasetVersion) -> str | None:
+    return version.semantic_map_json

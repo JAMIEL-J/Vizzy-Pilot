@@ -332,6 +332,7 @@ def _generate_all_columns_charts(
     classification: ColumnClassification,
     curated_titles: Optional[Set[str]] = None,
     curated_pairs: Optional[Set[Tuple[str, str]]] = None,
+    column_profiles: Optional[Dict[str, Any]] = None,
 ) -> List[ChartRecommendation]:
     """
     Generate meaningful column-coverage charts for EVERY column in the dataset.
@@ -961,6 +962,7 @@ def recommend_charts(df: pd.DataFrame, domain: DomainType, classification: Colum
             df, classification,
             curated_titles=curated_chart_titles,
             curated_pairs=curated_pairs,
+            column_profiles=column_profiles,
         )
         all_col_charts = _deduplicate_charts(all_col_charts)
         for i, chart in enumerate(all_col_charts):

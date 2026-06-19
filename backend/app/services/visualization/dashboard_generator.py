@@ -29,6 +29,7 @@ def generate_overview_dashboard(
     df: pd.DataFrame,
     schema: Dict[str, Any],
     semantic_map_json: Optional[str] = None,
+    all_columns: bool = False,
 ) -> Dict[str, Any]:
     """
     Generate a full BI dashboard with domain-aware KPIs and intelligent charts.
@@ -132,7 +133,7 @@ def generate_overview_dashboard(
             overrides = invert_to_role_map(semantic_map_json)
         except Exception:
             pass
-    chart_dict = recommend_charts(df, domain, classification, overrides=overrides)
+    chart_dict = recommend_charts(df, domain, classification, overrides=overrides, all_columns=all_columns)
 
     # ── 5. Assemble DSL Layout Specification ──
     dsl_layout = generate_dsl_layout(
@@ -158,10 +159,12 @@ def generate_overview_dashboard(
 
 
 def generate_overview_dashboard_duckdb(
+
     df: pd.DataFrame,
     reader: "DuckDBReader",
     schema: Dict[str, Any],
     semantic_map_json: Optional[str] = None,
+    all_columns: bool = False,
 ) -> Dict[str, Any]:
     """
     Generate dashboard using DuckDB for accurate aggregations.
@@ -304,6 +307,7 @@ def generate_overview_dashboard_duckdb(
         df, domain, classification,
         overrides=overrides,
         column_profiles=column_profiles,
+        all_columns=all_columns,
     )
 
     # ── 5. Assemble DSL Layout Specification ──

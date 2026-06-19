@@ -1,3 +1,5 @@
+from typing import List, Dict, Any
+
 """
 Ingestion service module.
 
@@ -345,20 +347,16 @@ async def generate_initial_dashboard(
     raw_path: str,
 ) -> Dict[str, Any]:
     """
-    Generate initial dashboard with auto semantic mapping after file upload.
+    Generate auto semantic mapping after file upload.
 
     DuckDB-first approach:
     1. Build DuckDB file synchronously (replaces full-CSV pandas load)
-    2. Read a small sample (200 rows) from DuckDB for dashboard generation
-    3. Run semantic audit (reads statistics/samples from DuckDB)
-    4. Generate dashboard using the sample + semantic map
+    2. Run semantic audit (reads statistics/samples from DuckDB)
 
     Raises RuntimeError if DuckDB build fails — caller should return 422.
     """
     from app.services.analytics.duckdb_builder import build_duckdb_from_csv
-    from app.services.analytics.duckdb_reader import DuckDBReader
     from app.services.semantic_audit import run_semantic_audit
-    from app.services.visualization.dashboard_generator import generate_overview_dashboard_duckdb
     from app.core.llm_client import get_llm_client
     import json
 
@@ -372,61 +370,32 @@ async def generate_initial_dashboard(
         csv_path=raw_path,
     )
 
-    # ── 2. Connect DuckDBReader for accurate aggregations + sample ──
-    # The reader stays open during dashboard generation so KPI values
-    # are computed against the full dataset (not just 200 rows).
-    reader = DuckDBReader(str(duckdb_path))
+    # ── 2. Run semantic audit ──
+    # run_semantic_audit connects to DuckDB directly for column samples and stats.
+    llm_client = get_llm_client()
     try:
-        reader.set_table("data")
-        df = reader.sample_rows(limit=200)
+        mappings = await run_semantic_audit(
+            dataset_id=str(dataset_id),
+            version_id=str(version_id),
+            schema=schema,
+            llm_router=llm_client,
+        )
 
-        # ── 3. Run semantic audit ──
-        # run_semantic_audit connects to DuckDB directly for column samples
-        # and stats — it does NOT depend on the DataFrame we loaded above.
-        llm_client = get_llm_client()
-        try:
-            mappings = await run_semantic_audit(
-                dataset_id=str(dataset_id),
-                version_id=str(version_id),
-                schema=schema,
-                llm_router=llm_client,
-            )
+        # Convert mappings to semantic_map_json format
+        semantic_map = {m["column"]: m["role"] for m in mappings if "column" in m and "role" in m}
+        semantic_map_json = json.dumps(semantic_map)
 
-            # Convert mappings to semantic_map_json format
-            semantic_map = {m["column"]: m["role"] for m in mappings if "column" in m and "role" in m}
-            semantic_map_json = json.dumps(semantic_map)
+        # Update version with semantic map
+        version = session.get(DatasetVersion, version_id)
+        if version:
+            version.semantic_map_json = semantic_map_json
+            session.add(version)
+            session.commit()
+    except Exception as e:
+        # If semantic mapping fails, continue without it
+        semantic_map_json = None
 
-            # Update version with semantic map
-            version = session.get(DatasetVersion, version_id)
-            if version:
-                version.semantic_map_json = semantic_map_json
-                session.add(version)
-                session.commit()
-        except Exception as e:
-            # If semantic mapping fails, continue without it
-            semantic_map_json = None
-
-        # ── 4. Generate dashboard using DuckDB-accurate aggregations ──
-        # generate_overview_dashboard_duckdb uses the reader for accurate
-        # KPI values (sum, avg, count) from the full dataset, while still
-        # using the sample df for domain detection and chart recommendations.
-        try:
-            dashboard_result = generate_overview_dashboard_duckdb(
-                df=df,
-                reader=reader,
-                schema={"columns": schema},
-                semantic_map_json=semantic_map_json,
-            )
-
-            return {
-                "dashboard": dashboard_result.get("dashboard"),
-                "semantic_map": semantic_map_json,
-            }
-        except Exception as e:
-            return {
-                "dashboard": None,
-                "semantic_map": semantic_map_json,
-                "error": str(e),
-            }
-    finally:
-        reader.close()
+    return {
+        "dashboard": None,
+        "semantic_map": semantic_map_json,
+    }

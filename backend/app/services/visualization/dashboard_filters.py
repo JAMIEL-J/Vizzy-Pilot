@@ -181,7 +181,7 @@ def get_filter_options(
         result["filter_type"] = "range"
         
     # Categorical/object columns
-    elif pd.api.types.is_object_dtype(col) or pd.api.types.is_categorical_dtype(col):
+    elif pd.api.types.is_object_dtype(col) or pd.api.types.is_string_dtype(col) or isinstance(col.dtype, pd.CategoricalDtype):
         value_counts = col.value_counts().head(max_options)
         result["options"] = [
             {"value": str(v), "count": int(c)}
