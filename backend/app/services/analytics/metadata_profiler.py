@@ -191,7 +191,7 @@ def profile_dataset_duckdb(
                 SELECT
                     COUNT(*)                                               AS total,
                     COUNT({safe_col})                                      AS non_null,
-                    COUNT(DISTINCT {safe_col})                             AS unique_count
+                    APPROX_COUNT_DISTINCT({safe_col})                             AS unique_count
                 FROM {table_ref}
                 """,
             )
