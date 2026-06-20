@@ -644,7 +644,7 @@ async def auto_render_dashboard(
 
             if reader is not None:
                 try:
-                    df = reader.sample_rows(200)
+                    df = reader.sample_rows(50000)
                     res = generate_overview_dashboard_duckdb(
                         df=df,
                         reader=reader,
@@ -726,7 +726,7 @@ async def auto_render_dashboard(
             
             for encoding in encodings_to_try:
                 try:
-                    df = pd.read_csv(file_path, nrows=200, encoding=encoding)
+                    df = pd.read_csv(file_path, nrows=50000, encoding=encoding)
                     logger.info("auto_render: successfully read CSV with encoding=%s for version %s", encoding, version_id)
                     break
                 except (UnicodeDecodeError, LookupError) as e:
@@ -739,7 +739,7 @@ async def auto_render_dashboard(
             if df is None:
                 # Final fallback: read with errors='ignore' to skip bad bytes
                 logger.warning("auto_render: all encodings failed for version %s, using errors='ignore'", version_id)
-                df = pd.read_csv(file_path, nrows=200, encoding='utf-8', errors='ignore')
+                df = pd.read_csv(file_path, nrows=50000, encoding='utf-8', errors='ignore')
             
             total_rows = version.row_count or len(df)
             # 3. Domain detection & Classification
