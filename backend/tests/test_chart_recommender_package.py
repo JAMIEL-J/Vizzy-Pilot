@@ -404,3 +404,105 @@ def simple_classification():
         excluded=[],
         mappings={},
     )
+
+
+def test_title_prefix_cleaning():
+    """Test that double prefixes like 'Total Total Charges' are cleaned correctly."""
+    from app.services.analytics.chart_recommender.titles import _clean_title
+    
+    # Test cases for clean_title
+    assert _clean_title("Total Total Charges by Segment") == "Total Charges by Segment"
+    assert _clean_title("Total TotalCharges by Segment") == "Total Charges by Segment"
+    assert _clean_title("total total charges by segment") == "total charges by segment"
+    assert _clean_title("Avg Average Tenure by Segment") == "Average Tenure by Segment"
+    assert _clean_title("Avg Avg Tenure by Segment") == "Avg Tenure by Segment"
+    assert _clean_title("Avg Total Charges by Segment") == "Avg Total Charges by Segment"  # This one should stay
+    assert _clean_title("Total Charges by Segment") == "Total Charges by Segment"
+    assert _clean_title("Average Tenure by Segment") == "Average Tenure by Segment"
+
+
+def test_chart_recommendation_title_auto_cleaning():
+    """Test that ChartRecommendation constructor cleans titles automatically via post-init."""
+    from app.services.analytics.chart_recommender import ChartRecommendation
+    
+    rec = ChartRecommendation(
+        slot="",
+        title="Total Total Charges by Segment",
+        chart_type="bar",
+        data=[],
+        confidence="HIGH",
+        reason="Test"
+    )
+    assert rec.title == "Total Charges by Segment"
+
+
+def test_recommend_charts_filters_single_column_distributions():
+    """Test that recommend_charts filters out single-column distribution charts from Key Insights unless target."""
+    from app.services.analytics.chart_recommender import recommend_charts
+    from app.services.analytics import DomainType
+    from app.services.analytics.column_filter import ColumnClassification
+    
+    df = pd.DataFrame({
+        "churn": [0, 1, 0, 0, 1],
+        "gender": ["M", "F", "M", "F", "M"],
+        "totalcharges": [100.0, 150.0, 200.0, 100.0, 250.0]
+    })
+    
+    classification = ColumnClassification(
+        metrics=["totalcharges"],
+        dimensions=["gender"],
+        targets=["churn"],
+        dates=[],
+        excluded=[],
+        mappings={}
+    )
+    
+    res = recommend_charts(df, DomainType.CHURN, classification, all_columns=True)
+    
+    # When all_columns is True, the return value has a "charts" dict
+    charts_dict = res["charts"]
+    key_insight_titles = [c["title"] for c in charts_dict.values()]
+    
+    # The target distribution "Churn Overview" (single-column target distribution) SHOULD be in Key Insights
+    assert any("Churn" in t for t in key_insight_titles)
+    
+    # "Gender Distribution" (or any other single-column non-target distribution) should NOT be in Key Insights
+    assert not any(t == "Gender Distribution" for t in key_insight_titles)
+
+
+def test_recommend_sales_charts_robust_fallbacks():
+    """Test that sales domain generator correctly resolves date and metrics from df.columns if missing in classification."""
+    from app.services.analytics.chart_recommender import recommend_charts
+    from app.services.analytics import DomainType
+    from app.services.analytics.column_filter import ColumnClassification
+    
+    # Dataset has date and sales metrics but ColumnClassification lists are empty/minimal
+    df = pd.DataFrame({
+        "Order Date": ["2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04", "2026-01-05"],
+        "Sales": [100.0, 150.0, 200.0, 100.0, 250.0],
+        "Profit": [10.0, 20.0, 30.0, 5.0, 40.0],
+        "Category": ["A", "B", "A", "B", "A"]
+    })
+    
+    # Intentional empty metrics/dates to test the fallback resolution
+    classification = ColumnClassification(
+        metrics=[],
+        dimensions=["Category"],
+        targets=[],
+        dates=[],
+        excluded=[],
+        mappings={}
+    )
+    
+    res = recommend_charts(df, DomainType.SALES, classification, all_columns=True)
+    charts_dict = res["charts"]
+    titles = [c["title"] for c in charts_dict.values()]
+    
+    # Trend chart (Sales Over Time) should be generated using Order Date and Sales via fallbacks
+    assert any("Sales Trend Over Time" in t or "Revenue Trend" in t for t in titles)
+    
+    # Profitability charts should be generated using Profit via fallbacks
+    assert any("Profit" in t for t in titles)
+
+
+

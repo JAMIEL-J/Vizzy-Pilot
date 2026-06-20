@@ -681,7 +681,11 @@ async def auto_render_dashboard(
                             "dimension": chart.get("dimension"),
                             "metric": chart.get("metric"),
                             "aggregation": chart.get("aggregation"),
-                            "is_date": chart.get("dimension") in classification.dates if chart.get("dimension") else False
+                            "is_date": chart.get("is_date", False) or (chart.get("dimension") in classification.dates if chart.get("dimension") else False),
+                            "granularity": chart.get("granularity"),
+                            "x_column": chart.get("x_column"),
+                            "y_column": chart.get("y_column"),
+                            "format_type": chart.get("format_type"),
                         }
                     
                     return DashboardAnalyticsResponse(
@@ -815,7 +819,11 @@ async def auto_render_dashboard(
                             "dimension": chart.get("dimension"),
                             "metric": chart.get("metric"),
                             "aggregation": chart.get("aggregation"),
-                            "is_date": chart.get("dimension") in classification.dates if chart.get("dimension") else False
+                            "is_date": chart.get("is_date", False) or (chart.get("dimension") in classification.dates if chart.get("dimension") else False),
+                            "granularity": chart.get("granularity"),
+                            "x_column": chart.get("x_column"),
+                            "y_column": chart.get("y_column"),
+                            "format_type": chart.get("format_type"),
                         }
             except Exception as e:
                 logger.warning("auto_render: Chart config generation failed for %s: %s", version_id, e, exc_info=True)
@@ -1038,6 +1046,17 @@ async def get_dashboard_analytics(  # pyright: ignore
         
         # Parse and apply multi-column filters with smart matching
         active_filters = state.active_filters or {}
+        
+        # Map active_filters keys case-insensitively to actual dataframe columns to resolve casing mismatches
+        resolved_active_filters = {}
+        for col, values in active_filters.items():
+            actual_col = next((c for c in df_filtered.columns if c.lower() == col.lower()), None)
+            if actual_col and values:
+                resolved_active_filters[actual_col] = values
+        
+        # Update request state with resolved keys to synchronize downstream services
+        state.active_filters = resolved_active_filters
+        active_filters = resolved_active_filters
         
         for col, values in active_filters.items():
             if col not in df_filtered.columns or not values:
@@ -1488,8 +1507,11 @@ async def get_dashboard_analytics(  # pyright: ignore
                 "dimension": dim,
                 "metric": chart.get("metric"),
                 "aggregation": chart.get("aggregation"),
+                "is_date": chart.get("is_date", False) or (dim in classification.dates if dim else False),
                 "granularity": chart.get("granularity"),
-                "is_date": dim in classification.dates if dim else False
+                "x_column": chart.get("x_column"),
+                "y_column": chart.get("y_column"),
+                "format_type": chart.get("format_type"),
             }
         for slot, chart in all_columns_charts_data.items():
             dim = chart.get("dimension")
@@ -1499,8 +1521,11 @@ async def get_dashboard_analytics(  # pyright: ignore
                 "dimension": dim,
                 "metric": chart.get("metric"),
                 "aggregation": chart.get("aggregation"),
+                "is_date": chart.get("is_date", False) or (dim in classification.dates if dim else False),
                 "granularity": chart.get("granularity"),
-                "is_date": dim in classification.dates if dim else False
+                "x_column": chart.get("x_column"),
+                "y_column": chart.get("y_column"),
+                "format_type": chart.get("format_type"),
             }
 
         # Data quality: null % per column

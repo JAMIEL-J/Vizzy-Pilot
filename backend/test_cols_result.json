@@ -5,12 +5,13 @@
   ],
   "Dimensions": [
     "Country or territory name",
-    "ISO 2-character country/territory code",
-    "ISO 3-character country/territory code",
     "region"
   ],
   "Dates": [
     "year"
   ],
-  "Excluded": []
+  "Excluded": [
+    "ISO 2-character country/territory code",
+    "ISO 3-character country/territory code"
+  ]
 }

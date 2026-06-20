@@ -1347,47 +1347,233 @@ async def send_message_stream(
                     output_data = None
 
                     if has_dataset_attached:
-                        result = await run_analysis_orchestration(
-                            session=session,
-                            dataset_version_id=chat_session.dataset_version_id,
-                            user_id=UUID(current_user.user_id),
-                            role=current_user.role,
-                            query=request.content,
-                            force_deep_analysis=request.force_deep_analysis,
-                            progress_callback=progress_callback,
-                        )
+                        query_text = request.content
+                        detected_intent, intent_confidence, intent_label = classify_intent_fast(query_text)
+                        is_dashboard = detected_intent == 'dashboard'
+                        interpretive_text_mode = (_looks_interpretive_query(query_text) and not _explicitly_requests_visual(query_text)) or request.force_deep_analysis
+                        is_schema_columns_query = _is_schema_columns_query(query_text) and not _explicitly_requests_visual(query_text)
 
-                        if result.get("refused"):
-                            assistant_content = result["message"]
-                            output_data = {
-                                "refused": True,
-                                "followup_suggestions": result.get("suggestions", [])
-                            }
-                            intent_type = "error"
-                        else:
-                            default_intent = "interpretive" if request.force_deep_analysis else "analysis"
-                            assistant_content, intent_type, orch_output = _normalize_orchestrator_response(result, default_intent=default_intent)
-                            
-                            if request.force_deep_analysis:
-                                assistant_content = _ensure_point_style(assistant_content, min_points=6, max_points=8)
+                        if is_schema_columns_query:
+                            from app.models.dataset_version import DatasetVersion
+                            version = session.get(DatasetVersion, chat_session.dataset_version_id)
+                            data_path = (version.cleaned_reference or version.source_reference) if version else None
+                            columns = _read_dataset_columns(data_path) if data_path else []
+                            assistant_content = _build_columns_response(columns)
+                            intent_type = "text_query"
+                            output_data = None
+
+                        elif is_dashboard or interpretive_text_mode:
+                            result = await run_analysis_orchestration(
+                                session=session,
+                                dataset_version_id=chat_session.dataset_version_id,
+                                user_id=UUID(current_user.user_id),
+                                role=current_user.role,
+                                query=query_text,
+                                force_deep_analysis=request.force_deep_analysis,
+                                progress_callback=progress_callback,
+                            )
+
+                            if result.get("refused"):
+                                assistant_content = result["message"]
                                 output_data = {
-                                    "type": "interpretive_text",
-                                    "response_type": "text",
-                                    "detected_intent": "interpretive",
-                                    "source": "orchestrator_interpretive",
+                                    "refused": True,
+                                    "followup_suggestions": result.get("suggestions", [])
                                 }
-                                if isinstance(orch_output, dict):
-                                    for k in ["diagnostics_count", "grounding_mode", "evidence_quality", "insufficient_evidence"]:
-                                        if k in orch_output:
-                                            output_data[k] = orch_output[k]
-                                    diagnostic_sql_queries = _extract_diagnostic_sql_queries(orch_output)
-                                    if diagnostic_sql_queries:
-                                        output_data["diagnostic_sql_queries"] = diagnostic_sql_queries
+                                intent_type = "error"
                             else:
-                                output_data = orch_output
+                                default_intent = "interpretive" if request.force_deep_analysis else "analysis"
+                                assistant_content, intent_type, orch_output = _normalize_orchestrator_response(result, default_intent=default_intent)
+                                
+                                if request.force_deep_analysis:
+                                    assistant_content = _ensure_point_style(assistant_content, min_points=6, max_points=8)
+                                    output_data = {
+                                        "type": "interpretive_text",
+                                        "response_type": "text",
+                                        "detected_intent": "interpretive",
+                                        "source": "orchestrator_interpretive",
+                                    }
+                                    if isinstance(orch_output, dict):
+                                        for k in ["diagnostics_count", "grounding_mode", "evidence_quality", "insufficient_evidence"]:
+                                            if k in orch_output:
+                                                output_data[k] = orch_output[k]
+                                        diagnostic_sql_queries = _extract_diagnostic_sql_queries(orch_output)
+                                        if diagnostic_sql_queries:
+                                            output_data["diagnostic_sql_queries"] = diagnostic_sql_queries
+                                else:
+                                    output_data = orch_output
 
-                            if result.get("staleness_warning") and isinstance(output_data, dict):
-                                output_data["staleness_warning"] = result.get("staleness_warning")
+                                if result.get("staleness_warning") and isinstance(output_data, dict):
+                                    output_data["staleness_warning"] = result.get("staleness_warning")
+
+                        else:
+                            # ══════════════════════════════════════════════════
+                            # CHART / TEXT / KPI → NL2SQL Engine (Primary)
+                            # ══════════════════════════════════════════════════
+                            nl2sql_result = None
+                            db_engine = None
+                            try:
+                                import pandas as pd
+                                from app.models.dataset_version import DatasetVersion
+                                from app.services.analytics.db_engine import DBEngine
+                                from app.services.analytics.executor import Executor
+                                from app.services.llm.memory_manager import MemoryManager
+                                from app.services.visualization.nl2sql_chart_builder import build_chart_from_nl2sql
+
+                                version = session.get(DatasetVersion, chat_session.dataset_version_id)
+                                if version:
+                                    from app.services.analytics.table_resolver import resolve_table_name_from_version
+                                    from app.core.storage import get_duckdb_path
+
+                                    table_name = resolve_table_name_from_version(version)
+                                    duckdb_path = get_duckdb_path(version.dataset_id, version.id)
+
+                                    if duckdb_path.exists():
+                                        db_engine = DBEngine(db_path=str(duckdb_path), read_only=True)
+                                        db_engine._lock_down_read_con()
+                                    else:
+                                        data_path = version.cleaned_reference or version.source_reference
+                                        db_engine = DBEngine()
+                                        try:
+                                            await db_engine.load_csv(table_name, data_path)
+                                        except Exception as csv_err:
+                                            logger.warning(f"Direct CSV load failed, falling back to Pandas: {csv_err}")
+                                            df = pd.read_csv(data_path)
+                                            await db_engine.load_dataframe(table_name, df)
+
+                                    context_messages = chat_service.get_recent_context(
+                                        session=session,
+                                        session_id=session_id,
+                                        max_messages=5,
+                                    )
+                                    memory = MemoryManager()
+                                    if memory.should_summarize(context_messages):
+                                        context_messages = await memory.summarize(context_messages)
+
+                                    context_prefix = ""
+                                    if context_messages:
+                                        history = "\n".join(
+                                            f"{m['role'].upper()}: {m['content']}" for m in context_messages[:-1]
+                                        )
+                                        if history:
+                                            context_prefix = f"[Conversation Context]:\n{history}\n\n"
+
+                                    normalized_query = _normalize_nl2sql_query(query_text)
+                                    contextual_query = f"{context_prefix}[Current Question]: {normalized_query}"
+
+                                    executor = Executor()
+                                    nl2sql_result = await executor.run_query(
+                                        user_query=contextual_query,
+                                        db=db_engine,
+                                        table_name=table_name,
+                                        progress_callback=progress_callback,
+                                    )
+                            except Exception as e:
+                                logger.warning(f"NL2SQL engine error in stream: {e}")
+                                nl2sql_result = None
+                            finally:
+                                if db_engine is not None:
+                                    db_engine.close()
+
+                            if nl2sql_result and nl2sql_result.get("success"):
+                                logger.info(f"NL2SQL Engine Success in stream: Generated SQL '{nl2sql_result.get('sql')}'")
+                                chart_type = nl2sql_result.get("chart_type", "table")
+                                timing = nl2sql_result.get("timing", {})
+
+                                chart_output = build_chart_from_nl2sql(nl2sql_result)
+                                chart_spec = chart_output.get("chart", {})
+                                explanation = chart_output.get("explanation", {})
+                                followups = chart_output.get("followup_suggestions", [])
+                                chart_type = chart_spec.get("type", chart_type)
+
+                                if chart_type == "kpi":
+                                    kpi_value = chart_spec.get("data", {}).get("value", "")
+                                    kpi_label = chart_spec.get("data", {}).get("label", "Result")
+                                    if _is_percentage_kpi(kpi_label, chart_spec):
+                                        formatted_val = _format_percentage_value(kpi_value)
+                                    else:
+                                        is_currency_kpi = _is_currency_kpi(kpi_label, chart_spec)
+                                        currency_symbol = _kpi_currency_symbol(chart_spec)
+                                        formatted_val = _format_compact_value(kpi_value, is_currency=is_currency_kpi, currency_symbol=currency_symbol)
+                                    numbered_summary = _build_numbered_metric_summary(
+                                        nl2sql_result.get("data", []),
+                                        nl2sql_result.get("columns", []),
+                                        nl2sql_result.get("column_metadata", {}),
+                                    )
+                                    assistant_content = (
+                                        numbered_summary
+                                        or explanation.get("summary", "")
+                                        or f"**{kpi_label}:** {formatted_val}"
+                                    )
+                                    intent_type = "text_query"
+                                    output_data = {
+                                        "type": "nl2sql",
+                                        "response_type": "text",
+                                        "chart": chart_spec,
+                                        "data": chart_spec.get("data"),
+                                        "sql": nl2sql_result.get("sql", ""),
+                                        "timing": timing,
+                                        "detected_intent": intent_label,
+                                        "followup_suggestions": followups,
+                                    }
+                                else:
+                                    assistant_content = explanation.get("summary", "Here is your analysis.")
+                                    key_insight = explanation.get("key_insight", "")
+                                    if key_insight:
+                                        assistant_content = f"{assistant_content}\n\n**Key Insight:** {key_insight}"
+
+                                    intent_type = "analysis"
+                                    output_data = {
+                                        "type": "nl2sql",
+                                        "response_type": "chart",
+                                        "chart": chart_spec,
+                                        "explanation": explanation,
+                                        "sql": nl2sql_result.get("sql", ""),
+                                        "timing": timing,
+                                        "detected_intent": intent_label,
+                                        "followup_suggestions": followups,
+                                    }
+                            elif nl2sql_result and nl2sql_result.get("ambiguity"):
+                                ambiguity = nl2sql_result["ambiguity"]
+                                term = ambiguity.get("term", "")
+                                candidates = ambiguity.get("candidates", [])
+                                question = ambiguity.get("question", f"Which '{term}' column did you mean?")
+
+                                assistant_content = f"Your query mentions **\"{term}\"** which could refer to multiple columns. Please select the one you meant:"
+                                intent_type = "clarification"
+                                output_data = {
+                                    "type": "clarification",
+                                    "ambiguity": {
+                                        "term": term,
+                                        "candidates": candidates,
+                                        "question": question,
+                                        "original_query": query_text,
+                                    },
+                                    "timing": nl2sql_result.get("timing", {}),
+                                    "detected_intent": intent_label,
+                                }
+                            else:
+                                # Fallback to Legacy Orchestrator
+                                diagnostics = nl2sql_result.get("diagnostics") if nl2sql_result else None
+                                failed_timing = nl2sql_result.get("timing") if nl2sql_result else None
+                                reason = nl2sql_result.get("error") if nl2sql_result else "Unknown crash"
+                                logger.warning(f"NL2SQL Engine failed ({reason}). Falling back to Legacy Orchestrator in Stream.")
+
+                                result = await run_analysis_orchestration(
+                                    session=session,
+                                    dataset_version_id=chat_session.dataset_version_id,
+                                    user_id=UUID(current_user.user_id),
+                                    role=current_user.role,
+                                    query=query_text,
+                                )
+
+                                assistant_content, intent_type, output_data = _normalize_orchestrator_response(result)
+                                if _explicitly_requests_visual(query_text) and intent_type in {"text_query", "retrieval"}:
+                                    intent_type = "analysis"
+
+                                if output_data and isinstance(output_data, dict) and diagnostics:
+                                    output_data["nl2sql_diagnostics"] = diagnostics
+                                    output_data["nl2sql_timing"] = failed_timing
+                                    output_data["detected_intent"] = intent_label
                     else:
                         if _is_simple_chat_query(request.content):
                             assistant_content = _build_simple_chat_response(request.content, has_dataset=False)

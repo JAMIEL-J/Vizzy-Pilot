@@ -1,43 +1,7 @@
 {
   "Charts": [
     {
-      "title": "Churn Overview",
-      "type": "donut"
-    },
-    {
-      "title": "Churn Rate by Contract Type (%)",
-      "type": "bar"
-    },
-    {
-      "title": "Churn Rate by Customer Tenure Cohort (%)",
-      "type": "bar"
-    },
-    {
-      "title": "Total Charges at Risk by Contract Type",
-      "type": "bar"
-    },
-    {
-      "title": "Total Charges by Gender",
-      "type": "treemap"
-    },
-    {
-      "title": "Avg Customer Tenure by Contract Type",
-      "type": "hbar"
-    },
-    {
       "title": "Churn Rate by Payment Method (%)",
-      "type": "bar"
-    },
-    {
-      "title": "Total Charges at Risk by Gender",
-      "type": "hbar"
-    },
-    {
-      "title": "Payment Method Distribution",
-      "type": "pie"
-    },
-    {
-      "title": "Churn Rate by Gender (%)",
       "type": "bar"
     },
     {
@@ -45,11 +9,43 @@
       "type": "scatter"
     },
     {
+      "title": "Total Charges by Gender",
+      "type": "hbar"
+    },
+    {
+      "title": "Total Charges by Contract Type",
+      "type": "treemap"
+    },
+    {
+      "title": "Total Charges at Risk by Payment Method",
+      "type": "bar"
+    },
+    {
+      "title": "Monthly Charges at Risk by Contract Type",
+      "type": "hbar"
+    },
+    {
+      "title": "Monthly Charges at Risk by Payment Method",
+      "type": "bar"
+    },
+    {
       "title": "Avg Total Charges: Churned vs Retained",
       "type": "bar"
     },
     {
-      "title": "Churn Rate by Total Charges Range (%)",
+      "title": "Churn Rate by Monthly Charges Range (%)",
+      "type": "bar"
+    },
+    {
+      "title": "Churn Rate by Customer Tenure Cohort (%)",
+      "type": "bar"
+    },
+    {
+      "title": "Churn Overview",
+      "type": "donut"
+    },
+    {
+      "title": "Churn Rate by Gender (%)",
       "type": "bar"
     },
     {
@@ -57,7 +53,31 @@
       "type": "bar"
     },
     {
-      "title": "Churn Rate by Monthly Charges Range (%)",
+      "title": "Churn Rate by Total Charges Range (%)",
+      "type": "bar"
+    },
+    {
+      "title": "Churn Count by Contract Type",
+      "type": "hbar"
+    },
+    {
+      "title": "Churn Count by Payment Method",
+      "type": "hbar"
+    },
+    {
+      "title": "Avg Customer Tenure by Contract Type",
+      "type": "hbar"
+    },
+    {
+      "title": "Churn Rate by Contract Type (%)",
+      "type": "bar"
+    },
+    {
+      "title": "Customer Tenure by Payment Method",
+      "type": "hbar"
+    },
+    {
+      "title": "Churn Status Rate by Senior Citizen (%)",
       "type": "bar"
     }
   ]

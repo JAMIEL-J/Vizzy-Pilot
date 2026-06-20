@@ -1103,9 +1103,8 @@ export default function UserDashboard() {
         const resolvedTypeLower = String(resolvedType || '').toLowerCase();
         const explicitIsDate = !!(((val as any).is_date) ?? (chartConfig as any)?.is_date);
         const inferredIsDate = detectTimeSeries((val as any).data || (chartConfig as any)?.data);
-        const isDateTrend = ['line', 'area', 'area_bounds', 'area-bounds'].includes(resolvedTypeLower)
-            && (explicitIsDate || inferredIsDate);
-        const shouldUseServerData = isDateTrend || isChurnDashboard;
+        // Disable server data bypass to allow local recomputation for date trends and churn dashboards
+        const shouldUseServerData = false;
 
         const resolvedData = shouldUseServerData
             ? (val as any).data
@@ -1987,7 +1986,8 @@ export default function UserDashboard() {
                                         <div className="grid grid-cols-1 md:grid-cols-[repeat(auto-fit,minmax(340px,1fr))] gap-6">
                                             {charts.map((chart) => {
                                                 const streamedChart = streamedCharts[chart.id];
-                                                const resolvedData = streamedChart?.data ?? chart.data;
+                                                // Prevent streamed cache from overriding active filters
+                                                const resolvedData = (hasInteractiveScope ? undefined : streamedChart?.data) ?? chart.data;
                                                 if (!resolvedData && !isLoading) return <ChartSkeleton key={chart.id} isDark={isDark} />;
                                                 return (
                                                     <Panel key={`${selectedVersionId}-insight-${chart.id}`}>
