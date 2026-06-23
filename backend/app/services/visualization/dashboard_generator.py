@@ -310,6 +310,12 @@ def generate_overview_dashboard_duckdb(
         all_columns=all_columns,
     )
 
+    # When all_columns=True, recommend_charts returns the wrapped form
+    # {"charts": {...}, "all_columns_charts": ..., "all_columns_count": int}.
+    # The DSL layout generator expects the unwrapped Dict[str, dict].
+    if all_columns and isinstance(chart_dict, dict) and "charts" in chart_dict:
+        chart_dict = chart_dict["charts"]
+
     # ── 5. Assemble DSL Layout Specification ──
     dsl_layout = generate_dsl_layout(
         domain=domain.value,

@@ -57,9 +57,16 @@ type CachedEntry<T> = {
     createdAt: number;
 };
 const DASHBOARD_CACHE_TTL_MS = 10 * 60 * 1000;
-const DASHBOARD_SESSION_CACHE_KEY = 'vizzy.dashboard.analyticsCache.v2';
+const DASHBOARD_SESSION_CACHE_KEY = 'vizzy.dashboard.analyticsCache.v3';
 const DASHBOARD_CACHE_SCHEMA_VERSION = 'v3';
 const SHOW_CORRELATION_CHART = false;
+
+const stripHeavyFields = (value: DashboardAnalytics): DashboardAnalytics => {
+    if (!value || typeof value !== 'object') return value;
+    const { raw_data, ...rest } = value as DashboardAnalytics & { raw_data?: unknown };
+    void raw_data;
+    return rest as DashboardAnalytics;
+};
 
 class BoundedCache<T> {
     private map = new Map<string, CachedEntry<T>>();
@@ -176,15 +183,21 @@ const setSessionCachedAnalytics = (cacheKey: string, value: DashboardAnalytics) 
         const all = getSessionAnalyticsCache();
         all[cacheKey] = {
             createdAt: Date.now(),
-            value,
+            value: stripHeavyFields(value),
         };
 
         // Bound stored keys to avoid unbounded session growth.
         const entries = Object.entries(all).sort((a, b) => (b[1]?.createdAt || 0) - (a[1]?.createdAt || 0));
         const trimmed = Object.fromEntries(entries.slice(0, 25));
         sessionStorage.setItem(DASHBOARD_SESSION_CACHE_KEY, JSON.stringify(trimmed));
-    } catch {
-        // Best-effort cache only.
+    } catch (err) {
+        // Surface quota / serialization failures so the silent-refetch loop is debuggable.
+        console.warn('[dashboard-cache] sessionStorage write failed; falling back to in-memory only', err);
+        try {
+            sessionStorage.removeItem(DASHBOARD_SESSION_CACHE_KEY);
+        } catch {
+            /* ignore */
+        }
     }
 };
 
@@ -803,6 +816,16 @@ export default function UserDashboard() {
                             });
                         }
                         setDashboardData(sessionCached.raw_data, sessionCached.chart_configs, initial, sessionCached.total_rows, sessionCached.target_column, selectedDatasetId);
+                    }
+
+                    // The session cache stores only lightweight metadata (raw_data is
+                    // stripped to keep payload size sane). Render with what we have
+                    // and schedule a background refresh so client-side filter
+                    // recomputation becomes available without a hard reload.
+                    if (!sessionCached.raw_data) {
+                        setTimeout(() => {
+                            void loadAnalytics(new AbortController().signal, true);
+                        }, 50);
                     }
 
                     return;
