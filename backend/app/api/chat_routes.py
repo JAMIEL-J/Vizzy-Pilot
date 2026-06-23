@@ -828,6 +828,14 @@ async def delete_session(
 ) -> None:
     """
     Delete (soft-delete) a chat session.
+
+    The handler must invoke ``chat_service.delete_chat_session``; otherwise
+    the row stays in the DB with ``is_active=True`` and the
+    ``GET /chat/sessions`` list endpoint (which filters by ``is_active=True``)
+    keeps returning the "deleted" session — so it reappears in the UI on
+    the next page refresh. Returning 204 here without doing the soft-delete
+    was a real bug; the regression is guarded by
+    ``tests/test_chat_session_delete.py``.
     """
     try:
         chat_session = chat_service.get_chat_session(
@@ -835,7 +843,7 @@ async def delete_session(
             session_id=session_id,
             user_id=UUID(current_user.user_id),
         )
-        
+
         # Dataset ownership verification (if session is tied to a dataset)
         if chat_session.dataset_id:
             from app.api.deps import verify_dataset_owner
@@ -844,6 +852,14 @@ async def delete_session(
                 session=session,
                 current_user=current_user
             )
+
+        # Soft-delete the session row (sets is_active=False). Done after
+        # ownership checks so an unauthorised request cannot mutate state.
+        chat_service.delete_chat_session(
+            session=session,
+            session_id=session_id,
+            user_id=UUID(current_user.user_id),
+        )
 
     except ResourceNotFound as e:
         raise HTTPException(status_code=404, detail=e.message)
