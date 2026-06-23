@@ -33,6 +33,8 @@ RULES:
   - If retention is requested and a churn-like column exists, compute retention_rate as (1 - AVG(CASE WHEN LOWER(CAST(churn_indicator AS VARCHAR)) IN ('yes', 'true', '1') THEN 1.0 ELSE 0.0 END)) * 100.0.
   - If churn rate is requested, compute it as AVG(CASE WHEN LOWER(CAST(churn_indicator AS VARCHAR)) IN ('yes', 'true', '1') THEN 1.0 ELSE 0.0 END) * 100.0 to properly aggregate VARCHAR, boolean, or binary indicators as a percentage.
   - "at risk" (e.g., "charges at risk", "revenue at risk", "customers at risk") refers to customers who have churned. You MUST filter the query (using a WHERE clause or FILTER WHERE) to rows where the churn indicator is positive (e.g. LOWER(CAST(churn_indicator AS VARCHAR)) IN ('yes', 'true', '1')).
+  - If ARPU is requested for a churn/subscription dataset and a monthly recurring revenue column exists (e.g. MonthlyCharges, monthly_charges, MRR, monthly_revenue), compute ARPU as AVG(TRY_CAST(monthly_recurring_column AS DOUBLE)); do not use accumulated total/lifetime revenue columns like TotalCharges for ARPU.
+  - If estimated LTV/customer lifetime value is requested and monthly recurring revenue, churn indicator, and tenure columns exist, compute it as AVG(TRY_CAST(monthly_recurring_column AS DOUBLE)) / (SUM(CASE WHEN LOWER(CAST(churn_indicator AS VARCHAR)) IN ('yes', 'true', '1') THEN 1.0 ELSE 0.0 END) / NULLIF(SUM(TRY_CAST(tenure_column AS DOUBLE)), 0.0)).
   - For "month-to-month" queries, apply a case-insensitive contract filter using LOWER(CAST(contract_column AS VARCHAR)) LIKE '%month%to%month%'.
 17. Use mapped hints from "Column Mapping & Hinting" as highest-priority schema guidance.
 18. TIME-SERIES TRENDS & DATES:

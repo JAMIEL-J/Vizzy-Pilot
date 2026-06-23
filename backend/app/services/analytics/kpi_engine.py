@@ -38,10 +38,9 @@ def _safe_to_datetime(series: pd.Series) -> pd.Series:
 
 def _beautify_column_name(col: str) -> str:
     """Convert column name to professional business term."""
-    # Basic cleanup: totalcharges -> Total Charges, monthly_charges -> Monthly Charges
-    # This is a local copy of the formatter to avoid circular imports
-    return col.replace('_', ' ').replace('-', ' ').title()
-
+    # Local copy of the formatter to avoid circular imports.
+    spaced = re.sub(r'(?<=[a-z0-9])(?=[A-Z])', ' ', str(col))
+    return spaced.replace('_', ' ').replace('-', ' ').title()
 
 @dataclass
 class KPI:
@@ -173,7 +172,7 @@ def _is_financial_column(col: str) -> bool:
 
 def _pick_best_churn_value_metric(candidates: List[str]) -> Optional[str]:
     """
-    Select best monetary metric for churn KPIs.
+    Select best monetary metric for churn value-at-risk KPIs.
 
     Preference order:
     1) Total/annual/lifetime revenue-like columns (e.g. TotalCharges, AnnualRevenue)
@@ -208,6 +207,32 @@ def _pick_best_churn_value_metric(candidates: List[str]) -> Optional[str]:
 
     return candidates[0]
 
+
+def _pick_churn_arpu_metric(candidates: List[str]) -> Optional[str]:
+    """Select recurring revenue for churn ARPU/LTV, not accumulated lifetime revenue."""
+    if not candidates:
+        return None
+
+    normalized = [(_normalized_col(c), c) for c in candidates]
+    recurring_like = ('monthly', 'month', 'mrr', 'recurring', 'subscription', 'arpu')
+    revenue_like = (
+        'revenue', 'sales', 'income', 'billing', 'amount', 'charge', 'charges',
+        'value', 'fee', 'spend', 'payment', 'mrr', 'arpu'
+    )
+    total_like = (
+        'total', 'annual', 'yearly', 'arr', 'lifetime', 'ltv', 'clv',
+        'totalrevenue', 'grossrevenue', 'totalcharge', 'totalcharges'
+    )
+
+    for n, c in normalized:
+        if any(t in n for t in recurring_like) and any(t in n for t in revenue_like):
+            return c
+
+    for n, c in normalized:
+        if any(t in n for t in revenue_like) and not any(t in n for t in total_like):
+            return c
+
+    return _pick_best_churn_value_metric(candidates)
 
 def _count_target_positive(df: pd.DataFrame, target_col: str, *, reader: Optional["DuckDBReader"] = None) -> int:
     """Count positive cases in target column.
@@ -977,6 +1002,7 @@ def _generate_churn_kpis(df: pd.DataFrame, classification: ColumnClassification,
         if _is_financial_column(c) and not _is_lifecycle_column(c)
     ]
     value_col = _pick_best_churn_value_metric(financial_candidates)
+    arpu_col = _pick_churn_arpu_metric(financial_candidates)
 
     # Lifecycle metric (used for "at churn" average) prefers tenure/duration over age.
     tenure_like = [
@@ -985,6 +1011,7 @@ def _generate_churn_kpis(df: pd.DataFrame, classification: ColumnClassification,
     ]
     age_like = [c for c in numeric_candidates if 'age' in _normalized_col(c)]
     lifecycle_col = (tenure_like[0] if tenure_like else (age_like[0] if age_like else None))
+    ltv_tenure_col = tenure_like[0] if tenure_like else None
 
     contract_col = _find_column(df, ['contract', 'subscription_type', 'membership'], classification, semantic_map_json=semantic_map_json)
     
@@ -1100,49 +1127,62 @@ def _generate_churn_kpis(df: pd.DataFrame, classification: ColumnClassification,
 
     # 7. ARPU (Average Revenue Per User)
     arpu = 0
-    if value_col:
-        arpu = _safe_mean(df, value_col, reader=reader)
+    if arpu_col:
+        arpu = _safe_mean(df, arpu_col, reader=reader)
         if arpu > 0:
             kpis.append(KPI(
                 key="arpu",
                 title="ARPU",
                 value=round(float(arpu), 2),
-                format="currency" if value_col and any(h in value_col.lower() for h in ['charge', 'balance', 'salary', 'income']) else "number",
+                format="currency" if arpu_col and any(h in arpu_col.lower() for h in ['charge', 'balance', 'salary', 'income', 'revenue']) else "number",
                 icon="user-plus",
                 confidence="HIGH",
-                reason=f"Average {_beautify_column_name(value_col)} per customer",
+                reason=f"Average {_beautify_column_name(arpu_col)} per customer",
                 subtitle="Avg Revenue Per User"
             ))
 
     # 8. Customer Lifetime Value (LTV)
-    # LTV = ARPU / Churn Rate
-    if arpu > 0 and 'churn_rate' in locals() and churn_rate > 0:
+    # Preferred subscription formula: LTV = monthly ARPU / observed monthly churn rate.
+    if arpu > 0 and churned_count > 0 and ltv_tenure_col:
+        total_tenure = _safe_sum(df, ltv_tenure_col, reader=reader)
+        observed_monthly_churn_rate = churned_count / total_tenure if total_tenure > 0 else 0
+        if observed_monthly_churn_rate > 0:
+            ltv = arpu / observed_monthly_churn_rate
+            kpis.append(KPI(
+                key="ltv",
+                title="Estimated LTV",
+                value=round(float(ltv), 2),
+                format="currency" if arpu_col and any(h in arpu_col.lower() for h in ['charge', 'balance', 'salary', 'income', 'revenue']) else "number",
+                icon="trending-up",
+                confidence="MEDIUM",
+                reason="ARPU / observed monthly churn rate",
+                subtitle="Customer Lifetime Value"
+            ))
+    elif arpu > 0 and 'churn_rate' in locals() and churn_rate > 0:
         ltv = arpu / (churn_rate / 100)
         kpis.append(KPI(
             key="ltv",
             title="Estimated LTV",
             value=round(float(ltv), 2),
-            format="currency" if value_col and any(h in value_col.lower() for h in ['charge', 'balance', 'salary', 'income']) else "number",
+            format="currency" if arpu_col and any(h in arpu_col.lower() for h in ['charge', 'balance', 'salary', 'income', 'revenue']) else "number",
             icon="trending-up",
             confidence="MEDIUM",
-            reason="ARPU / Churn Rate",
+            reason="ARPU / customer churn rate",
             subtitle="Customer Lifetime Value"
         ))
     elif arpu > 0 and lifecycle_col:
-        # Fallback LTV estimate based on tenure if no churn detected
         avg_tenure = _safe_mean(df, lifecycle_col, reader=reader)
         ltv = arpu * avg_tenure
         kpis.append(KPI(
             key="ltv",
             title="Projected LTV",
             value=round(float(ltv), 2),
-            format="currency" if value_col and any(h in value_col.lower() for h in ['charge', 'balance', 'salary', 'income']) else "number",
+            format="currency" if arpu_col and any(h in arpu_col.lower() for h in ['charge', 'balance', 'salary', 'income', 'revenue']) else "number",
             icon="trending-up",
             confidence="LOW",
-            reason="ARPU × Avg Tenure",
+            reason="ARPU x Avg Tenure",
             subtitle="Projected Lifetime Value"
         ))
-
     # 9. Support Intensity (Tickets/Calls)
     ticket_col = _find_column(df, ['ticket', 'complaint', 'incident', 'call', 'support', 'issue'], classification, semantic_map_json=semantic_map_json)
     if ticket_col:

@@ -2,6 +2,7 @@ import json
 import time
 import logging
 import re
+from typing import Optional, Tuple
 from .db_engine import DBEngine
 from ..llm.sql_validator import SQLValidator
 from ..llm.sql_generator import SQLGenerator
@@ -16,6 +17,27 @@ def _extract_current_question(user_query: str) -> str:
     if marker in user_query:
         return user_query.rsplit(marker, 1)[1].strip()
     return user_query
+
+
+_CLARIFICATION_MARKER_RE = re.compile(
+    r'\[Column Clarification:\s*term="(?P<term>[^"]+)",\s*chosen="(?P<chosen>[^"]+)"\]'
+)
+
+
+def _extract_clarification_marker(user_query: str) -> Optional[Tuple[str, str]]:
+    """Read the structured [Column Clarification] marker emitted by the
+    chat-routes clarification rewrite.
+
+    Returns ``(term, chosen_column)`` if the marker is present, else ``None``.
+    The marker is consumed (stripped from the user-facing text) by the
+    caller after extraction.
+    """
+    if not user_query:
+        return None
+    m = _CLARIFICATION_MARKER_RE.search(user_query)
+    if not m:
+        return None
+    return m.group("term"), m.group("chosen")
 
 
 _RESOLUTION_STOPWORDS = {
@@ -441,6 +463,27 @@ class Executor:
         # Pre-resolve semantic hints once
         from .semantic_resolver import find_column, find_ambiguous_columns
         query_for_resolution = _extract_current_question(user_query)
+
+        # Apply column-clarification marker (set by chat_routes when the user
+        # resolves a column-ambiguity prompt). The marker (a) seeds a forced
+        # column hint and (b) suppresses the ambiguity re-check for the
+        # resolved term. Without this, the legacy text-rewrite would have
+        # already produced "Name Name Name Name" before reaching the executor.
+        clarification = _extract_clarification_marker(query_for_resolution)
+        resolved_terms: set[str] = set()
+        if clarification:
+            resolved_term, resolved_column = clarification
+            resolved_terms.add(resolved_term.lower())
+            # Strip the marker from the resolution text used for keyword
+            # extraction. Also strip it from the raw user_query so the LLM
+            # prompts (strategist / coder / validator / critic) never see the
+            # marker line.
+            cleaned_resolution = _CLARIFICATION_MARKER_RE.sub(
+                "", query_for_resolution
+            ).strip()
+            user_query = _CLARIFICATION_MARKER_RE.sub("", user_query).strip()
+            query_for_resolution = cleaned_resolution
+
         hints = []
         keywords = _extract_resolution_keywords(query_for_resolution)
         for kw in keywords:
@@ -459,8 +502,29 @@ class Executor:
             if hint.get("column") not in [h.get("column") for h in hints]:
                 hints.append(hint)
 
+        # Force-seed the resolved column as a hint (highest priority — the
+        # user has explicitly picked it). The hint overrides any weaker
+        # auto-resolution for the same column.
+        if clarification:
+            forced_column = clarification[1]
+            forced_col_meta = column_metadata.get(forced_column, {})
+            hints.insert(
+                0,
+                {
+                    "keyword": clarification[0],
+                    "column": forced_column,
+                    "type": forced_col_meta.get("type", "").upper(),
+                    "was_coerced": forced_col_meta.get("coerced", False),
+                    "forced_by_user": True,
+                },
+            )
+
         # Ambiguity Detection
         for kw in keywords:
+            # Skip terms the user has already disambiguated via the
+            # [Column Clarification] marker — re-asking them would loop.
+            if kw.lower() in resolved_terms:
+                continue
             candidates = find_ambiguous_columns(kw, available_cols, threshold=0.6)
             if len(candidates) >= 2 and candidates[0][1] < 0.95:
                 if (candidates[0][1] - candidates[1][1]) < 0.2:

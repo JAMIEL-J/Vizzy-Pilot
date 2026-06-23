@@ -61,6 +61,37 @@ def test_kpi_engine_marketing_no_reader():
     assert imp_kpi["value"] == 3000.0
 
 
+
+
+def test_churn_dashboard_arpu_and_ltv_match_subscription_formula():
+    df = pd.DataFrame({
+        "customerID": ["C1", "C2", "C3", "C4"],
+        "tenure": [10, 20, 30, 40],
+        "MonthlyCharges": [50.0, 60.0, 70.0, 80.0],
+        "TotalCharges": [500.0, 1200.0, 2100.0, 3200.0],
+        "Churn": ["Yes", "No", "No", "Yes"],
+    })
+    classification = ColumnClassification(
+        metrics=["tenure", "MonthlyCharges", "TotalCharges"],
+        dimensions=["customerID"],
+        dates=[],
+        targets=["Churn"],
+    )
+
+    kpis = generate_kpis(df, DomainType.CHURN, classification)
+
+    arpu = next(kpi for kpi in kpis.values() if kpi["title"] == "ARPU")
+    ltv = next(kpi for kpi in kpis.values() if kpi["title"] == "Estimated LTV")
+
+    expected_arpu = df["MonthlyCharges"].mean()
+    observed_monthly_churn_rate = 2 / df["tenure"].sum()
+    expected_ltv = expected_arpu / observed_monthly_churn_rate
+
+    assert arpu["value"] == round(expected_arpu, 2)
+    assert arpu["reason"] == "Average Monthly Charges per customer"
+    assert ltv["value"] == round(expected_ltv, 2)
+    assert ltv["reason"] == "ARPU / observed monthly churn rate"
+
 class MockDuckDBReader:
     def __init__(self, data):
         self.data = data

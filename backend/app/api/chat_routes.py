@@ -280,6 +280,88 @@ def _looks_interpretive_query(query: str) -> bool:
     return any(re.search(p, q) for p in patterns)
 
 
+# ────────────────────────────────────────────────────────────────────────
+# Column-clarification rewrite
+# ────────────────────────────────────────────────────────────────────────
+# The frontend asks the user to disambiguate when a keyword (e.g. "product")
+# matches multiple columns. The user's reply is sent as a canonical sentence:
+#
+#     For my query "<original>", I meant column "<chosen>" instead of "<term>"
+#
+# The legacy implementation did a global regex substitution on the original
+# query string (\b<term>\b → <chosen>). When the chosen column already
+# contained the term as a substring (very common: "Product Name" contains
+# "Name"), the substitution looped and produced text like
+# "Product Product Name" or, across repeated turns, "Name Name Name Name".
+#
+# The legacy code also failed to suppress the ambiguity re-trigger: after the
+# rewrite, the executor's find_ambiguous_columns() would scan the rewritten
+# text for the same broad keyword ("product") and re-prompt the user.
+#
+# The fix below replaces the natural-language rewrite with a structured
+# marker line that is:
+#   • appended to the original query verbatim — never interleaved into it,
+#     so the original query text is preserved byte-for-byte;
+#   • consumed by the executor (see executor._apply_clarification_marker),
+#     which uses it to (a) seed a forced column hint and (b) skip the
+#     ambiguity check for the resolved term.
+# ────────────────────────────────────────────────────────────────────────
+
+_CLARIFICATION_SENTENCE_RE = re.compile(
+    r'^For my query "(?P<original>.*)", I meant column "(?P<chosen>.*)" instead of "(?P<term>.*)"$',
+    re.IGNORECASE | re.DOTALL,
+)
+
+_CLARIFICATION_MARKER_PREFIX = "[Column Clarification"
+
+
+def _parse_clarification_sentence(text: str) -> Optional[Tuple[str, str, str]]:
+    """Parse the canonical frontend clarification sentence.
+
+    Returns ``(original_query, term, chosen_column)`` on match, else ``None``.
+    Empty components are rejected so a malformed sentence falls through
+    unchanged instead of producing an empty marker.
+    """
+    if not text:
+        return None
+    m = _CLARIFICATION_SENTENCE_RE.match(text.strip())
+    if not m:
+        return None
+    original = m.group("original").strip()
+    chosen = m.group("chosen").strip()
+    term = m.group("term").strip()
+    if not original or not chosen or not term:
+        return None
+    return original, term, chosen
+
+
+def _rewrite_clarification_query(text: str) -> str:
+    """If ``text`` is a clarification sentence, return
+    ``"<original_query>\\n[Column Clarification: term=\\"<term>\\", chosen=\\"<chosen>\\"]"``.
+
+    Otherwise return ``text`` unchanged.
+
+    The original query string is preserved verbatim — no word substitution,
+    no case folding, no string replaceAll. The marker is the only new
+    content, and it is appended, never interleaved.
+
+    The helper is intentionally idempotent: once a marker is present, the
+    text no longer matches the clarification sentence regex, so re-running
+    the helper is a no-op. This prevents the runaway text growth that the
+    legacy implementation caused when a user clicked the same candidate
+    more than once.
+    """
+    parsed = _parse_clarification_sentence(text)
+    if not parsed:
+        return text
+    original_query, term, chosen = parsed
+    # Escape any embedded quotes so the marker stays parseable.
+    safe_term = term.replace('"', '\\"')
+    safe_chosen = chosen.replace('"', '\\"')
+    marker = f'{_CLARIFICATION_MARKER_PREFIX}: term="{safe_term}", chosen="{safe_chosen}"]'
+    return f"{original_query}\n{marker}"
+
+
 def _normalize_nl2sql_query(query: str) -> str:
     """Rewrite common natural-language filter phrasing into explicit SQL-friendly hints."""
     q = (query or "").strip()
@@ -847,27 +929,15 @@ async def send_message(
         has_dataset_attached = bool(chat_session.dataset_version_id)
 
 
-        # Pre-process query if it is a clarification sentence
-        query_text = request.content
-        m = re.match(
-            r'^For my query "(.*)", I meant column "(.*)" instead of "(.*)"$',
-            query_text,
-            flags=re.IGNORECASE
-        )
-        if m:
-            original_query = m.group(1)
-            chosen_column = m.group(2)
-            term = m.group(3)
-            # Reconstruct the query by replacing the term with chosen_column
-            clean_term = re.escape(term)
-            query_text = re.sub(
-                r'\b' + clean_term + r'\b',
-                chosen_column,
-                original_query,
-                flags=re.IGNORECASE
-            )
-            if query_text == original_query:
-                query_text = original_query.replace(term, chosen_column)
+        # Pre-process query if it is a clarification sentence.
+        # The legacy implementation did a global regex substitution on the
+        # original query (\b<term>\b → <chosen>), which produced runaway
+        # text growth when the chosen column already contained the term
+        # (e.g. "Name" inside "Product Name" → "Product Product Name").
+        # The new helper preserves the original query verbatim and emits a
+        # structured [Column Clarification] marker that the executor uses
+        # to seed a forced hint and skip the ambiguity re-check.
+        query_text = _rewrite_clarification_query(request.content)
 
         # Deterministic replay with pre-check: only hit DB when replay is likely.
         normalized_query = _normalize_query_text(query_text)
@@ -1347,7 +1417,10 @@ async def send_message_stream(
                     output_data = None
 
                     if has_dataset_attached:
-                        query_text = request.content
+                        # Apply the same clarification pre-process used on
+                        # the non-streaming path so a streamed clarification
+                        # click is also handled consistently.
+                        query_text = _rewrite_clarification_query(request.content)
                         detected_intent, intent_confidence, intent_label = classify_intent_fast(query_text)
                         is_dashboard = detected_intent == 'dashboard'
                         interpretive_text_mode = (_looks_interpretive_query(query_text) and not _explicitly_requests_visual(query_text)) or request.force_deep_analysis
