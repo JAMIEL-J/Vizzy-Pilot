@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { datasetService, type Dataset } from '../../lib/api/dataset';
 import ChartRenderer from '../../components/chat/ChartRenderer';
+import SqlEditor from '../../components/chat/SqlEditor';
 import { 
     PanelRightClose, Download, Copy, Maximize2, 
     Sparkles, Database, Code2, Check, ArrowUp,
@@ -496,12 +497,13 @@ export default function ChatInterface() {
         handleSendMessage(next);
     };
 
-    const handleExecuteEditedSql = async (msgId: string) => {
-        const sqlText = editingSql[msgId];
-        if (!sqlText || !sqlText.trim() || !selectedDatasetId) return;
+    const handleExecuteEditedSql = async (msgId: string, sqlOverride?: string) => {
+        const sqlText = (sqlOverride ?? editingSql[msgId] ?? '').trim();
+        if (!sqlText || !selectedDatasetId) return;
 
         setExecutingSql(prev => ({ ...prev, [msgId]: true }));
         setSqlError(prev => ({ ...prev, [msgId]: null }));
+        setShowSql(prev => ({ ...prev, [msgId]: true }));
 
         try {
             const response = await chatService.executeSql(selectedDatasetId, sqlText);
@@ -510,41 +512,58 @@ export default function ChatInterface() {
                 return;
             }
 
+            const rows: any[] = response.results || [];
+            const columns: string[] = response.columns || [];
+            const rowCount: number = response.row_count ?? rows.length;
+
             setMessages(prev => prev.map(m => {
-                if (m.id === msgId) {
-                    const newOutput = { ...m.output_data };
-                    newOutput.sql = sqlText;
-                    
-                    if (newOutput.chart) {
-                        newOutput.chart.type = 'table';
-                        newOutput.chart.data = {
-                            rows: response.results,
-                            columns: response.columns
+                if (m.id !== msgId) return m;
+                const newOutput = { ...(m.output_data || {}) };
+                newOutput.sql = sqlText;
+
+                const existingChart = newOutput.chart;
+                if (existingChart && existingChart.type !== 'table') {
+                    const canRefreshInPlace =
+                        existingChart.type !== 'kpi'
+                        && Array.isArray(columns)
+                        && columns.length >= 1
+                        && rows.length <= 5000;
+
+                    if (canRefreshInPlace) {
+                        existingChart.data = {
+                            ...(existingChart.data || {}),
+                            rows,
+                            columns,
                         };
-                        newOutput.chart.title = `Custom Query Results (${response.row_count} rows)`;
+                        existingChart.title = existingChart.title || `Custom Query (${rowCount} rows)`;
+                        newOutput.chart = existingChart;
                     } else {
-                        newOutput.type = 'table';
-                        newOutput.data = {
-                            rows: response.results,
-                            columns: response.columns
+                        newOutput.chart = {
+                            type: 'table',
+                            title: `Custom Query Results (${rowCount} rows)`,
+                            data: { rows, columns },
                         };
-                        newOutput.title = `Custom Query Results (${response.row_count} rows)`;
+                        setChartModes(prev => ({ ...prev, [msgId]: 'table' }));
                     }
-                    
-                    return {
-                        ...m,
-                        output_data: newOutput
-                    };
+                } else if (existingChart && existingChart.type === 'table') {
+                    existingChart.data = { rows, columns };
+                    existingChart.title = existingChart.title || `Custom Query Results (${rowCount} rows)`;
+                    newOutput.chart = existingChart;
+                } else {
+                    newOutput.type = 'table';
+                    newOutput.data = { rows, columns };
+                    newOutput.title = `Custom Query Results (${rowCount} rows)`;
                 }
-                return m;
+
+                return { ...m, output_data: newOutput };
             }));
 
+            setEditingSql(prev => ({ ...prev, [msgId]: sqlText }));
             setIsEditingSqlMode(prev => ({ ...prev, [msgId]: false }));
-            setChartModes(prev => ({ ...prev, [msgId]: 'table' }));
         } catch (err: any) {
             console.error("Execute SQL failed:", err);
-            const msg = err?.response?.data?.detail || err?.message || "SQL Execution Error";
-            setSqlError(prev => ({ ...prev, [msgId]: msg }));
+            const detail = err?.response?.data?.detail || err?.message || "SQL Execution Error";
+            setSqlError(prev => ({ ...prev, [msgId]: detail }));
         } finally {
             setExecutingSql(prev => ({ ...prev, [msgId]: false }));
         }
@@ -616,73 +635,20 @@ export default function ChatInterface() {
                     </Panel>
                     {targetData?.sql && (
                         <Panel className="mt-3">
-                            <PanelHeader 
-                                title="Generated SQL" 
-                                subtitle="NL2SQL query" 
-                                actions={
-                                    <div className="flex items-center gap-2">
-                                        {!isEditingSqlMode[msg.id] && (
-                                            <button
-                                                onClick={() => {
-                                                    setEditingSql(prev => ({ ...prev, [msg.id]: targetData.sql }));
-                                                    setIsEditingSqlMode(prev => ({ ...prev, [msg.id]: true }));
-                                                }}
-                                                className="text-[10px] uppercase font-mono font-semibold tracking-widest text-muted-foreground hover:text-foreground hover:bg-surface-3 px-2 py-1 rounded transition"
-                                            >
-                                                Edit
-                                            </button>
-                                        )}
-                                        <button
-                                            onClick={() => {
-                                                navigator.clipboard.writeText(targetData.sql);
-                                                setCopiedSqlMsgId(msg.id);
-                                                setTimeout(() => setCopiedSqlMsgId(null), 1500);
-                                            }}
-                                            className="text-[10px] uppercase font-mono font-semibold tracking-widest text-muted-foreground hover:text-foreground hover:bg-surface-3 px-2 py-1 rounded transition"
-                                        >
-                                            {copiedSqlMsgId === msg.id ? 'Copied' : 'Copy'}
-                                        </button>
-                                    </div>
-                                }
+                            <PanelHeader
+                                title="Generated SQL"
+                                subtitle="NL2SQL query"
                             />
-                            <div className="p-4">
-                                {isEditingSqlMode[msg.id] ? (
-                                    <div className="space-y-3">
-                                        <textarea
-                                            value={editingSql[msg.id] ?? ''}
-                                            onChange={(e) => setEditingSql(prev => ({ ...prev, [msg.id]: e.target.value }))}
-                                            className="w-full min-h-[140px] p-3 rounded-lg border border-border bg-surface-3 font-mono text-[11.5px] leading-relaxed text-foreground/90 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
-                                            placeholder="SELECT * FROM data..."
-                                        />
-                                        {sqlError[msg.id] && (
-                                            <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 px-3 py-2 rounded-lg">
-                                                {sqlError[msg.id]}
-                                            </div>
-                                        )}
-                                        <div className="flex items-center gap-2">
-                                            <button
-                                                onClick={() => handleExecuteEditedSql(msg.id)}
-                                                disabled={executingSql[msg.id]}
-                                                className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-semibold text-xs transition hover:bg-primary/95 disabled:opacity-50"
-                                            >
-                                                {executingSql[msg.id] ? 'Executing...' : 'Run Query'}
-                                            </button>
-                                            <button
-                                                onClick={() => {
-                                                    setIsEditingSqlMode(prev => ({ ...prev, [msg.id]: false }));
-                                                    setSqlError(prev => ({ ...prev, [msg.id]: null }));
-                                                }}
-                                                className="px-3 py-1.5 rounded-lg bg-surface-3 text-foreground font-semibold text-xs border border-border hover:bg-surface-2 transition"
-                                            >
-                                                Cancel
-                                            </button>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <pre className="overflow-auto rounded-md border border-border bg-surface-2 p-3 font-mono text-[11.5px] leading-relaxed text-foreground/90">
-                                        <code>{targetData.sql}</code>
-                                    </pre>
-                                )}
+                            <div className="p-4 pt-3">
+                                <SqlEditor
+                                    messageId={msg.id}
+                                    sql={targetData.sql}
+                                    variant="panel"
+                                    onExecute={async (next) => {
+                                        setEditingSql(prev => ({ ...prev, [msg.id]: next }));
+                                        await handleExecuteEditedSql(msg.id, next);
+                                    }}
+                                />
                             </div>
                         </Panel>
                     )}
@@ -998,61 +964,16 @@ export default function ChatInterface() {
                                                                          )}
                                                                      </div>
                                                                      {msg.output_data?.sql && showSql[msg.id] && (
-                                                                         <div className="mt-3 rounded-md border border-border bg-surface-2">
-                                                                             <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
-                                                                                 <span className="font-mono text-[10.5px] text-muted-foreground">generated.sql · NL2SQL</span>
-                                                                                 <div className="flex items-center gap-1">
-                                                                                     {!isEditingSqlMode[msg.id] && (
-                                                                                         <BtnGhost onClick={() => {
-                                                                                             setEditingSql(prev => ({ ...prev, [msg.id]: msg.output_data.sql }));
-                                                                                             setIsEditingSqlMode(prev => ({ ...prev, [msg.id]: true }));
-                                                                                         }} className="text-xs">
-                                                                                             Edit
-                                                                                         </BtnGhost>
-                                                                                     )}
-                                                                                     <BtnGhost onClick={() => { navigator.clipboard.writeText(msg.output_data.sql); setCopiedSqlMsgId(msg.id); setTimeout(() => setCopiedSqlMsgId(null), 1500); }}>
-                                                                                         {copiedSqlMsgId === msg.id ? <><Check className="h-3 w-3" />Copied</> : <><Copy className="h-3 w-3" />Copy</>}
-                                                                                     </BtnGhost>
-                                                                                 </div>
-                                                                             </div>
-                                                                             <div className="p-3">
-                                                                                 {isEditingSqlMode[msg.id] ? (
-                                                                                     <div className="space-y-3">
-                                                                                         <textarea
-                                                                                             value={editingSql[msg.id] ?? ''}
-                                                                                             onChange={(e) => setEditingSql(prev => ({ ...prev, [msg.id]: e.target.value }))}
-                                                                                             className="w-full min-h-[120px] p-3 rounded-lg border border-border bg-surface-3 font-mono text-[11.5px] leading-relaxed text-foreground/90 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
-                                                                                             placeholder="SELECT * FROM data..."
-                                                                                         />
-                                                                                         {sqlError[msg.id] && (
-                                                                                             <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 px-3 py-2 rounded-lg">
-                                                                                                 {sqlError[msg.id]}
-                                                                                             </div>
-                                                                                         )}
-                                                                                         <div className="flex items-center gap-2">
-                                                                                             <button
-                                                                                                 onClick={() => handleExecuteEditedSql(msg.id)}
-                                                                                                 disabled={executingSql[msg.id]}
-                                                                                                 className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-semibold text-xs transition hover:bg-primary/95 disabled:opacity-50"
-                                                                                             >
-                                                                                                 {executingSql[msg.id] ? 'Executing...' : 'Run Query'}
-                                                                                             </button>
-                                                                                             <button
-                                                                                                 onClick={() => {
-                                                                                                     setIsEditingSqlMode(prev => ({ ...prev, [msg.id]: false }));
-                                                                                                     setSqlError(prev => ({ ...prev, [msg.id]: null }));
-                                                                                                 }}
-                                                                                                 className="px-3 py-1.5 rounded-lg bg-surface-3 text-foreground font-semibold text-xs border border-border hover:bg-surface-2 transition"
-                                                                                             >
-                                                                                                 Cancel
-                                                                                             </button>
-                                                                                         </div>
-                                                                                     </div>
-                                                                                 ) : (
-                                                                                     <pre className="overflow-auto font-mono text-[11.5px] leading-relaxed text-foreground/90"><code>{msg.output_data.sql}</code></pre>
-                                                                                 )}
-                                                                             </div>
-                                                                         </div>
+                                                                         <SqlEditor
+                                                                             messageId={msg.id}
+                                                                             sql={msg.output_data.sql}
+                                                                             variant="inline"
+                                                                             className="mt-3"
+                                                                             onExecute={async (next) => {
+                                                                                 setEditingSql(prev => ({ ...prev, [msg.id]: next }));
+                                                                                 await handleExecuteEditedSql(msg.id, next);
+                                                                             }}
+                                                                         />
                                                                      )}
                                                                  </>
                                                              );
