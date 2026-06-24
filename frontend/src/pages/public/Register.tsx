@@ -1,415 +1,403 @@
-import { Link, useNavigate } from 'react-router-dom';
-import { useState } from 'react';
-import { authApi } from '../../lib/api/auth';
-import ThemeToggle from '../../components/ui/ThemeToggle'; 
+import { Link, useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { authApi } from "../../lib/api/auth";
+import { motion, AnimatePresence } from "framer-motion";
+import { 
+  ArrowLeft, ShieldCheck, Lock, Mail, User, AlertCircle, 
+  ArrowRight, Sparkles, Terminal, Activity, Server, Cpu,
+  Eye, EyeOff
+} from "lucide-react";
 
 export default function Register() {
-    const navigate = useNavigate();
-    const [step, setStep] = useState(1);
-    
-    // Form state
-    const [firstName, setFirstName] = useState('');
-    const [lastName, setLastName] = useState('');
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-    const [confirmPassword, setConfirmPassword] = useState('');
-    const [agreeToTerms, setAgreeToTerms] = useState(false);
-    
-    const [error, setError] = useState('');
-    const [isLoading, setIsLoading] = useState(false);
-    const [showPassword, setShowPassword] = useState(false);
-    const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const navigate = useNavigate();
+  const [step, setStep] = useState(1);
+  
+  // Form state
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [agreeToTerms, setAgreeToTerms] = useState(false);
+  
+  const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-    const handleNextStep = (e: React.FormEvent) => {
-        e.preventDefault();
-        setError('');
-        if (!firstName || !lastName || !email) {
-            setError('Please complete all personal details.');
-            return;
-        }
-        setStep(2);
-    };
-
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setError('');
-        
-        if (password !== confirmPassword) {
-            setError('Passwords do not match');
-            return;
-        }
-
-        setIsLoading(true);
-
-        try {
-            await authApi.register({
-                name: `${firstName} ${lastName}`.trim(),
-                email: email,
-                password: password,
-            });
-            navigate('/login');
-        } catch (err: any) {
-            setError(err.response?.data?.detail || 'Registration failed. Please try again.');
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    const passwordStrength = password.length >= 12 ? 'strong' : password.length >= 8 ? 'medium' : 'weak';
-
-    if (step === 1) {
-        return (
-            <div className="bg-background font-body text-on-surface min-h-screen flex flex-col items-center justify-center p-4 relative overflow-x-hidden">
-                <div className="fixed top-6 right-6 z-50">
-                    <ThemeToggle />
-                </div>
-                {/* Main Container */}
-                <main className="w-full max-w-6xl aspect-[16/9] bg-surface-container-lowest rounded-xl overflow-hidden flex flex-col md:flex-row ambient-shadow border border-outline-variant/20 my-auto">
-                    {/* Left Panel: Branding & Welcome */}
-                    <section className="hidden md:flex w-full md:w-5/12 bg-surface-container-low p-8 md:p-12 flex-col justify-between">
-                        <div className="space-y-8">
-                            {/* Brand Logo */}
-                            <div className="flex items-center gap-2">
-                                <Link to="/" className="text-2xl font-bold font-headline text-primary tracking-tight hover:opacity-80 transition-opacity">Vizzy Pilot</Link>
-                            </div>
-                            <div className="space-y-4">
-                                <h1 className="text-3xl md:text-4xl font-headline font-bold text-on-surface leading-tight">Create your Vizzy Pilot Account</h1>
-                                <p className="text-on-surface-variant text-lg leading-relaxed">
-                                    One account gives you access to the world's most intuitive data curation platform.
-                                </p>
-                            </div>
-                        </div>
-                        {/* Illustration/Visual Asset */}
-                        <div className="relative mt-12 mb-8">
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="bg-surface-container-lowest p-4 rounded-xl ambient-shadow flex items-center gap-3">
-                                    <span className="material-symbols-outlined text-primary" data-icon="hub">hub</span>
-                                    <span className="text-xs font-semibold font-label uppercase tracking-widest text-on-surface-variant">Centralized</span>
-                                </div>
-                                <div className="bg-surface-container-lowest p-4 rounded-xl ambient-shadow flex items-center gap-3 translate-y-4">
-                                    <span className="material-symbols-outlined text-secondary" data-icon="auto_awesome">auto_awesome</span>
-                                    <span className="text-xs font-semibold font-label uppercase tracking-widest text-on-surface-variant">Automated</span>
-                                </div>
-                                <div className="bg-surface-container-lowest p-4 rounded-xl ambient-shadow flex items-center gap-3 -translate-y-2">
-                                    <span className="material-symbols-outlined text-tertiary-container" data-icon="security">security</span>
-                                    <span className="text-xs font-semibold font-label uppercase tracking-widest text-on-surface-variant">Secure</span>
-                                </div>
-                                <div className="bg-surface-container-lowest p-4 rounded-xl ambient-shadow flex items-center gap-3 translate-y-2">
-                                    <span className="material-symbols-outlined text-primary-fixed-dim" data-icon="query_stats">query_stats</span>
-                                    <span className="text-xs font-semibold font-label uppercase tracking-widest text-on-surface-variant">Insightful</span>
-                                </div>
-                            </div>
-                            <div className="absolute -z-10 top-0 left-0 w-full h-full opacity-10 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-primary via-transparent to-transparent"></div>
-                        </div>
-                        <div className="text-on-surface-variant/60 text-sm">
-                            Preferred by 200+ global enterprises.
-                        </div>
-                    </section>
-                    
-                    {/* Right Panel: Sign Up Form */}
-                    <section className="w-full md:w-7/12 bg-surface-container-lowest p-8 md:px-20 md:py-16 flex flex-col justify-center">
-                        <div className="max-w-md mx-auto w-full">
-                            {/* Mobile Logo */}
-                            <div className="md:hidden flex items-center gap-2 mb-8">
-                                <Link to="/" className="text-2xl font-bold font-headline text-primary tracking-tight">Vizzy Pilot</Link>
-                            </div>
-                            
-                            {/* Step Indicator */}
-                            <div className="flex items-center gap-2 mb-8">
-                                <div className="h-1 flex-1 bg-primary rounded-full"></div>
-                                <div className="h-1 flex-1 bg-surface-container-high rounded-full"></div>
-                            </div>
-                            
-                            <div className="mb-10">
-                                <h2 className="text-sm font-label font-bold text-primary uppercase tracking-widest mb-2">Step 1: Personal Details</h2>
-                                <p className="text-on-surface-variant text-base">Let's start with your basic information to get your workspace ready.</p>
-                            </div>
-                            
-                            {error && (
-                                <div className="mb-6 p-4 border border-error/30 bg-error-container rounded text-on-error-container text-xs font-label uppercase tracking-widest text-center">
-                                    {error}
-                                </div>
-                            )}
-
-                            <form className="space-y-6" onSubmit={handleNextStep}>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div className="space-y-1.5">
-                                        <label htmlFor="first_name" className="text-xs font-semibold font-label text-on-surface-variant ml-1">First Name</label>
-                                        <input 
-                                            type="text" 
-                                            id="first_name" 
-                                            placeholder="Jane" 
-                                            required
-                                            value={firstName}
-                                            onChange={(e) => setFirstName(e.target.value)}
-                                            className="w-full px-4 py-3 rounded-lg border-0 bg-surface-container-low text-on-surface placeholder-on-surface-variant/40 focus:ring-2 focus:ring-primary/20 focus:bg-surface-container-lowest transition-all" 
-                                        />
-                                    </div>
-                                    <div className="space-y-1.5">
-                                        <label htmlFor="last_name" className="text-xs font-semibold font-label text-on-surface-variant ml-1">Last Name</label>
-                                        <input 
-                                            type="text" 
-                                            id="last_name" 
-                                            placeholder="Doe" 
-                                            required
-                                            value={lastName}
-                                            onChange={(e) => setLastName(e.target.value)}
-                                            className="w-full px-4 py-3 rounded-lg border-0 bg-surface-container-low text-on-surface placeholder-on-surface-variant/40 focus:ring-2 focus:ring-primary/20 focus:bg-surface-container-lowest transition-all" 
-                                        />
-                                    </div>
-                                </div>
-                                <div className="space-y-1.5">
-                                    <label htmlFor="work_email" className="text-xs font-semibold font-label text-on-surface-variant ml-1">Work Email</label>
-                                    <div className="relative">
-                                        <input 
-                                            type="email" 
-                                            id="work_email" 
-                                            placeholder="jane.doe@company.com" 
-                                            required
-                                            value={email}
-                                            onChange={(e) => setEmail(e.target.value)}
-                                            className="w-full pl-11 pr-4 py-3 rounded-lg border-0 bg-surface-container-low text-on-surface placeholder-on-surface-variant/40 focus:ring-2 focus:ring-primary/20 focus:bg-surface-container-lowest transition-all" 
-                                        />
-                                        <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface-variant/60">mail</span>
-                                    </div>
-                                </div>
-                                <div className="pt-4 flex flex-col gap-4">
-                                    <button type="submit" className="w-full py-4 bg-gradient-to-b from-primary-container to-primary bg-primary text-on-primary font-headline font-bold rounded-lg shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30 active:scale-[0.98] transition-all flex items-center justify-center gap-2 group">
-                                        Next
-                                        <span className="material-symbols-outlined text-lg group-hover:translate-x-1 transition-transform">arrow_forward</span>
-                                    </button>
-                                    <div className="flex items-center justify-center gap-2 text-sm">
-                                        <span className="text-on-surface-variant">Already have an account?</span>
-                                        <Link to="/login" className="text-primary font-semibold hover:underline decoration-2 underline-offset-4">Sign in instead</Link>
-                                    </div>
-                                </div>
-                            </form>
-                        </div>
-                    </section>
-                </main>
-                
-                {/* Footer Component */}
-                <footer className="w-full max-w-6xl mx-auto flex justify-between items-center px-12 py-6 bg-transparent mt-4 opacity-70">
-                    <div className="text-xs font-['Inter'] tracking-wide text-on-surface-variant">
-                        © 2024 Alabaster Systems Inc.
-                    </div>
-                    <div className="flex gap-6">
-                        <a href="#" className="text-xs font-['Inter'] tracking-wide text-on-surface-variant hover:text-primary underline-offset-4 hover:underline transition-all duration-200">Privacy</a>
-                        <a href="#" className="text-xs font-['Inter'] tracking-wide text-on-surface-variant hover:text-primary underline-offset-4 hover:underline transition-all duration-200">Terms</a>
-                        <a href="#" className="text-xs font-['Inter'] tracking-wide text-on-surface-variant hover:text-primary underline-offset-4 hover:underline transition-all duration-200">Help</a>
-                    </div>
-                </footer>
-            </div>
-        );
+  const handleNextStep = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    if (!firstName || !lastName || !email) {
+      setError("Please complete all personal details.");
+      return;
     }
-    
-    /* STEP 2 PASSWORD COMPONENT */
-    return (
-        <div className="bg-background font-body text-on-surface min-h-screen flex flex-col items-center justify-center p-4 md:p-6 lg:p-8 antialiased relative">
-            <div className="fixed top-6 right-6 z-50">
-                <ThemeToggle />
-            </div>
-            {/* Auth Container */}
-            <main className="w-full max-w-6xl bg-surface-container-lowest rounded-xl overflow-hidden flex shadow-2xl min-h-[640px] my-auto relative">
-                {/* Left Panel: Brand Messaging & Checklist */}
-                <section className="hidden lg:flex w-5/12 bg-surface-container-low p-12 flex-col justify-between relative overflow-hidden">
-                    <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundImage: "radial-gradient(circle at 2px 2px, #c7c4d8 1px, transparent 0)", backgroundSize: "32px 32px" }}></div>
-                    <div className="relative z-10">
-                        <div className="flex items-center gap-2 mb-12">
-                            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-                                <span className="material-symbols-outlined text-on-primary text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>auto_awesome</span>
-                            </div>
-                            <Link to="/">
-                                <span className="font-headline font-bold text-xl tracking-tight text-on-surface hover:opacity-80 transition-opacity">Vizzy Pilot</span>
-                            </Link>
-                        </div>
-                        <h1 className="font-headline text-4xl font-bold text-on-surface leading-tight mb-6">
-                            Unlock the power of <span className="text-primary">Intelligence</span>.
-                        </h1>
-                        <p className="text-on-surface-variant text-lg mb-10 leading-relaxed">
-                            Setting up your account takes less than a minute. Join 10,000+ teams automating their workflows.
-                        </p>
-                        
-                        {/* Checklist */}
-                        <ul className="space-y-6">
-                            <li className="flex items-start gap-4">
-                                <div className="mt-1 w-6 h-6 rounded-full bg-secondary-container flex items-center justify-center shrink-0">
-                                    <span className="material-symbols-outlined text-on-secondary-fixed-variant text-sm" style={{ fontVariationSettings: "'wght' 700" }}>check</span>
-                                </div>
-                                <div>
-                                    <h3 className="font-headline font-semibold text-on-surface">Secure access</h3>
-                                    <p className="text-on-surface-variant text-sm">Enterprise-grade encryption for all your data and projects.</p>
-                                </div>
-                            </li>
-                            <li className="flex items-start gap-4">
-                                <div className="mt-1 w-6 h-6 rounded-full bg-secondary-container flex items-center justify-center shrink-0">
-                                    <span className="material-symbols-outlined text-on-secondary-fixed-variant text-sm" style={{ fontVariationSettings: "'wght' 700" }}>check</span>
-                                </div>
-                                <div>
-                                    <h3 className="font-headline font-semibold text-on-surface">Collaboration</h3>
-                                    <p className="text-on-surface-variant text-sm">Invite your team and work together in real-time environments.</p>
-                                </div>
-                            </li>
-                            <li className="flex items-start gap-4">
-                                <div className="mt-1 w-6 h-6 rounded-full bg-secondary-container flex items-center justify-center shrink-0">
-                                    <span className="material-symbols-outlined text-on-secondary-fixed-variant text-sm" style={{ fontVariationSettings: "'wght' 700" }}>check</span>
-                                </div>
-                                <div>
-                                    <h3 className="font-headline font-semibold text-on-surface">Real-time data</h3>
-                                    <p className="text-on-surface-variant text-sm">Instant insights and live dashboard updates across platforms.</p>
-                                </div>
-                            </li>
-                        </ul>
-                    </div>
-                </section>
-                
-                {/* Right Panel: Password Creation Form */}
-                <section className="w-full lg:w-7/12 p-8 md:p-16 lg:p-24 flex flex-col justify-center">
-                    <div className="max-w-md mx-auto w-full">
-                        <div className="lg:hidden flex items-center gap-2 mb-8">
-                            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-                                <span className="material-symbols-outlined text-on-primary text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>auto_awesome</span>
-                            </div>
-                            <Link to="/">
-                                <span className="font-headline font-bold text-xl tracking-tight text-on-surface">Vizzy Pilot</span>
-                            </Link>
-                        </div>
-                        
-                        <div className="flex items-center gap-2 mb-8">
-                            <div className="h-1 flex-1 bg-surface-container-high rounded-full"></div>
-                            <div className="h-1 flex-1 bg-primary rounded-full"></div>
-                        </div>
-                        
-                        <div className="mb-10">
-                            <h2 className="font-headline text-3xl font-bold text-on-surface mb-2">Step 2: Create a Password</h2>
-                            <p className="text-on-surface-variant">Secure your account with a strong password.</p>
-                        </div>
-                        
-                        {/* Email Pill (Read Only) */}
-                        <div className="flex items-center gap-3 bg-surface-container-low px-4 py-2 rounded-full w-fit mb-8 group border border-transparent hover:border-outline-variant transition-all cursor-pointer" onClick={() => setStep(1)}>
-                            <span className="material-symbols-outlined text-primary text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>account_circle</span>
-                            <span className="text-sm font-medium text-on-surface-variant">{email}</span>
-                            <button className="text-primary hover:text-on-primary-fixed-variant ml-1 transition-colors" type="button">
-                                <span className="material-symbols-outlined text-sm">edit</span>
-                            </button>
-                        </div>
-                        
-                        {error && (
-                            <div className="mb-6 p-4 border border-error/30 bg-error-container rounded text-on-error-container text-xs font-label uppercase tracking-widest text-center">
-                                {error}
-                            </div>
-                        )}
+    setStep(2);
+  };
 
-                        <form className="space-y-6" onSubmit={handleSubmit}>
-                            {/* Password Field */}
-                            <div className="space-y-1.5">
-                                <div className="flex justify-between items-center px-1">
-                                    <label htmlFor="password" className="block text-sm font-semibold text-on-surface">Password</label>
-                                    <button 
-                                        type="button"
-                                        onClick={() => setShowPassword(!showPassword)}
-                                        className="text-primary text-[10px] font-bold uppercase tracking-widest flex items-center gap-1 hover:underline outline-none"
-                                    >
-                                        <span className="material-symbols-outlined text-sm">
-                                            {showPassword ? 'visibility_off' : 'visibility'}
-                                        </span>
-                                        {showPassword ? 'Hide' : 'Show'}
-                                    </button>
-                                </div>
-                                <div className="relative">
-                                    <input 
-                                        type={showPassword ? 'text' : 'password'}
-                                        id="password" 
-                                        name="password" 
-                                        placeholder="Min. 8 characters" 
-                                        required
-                                        value={password}
-                                        onChange={(e) => setPassword(e.target.value)}
-                                        className="w-full px-4 py-3 bg-surface-container-lowest border border-outline-variant rounded-xl focus:ring-4 focus:ring-primary/10 focus:border-primary transition-all outline-none" 
-                                    />
-                                </div>
-                                {/* Strength Indicator */}
-                                {password && (
-                                    <div className="pt-2">
-                                        <div className="flex gap-1 h-1 mb-2">
-                                            <div className={`flex-1 rounded-full ${passwordStrength === 'weak' ? 'bg-error' : passwordStrength === 'medium' ? 'bg-[#facc15]' : 'bg-secondary'}`}></div>
-                                            <div className={`flex-1 rounded-full ${passwordStrength === 'medium' || passwordStrength === 'strong' ? (passwordStrength === 'medium' ? 'bg-[#facc15]' : 'bg-secondary') : 'bg-outline-variant/30'}`}></div>
-                                            <div className={`flex-1 rounded-full ${passwordStrength === 'strong' ? 'bg-secondary' : 'bg-outline-variant/30'}`}></div>
-                                            <div className={`flex-1 rounded-full ${passwordStrength === 'strong' ? 'bg-secondary' : 'bg-outline-variant/30'}`}></div>
-                                        </div>
-                                        <p className={`text-[10px] font-bold uppercase tracking-widest ${passwordStrength === 'weak' ? 'text-error' : passwordStrength === 'medium' ? 'text-[#facc15]' : 'text-secondary'}`}>
-                                            {passwordStrength} Password
-                                        </p>
-                                    </div>
-                                )}
-                            </div>
-                            
-                            {/* Confirm Password Field */}
-                            <div className="space-y-1.5">
-                                <div className="flex justify-between items-center px-1">
-                                    <label htmlFor="confirm-password" className="block text-sm font-semibold text-on-surface">Confirm Password</label>
-                                    <button 
-                                        type="button"
-                                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                                        className="text-primary text-[10px] font-bold uppercase tracking-widest flex items-center gap-1 hover:underline outline-none"
-                                    >
-                                        <span className="material-symbols-outlined text-sm">
-                                            {showConfirmPassword ? 'visibility_off' : 'visibility'}
-                                        </span>
-                                        {showConfirmPassword ? 'Hide' : 'Show'}
-                                    </button>
-                                </div>
-                                <input 
-                                    type={showConfirmPassword ? 'text' : 'password'}
-                                    id="confirm-password" 
-                                    name="confirm-password" 
-                                    placeholder="Repeat your password" 
-                                    required
-                                    value={confirmPassword}
-                                    onChange={(e) => setConfirmPassword(e.target.value)}
-                                    className={`w-full px-4 py-3 bg-surface-container-lowest border rounded-xl focus:ring-4 focus:ring-primary/10 focus:border-primary transition-all outline-none ${confirmPassword && password !== confirmPassword ? 'border-error' : 'border-outline-variant'}`} 
-                                />
-                            </div>
-                            
-                            {/* CTA */}
-                            <div className="pt-4">
-                                <button 
-                                    type="submit" 
-                                    disabled={isLoading || password !== confirmPassword || password.length === 0 || !agreeToTerms}
-                                    className="w-full py-4 bg-primary text-on-primary font-headline font-bold rounded-xl shadow-lg shadow-primary/20 hover:shadow-primary/40 active:scale-[0.98] transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:pointer-events-none"
-                                >
-                                    {isLoading ? 'Creating Account...' : 'Create Account'}
-                                    {!isLoading && <span className="material-symbols-outlined">arrow_forward</span>}
-                                </button>
-                            </div>
-                        </form>
-                        
-                        <div className="mt-8 text-center flex items-center justify-center gap-2">
-                            <input 
-                                type="checkbox" 
-                                id="terms" 
-                                required
-                                checked={agreeToTerms}
-                                onChange={(e) => setAgreeToTerms(e.target.checked)}
-                                className="w-4 h-4 rounded border-outline-variant text-primary focus:ring-primary" 
-                            />
-                            <p className="text-sm text-on-surface-variant">
-                                By creating an account, you agree to our <a href="#" className="text-primary font-medium hover:underline">Terms</a> and <a href="#" className="text-primary font-medium hover:underline">Privacy Policy</a>.
-                            </p>
-                        </div>
-                    </div>
-                </section>
-            </main>
-            <footer className="w-full max-w-6xl mx-auto flex justify-between items-center px-12 py-6 bg-transparent mt-4 opacity-70">
-                <div className="text-xs font-['Inter'] tracking-wide text-on-surface-variant">
-                    © 2024 Alabaster Systems Inc.
-                </div>
-                <div className="flex gap-6">
-                    <a href="#" className="text-xs font-['Inter'] tracking-wide text-on-surface-variant hover:text-primary underline-offset-4 hover:underline transition-all duration-200">Privacy</a>
-                    <a href="#" className="text-xs font-['Inter'] tracking-wide text-on-surface-variant hover:text-primary underline-offset-4 hover:underline transition-all duration-200">Terms</a>
-                    <a href="#" className="text-xs font-['Inter'] tracking-wide text-on-surface-variant hover:text-primary underline-offset-4 hover:underline transition-all duration-200">Help</a>
-                </div>
-            </footer>
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    
+    if (password !== confirmPassword) {
+      setError("Passwords do not match");
+      return;
+    }
+
+    if (!agreeToTerms) {
+      setError("You must authorize the SLA system security terms.");
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      await authApi.register({
+        name: `${firstName} ${lastName}`.trim(),
+        email: email,
+        password: password,
+      });
+      navigate("/login");
+    } catch (err: any) {
+      setError(err.response?.data?.detail || "Registration failed. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const passwordStrength = password.length >= 12 ? "strong" : password.length >= 8 ? "medium" : "weak";
+
+  return (
+    <div id="auth-root" className="min-h-screen bg-[#F5F2EB] flex flex-col justify-between relative overflow-hidden select-none py-12 px-4 sm:px-6 lg:px-8">
+      {/* Dynamic ambient grid patterns inside register page */}
+      <div className="absolute inset-x-0 top-0 h-96 bg-gradient-to-b from-[#E4DED4]/30 to-transparent pointer-events-none" />
+      <div className="absolute -top-40 -left-40 w-96 h-96 rounded-full bg-indigo-500/[0.03] blur-[100px] pointer-events-none" />
+      <div className="absolute -bottom-40 -right-40 w-96 h-96 rounded-full bg-purple-500/[0.03] blur-[100px] pointer-events-none" />
+
+      {/* Header Bar */}
+      <div className="max-w-7xl w-full mx-auto flex justify-between items-center relative z-10 mb-8">
+        <Link
+          to="/"
+          className="group flex items-center space-x-2 text-xs font-semibold uppercase tracking-wider text-[#7C725D] hover:text-[#1F1C18] transition-colors bg-white/50 backdrop-blur-md px-4 py-2 rounded-full border border-white/60 shadow-sm cursor-pointer text-decoration-none"
+        >
+          <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-1" />
+          <span>Exit to Flight Deck</span>
+        </Link>
+
+        <div className="flex items-center space-x-2.5">
+          <div className="h-5 w-5 rounded-sm bg-[#1F1C18] flex items-center justify-center text-white">
+            <span className="font-sans text-[11px] font-bold">V</span>
+          </div>
+          <span className="font-sans text-sm font-bold tracking-tight text-[#1F1C18]">
+            Vizzy Pilot
+          </span>
         </div>
-    );
+      </div>
+
+      {/* Main split viewport layout */}
+      <div className="max-w-5xl w-full mx-auto grid grid-cols-1 lg:grid-cols-12 gap-12 items-center flex-1 relative z-10 my-auto">
+        
+        {/* Left Side: Brand presentation / Editorial */}
+        <div className="lg:col-span-6 text-left space-y-6 lg:pr-8">
+          <div className="inline-flex items-center space-x-2 px-2.5 py-1 bg-white/70 backdrop-blur-md border border-[#E4DED4] rounded-full text-[10px] font-mono font-bold uppercase tracking-widest text-[#7C725D]">
+            <span className="h-1.5 w-1.5 rounded-full bg-indigo-500 animate-pulse" />
+            <span>Generate security ID</span>
+          </div>
+
+          <h2 className="font-sans text-[40px] sm:text-[48px] font-medium tracking-tight leading-tight text-gray-950 font-display">
+            Unlock the power of Intelligence.
+          </h2>
+
+          <p className="font-sans text-sm sm:text-base text-[#7C725D] leading-relaxed max-w-md">
+            Setting up your account takes less than a minute. Join thousands of teams automating their data curation workflows.
+          </p>
+
+          {/* Integrated visual system stats list */}
+          <div className="space-y-3.5 pt-4">
+            <div className="flex items-center space-x-3 text-xs font-mono">
+              <div className="h-8 w-8 rounded-lg bg-white/60 border border-white flex items-center justify-center text-indigo-600 shadow-sm shrink-0">
+                <ShieldCheck className="h-4 w-4" />
+              </div>
+              <div>
+                <span className="text-gray-400 block tracking-tight">ENCRYPTION PROTOCOL:</span>
+                <span className="text-gray-950 font-semibold uppercase">AES-256 STATE BOUND</span>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-3 text-xs font-mono">
+              <div className="h-8 w-8 rounded-lg bg-white/60 border border-white flex items-center justify-center text-purple-650 shadow-sm shrink-0">
+                <Cpu className="h-4 w-4" />
+              </div>
+              <div>
+                <span className="text-gray-400 block tracking-tight">SLA PRIORITY:</span>
+                <span className="text-gray-950 font-semibold uppercase">99.999% CLUSTER COMMIT</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Right Side: Authentication container card */}
+        <div className="lg:col-span-6 relative">
+          <motion.div
+            layout
+            className="w-full bg-white/80 backdrop-blur-xl border border-white rounded-3xl p-6 sm:p-8 shadow-[0_25px_60px_rgba(31,28,24,0.08)] text-left"
+          >
+            <AnimatePresence mode="wait">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="space-y-6"
+              >
+                {/* Auth mode selection title */}
+                <div>
+                  <div className="flex justify-between items-baseline mb-1">
+                    <h3 className="font-sans text-[22px] font-bold text-gray-900">
+                      Create Pilot Account
+                    </h3>
+                    
+                    {/* Mode Indicator badge */}
+                    <span className="text-[9px] font-mono font-bold px-2.5 py-0.5 rounded-full border border-indigo-100 bg-indigo-50 text-indigo-700 uppercase">
+                      STANDARD PORTAL
+                    </span>
+                  </div>
+                  <p className="font-sans text-xs text-[#7C725D]">
+                    {step === 1 
+                      ? "Step 1: Enter your personal credentials."
+                      : "Step 2: Establish your verification key."
+                    }
+                  </p>
+                </div>
+
+                {/* Errors / Warnings */}
+                {error && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-rose-50 border border-rose-100 text-rose-800 p-3 rounded-xl flex items-start gap-2.5 text-xs font-sans"
+                  >
+                    <AlertCircle className="h-4 w-4 text-rose-600 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <strong className="font-semibold block">Authorization Failure</strong>
+                      <span>{error}</span>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* STEP 1: Personal Details */}
+                {step === 1 ? (
+                  <form onSubmit={handleNextStep} className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-sans font-bold text-[#7C725D] uppercase tracking-wider block">
+                          First Name
+                        </label>
+                        <div className="relative">
+                          <User className="absolute left-3 top-3 h-4 w-4 text-[#7C725D] opacity-60" />
+                          <input
+                            type="text"
+                            placeholder="Jane"
+                            required
+                            value={firstName}
+                            onChange={(e) => setFirstName(e.target.value)}
+                            className="w-full bg-[#FCFAF5] border border-[#E4DED4] rounded-xl pl-10 pr-4 py-2.5 text-sm text-gray-900 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-sans"
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-sans font-bold text-[#7C725D] uppercase tracking-wider block">
+                          Last Name
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Doe"
+                          required
+                          value={lastName}
+                          onChange={(e) => setLastName(e.target.value)}
+                          className="w-full bg-[#FCFAF5] border border-[#E4DED4] rounded-xl px-4 py-2.5 text-sm text-gray-900 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-sans"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-sans font-bold text-[#7C725D] uppercase tracking-wider block">
+                        Work Email
+                      </label>
+                      <div className="relative">
+                        <Mail className="absolute left-3 top-3 h-4 w-4 text-[#7C725D] opacity-60" />
+                        <input
+                          type="email"
+                          placeholder="jane.doe@company.com"
+                          required
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          className="w-full bg-[#FCFAF5] border border-[#E4DED4] rounded-xl pl-10 pr-4 py-2.5 text-sm text-gray-900 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-sans"
+                        />
+                      </div>
+                    </div>
+
+                    <motion.button
+                      whileHover={{ scale: 1.01 }}
+                      whileTap={{ scale: 0.99 }}
+                      type="submit"
+                      className="w-full flex items-center justify-center space-x-2 py-3 px-4 rounded-xl text-xs font-bold uppercase tracking-wider text-white bg-indigo-900 hover:bg-indigo-950 ring-1 ring-indigo-500/10 shadow-sm transition-all focus:outline-none cursor-pointer mt-4"
+                    >
+                      <span>CONTINUE</span>
+                      <ArrowRight className="h-4 w-4" />
+                    </motion.button>
+                  </form>
+                ) : (
+                  /* STEP 2: Password creation */
+                  <form onSubmit={handleSubmit} className="space-y-4">
+                    {/* Read Only Email Pill */}
+                    <div className="flex items-center justify-between p-3 rounded-lg border border-[#E4DED4]/60 bg-[#F5F2EB]/50 hover:bg-[#F5F2EB] transition-colors cursor-pointer" onClick={() => setStep(1)}>
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs uppercase">
+                          {email.charAt(0) || "U"}
+                        </div>
+                        <span className="text-sm font-medium text-[#1F1C18]">{email}</span>
+                      </div>
+                      <span className="text-xs font-mono text-[#7C725D] hover:text-[#1F1C18]">edit</span>
+                    </div>
+
+                    {/* Password Input */}
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between items-center">
+                        <label className="text-[10px] font-sans font-bold text-[#7C725D] uppercase tracking-wider block">
+                          Password (Min. 8 characters)
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="text-xs font-semibold text-indigo-700 hover:underline flex items-center gap-1 cursor-pointer bg-transparent border-none"
+                        >
+                          {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                          <span>{showPassword ? "Hide" : "Show"}</span>
+                        </button>
+                      </div>
+                      <div className="relative">
+                        <Lock className="absolute left-3 top-3 h-4 w-4 text-[#7C725D] opacity-60" />
+                        <input
+                          type={showPassword ? "text" : "password"}
+                          placeholder="••••••••"
+                          required
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          className="w-full bg-[#FCFAF5] border border-[#E4DED4] rounded-xl pl-10 pr-4 py-2.5 text-sm text-gray-900 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-sans"
+                        />
+                      </div>
+
+                      {/* Password Strength Indicator */}
+                      {password && (
+                        <div className="pt-1.5">
+                          <div className="flex gap-1 h-1 mb-1">
+                            <div className={`flex-1 rounded-full ${passwordStrength === "weak" ? "bg-rose-500" : passwordStrength === "medium" ? "bg-amber-500" : "bg-emerald-500"}`}></div>
+                            <div className={`flex-1 rounded-full ${passwordStrength === "medium" || passwordStrength === "strong" ? (passwordStrength === "medium" ? "bg-amber-500" : "bg-emerald-500") : "bg-gray-200"}`}></div>
+                            <div className={`flex-1 rounded-full ${passwordStrength === "strong" ? "bg-emerald-500" : "bg-gray-200"}`}></div>
+                          </div>
+                          <span className={`text-[9px] font-mono font-bold uppercase tracking-wider ${passwordStrength === "weak" ? "text-rose-600" : passwordStrength === "medium" ? "text-amber-600" : "text-emerald-600"}`}>
+                            {passwordStrength} security verification
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Confirm Password Input */}
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between items-center">
+                        <label className="text-[10px] font-sans font-bold text-[#7C725D] uppercase tracking-wider block">
+                          Confirm Password
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                          className="text-xs font-semibold text-indigo-700 hover:underline flex items-center gap-1 cursor-pointer bg-transparent border-none"
+                        >
+                          {showConfirmPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                          <span>{showConfirmPassword ? "Hide" : "Show"}</span>
+                        </button>
+                      </div>
+                      <div className="relative">
+                        <Lock className="absolute left-3 top-3 h-4 w-4 text-[#7C725D] opacity-60" />
+                        <input
+                          type={showConfirmPassword ? "text" : "password"}
+                          placeholder="••••••••"
+                          required
+                          value={confirmPassword}
+                          onChange={(e) => setConfirmPassword(e.target.value)}
+                          className={`w-full bg-[#FCFAF5] border rounded-xl pl-10 pr-4 py-2.5 text-sm text-gray-900 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-sans ${
+                            confirmPassword && password !== confirmPassword ? "border-rose-450 focus:border-rose-500 focus:ring-rose-500" : "border-[#E4DED4]"
+                          }`}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Terms Accepted Checkbox */}
+                    <div className="flex items-start space-x-2.5 pt-2">
+                      <input
+                        id="terms-check"
+                        type="checkbox"
+                        checked={agreeToTerms}
+                        onChange={(e) => setAgreeToTerms(e.target.checked)}
+                        className="h-4 w-4 mt-0.5 accent-black rounded border-gray-300 focus:ring-black cursor-pointer"
+                      />
+                      <label htmlFor="terms-check" className="text-[11px] text-[#7C725D] leading-tight font-sans cursor-pointer select-none">
+                        I authorized and declare full status reports conform with the Vizzy security SLA guidelines.
+                      </label>
+                    </div>
+
+                    <motion.button
+                      whileHover={{ scale: 1.01 }}
+                      whileTap={{ scale: 0.99 }}
+                      type="submit"
+                      disabled={isLoading || password !== confirmPassword || password.length === 0 || !agreeToTerms}
+                      className={`w-full flex items-center justify-center space-x-2 py-3 px-4 rounded-xl text-xs font-bold uppercase tracking-wider text-white shadow-sm transition-all focus:outline-none cursor-pointer mt-4 ${
+                        isLoading || password !== confirmPassword || password.length === 0 || !agreeToTerms
+                          ? "bg-[#7C725D] cursor-not-allowed" 
+                          : "bg-indigo-900 hover:bg-indigo-950 ring-1 ring-indigo-500/10"
+                      }`}
+                    >
+                      {isLoading ? (
+                        <>
+                          <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-1" />
+                          <span>Generating Secure ID...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>CREATE ACCOUNT</span>
+                          <ArrowRight className="h-4 w-4" />
+                        </>
+                      )}
+                    </motion.button>
+                  </form>
+                )}
+
+                {/* Auxiliary Auth Switches & Alternate Access Methods */}
+                <div className="pt-4 border-t border-dashed border-gray-150 text-center space-y-3 font-sans">
+                  <p className="text-[11px] text-[#7C725D]">
+                    Already registered with Vizzy?{" "}
+                    <Link to="/login" className="font-bold text-[#1F1C18] hover:underline">
+                      Verify existing account
+                    </Link>
+                  </p>
+                </div>
+              </motion.div>
+            </AnimatePresence>
+          </motion.div>
+        </div>
+
+      </div>
+
+      {/* Footer copyright section aligning with design system of main page */}
+      <div className="max-w-7xl w-full mx-auto relative z-10 pt-8 border-t border-[#E4DED4] flex flex-col sm:flex-row items-center justify-between text-xs text-[#7C725D] space-y-3 sm:space-y-0">
+        <span>© 2026 Vizzy Pilot. Structured Telemetry Console. All rights reserved.</span>
+        <div className="flex space-x-4">
+          <a href="#" className="hover:text-black transition-colors">SLA Policy</a>
+          <span>•</span>
+          <a href="#" className="hover:text-black transition-colors">Security Nodes</a>
+        </div>
+      </div>
+
+    </div>
+  );
 }

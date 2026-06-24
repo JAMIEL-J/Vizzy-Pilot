@@ -230,6 +230,8 @@ const KPI_CARD_COLORS = [
 // â”€â”€â”€ Dark Tooltip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export default function UserDashboard() {
+    const { theme } = useTheme();
+    const isDark = theme === 'dark';
     const cacheRef = useRef<DashboardCacheBundle>(getDashboardCacheBundle());
     const [analytics, setAnalytics] = useState<DashboardAnalytics | null>(null);
     const [versionId, setVersionId] = useState<string | null>(null);
@@ -258,8 +260,6 @@ export default function UserDashboard() {
 
     // filterSlots: 4 slots, each holds the column name assigned by the user (null = unassigned)
     const [filterSlots, setFilterSlots] = useState<(string | null)[]>([null, null, null, null]);
-    const { theme } = useTheme();
-    const isDark = theme === 'dark';
 
     const { charts: streamedCharts, kpis: streamedKpis, done: streamDone, error: streamError } = useDashboardStream(versionId || '');
     // inline column display removed — use side panel classifier instead
@@ -272,13 +272,13 @@ export default function UserDashboard() {
 
     // Dynamic Chart Colors
     const chartColors = {
-        grid: isDark ? '#262626' : '#E5E2DE',
-        axis: isDark ? '#A3A3A3' : '#5E5E5C',
-        text: isDark ? '#FFFFFF' : '#1B1C1C',
+        grid: isDark ? '#23282B' : '#E4DED4',
+        axis: isDark ? '#8E9196' : '#7C725D',
+        text: isDark ? '#FCFAF5' : '#1F1C18',
         tooltip: {
-            bg: isDark ? '#000000' : '#FFFFFF',
-            border: isDark ? '#262626' : '#E5E2DE',
-            text: isDark ? '#FFFFFF' : '#1B1C1C'
+            bg: isDark ? '#141719' : '#FCFAF5',
+            border: isDark ? '#23282B' : '#E4DED4',
+            text: isDark ? '#FCFAF5' : '#1F1C18'
         }
     };
 
@@ -1998,34 +1998,59 @@ export default function UserDashboard() {
 
                         {/* Key Insights View (curated domain-specific charts) */}
                         {!allColumnsTab && chartSections.length > 0 && (
-                            <div className="space-y-10">
-                                {chartSections.map(({ title, charts }) => (
-                                    <div key={title} className="space-y-4">
-                                        <div className="flex items-center gap-3 px-1">
-                                            <h3 className="text-lg font-bold tracking-tight text-foreground">{title}</h3>
-                                            <div className="h-px flex-1 bg-border" />
-                                            <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">{charts.length} {charts.length === 1 ? 'chart' : 'charts'}</span>
+                            <div className="space-y-12">
+                                {chartSections.map(({ title, charts }, groupIdx) => (
+                                    <div key={title} className="space-y-6">
+                                        {/* Thematic Group Header */}
+                                        <div className="p-4 px-5 rounded-xl bg-bg-card border-l-4 border-themed-main flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 shadow-xs border border-border-main">
+                                            <div>
+                                                <h3 className="font-mono text-xs sm:text-sm font-black tracking-wider text-themed-main uppercase">
+                                                    {title}
+                                                </h3>
+                                                <p className="text-xs text-themed-muted font-sans mt-0.5">
+                                                    Thematic visualization insights computed from live telemetry.
+                                                </p>
+                                            </div>
+                                            <span className="text-[10px] font-mono bg-themed-main/10 text-themed-main px-2 py-0.5 rounded font-extrabold self-start sm:self-auto leading-none">
+                                                {charts.length} {charts.length === 1 ? 'chart' : 'charts'}
+                                            </span>
                                         </div>
-                                        <div className="grid grid-cols-1 md:grid-cols-[repeat(auto-fit,minmax(340px,1fr))] gap-6">
-                                            {charts.map((chart) => {
+
+                                        {/* Grid mapping for Thematic Charts */}
+                                        <div className="grid grid-cols-1 md:grid-cols-6 gap-6 w-full">
+                                            {charts.map((chart, chartIdx) => {
                                                 const streamedChart = streamedCharts[chart.id];
-                                                // Prevent streamed cache from overriding active filters
                                                 const resolvedData = (hasInteractiveScope ? undefined : streamedChart?.data) ?? chart.data;
-                                                if (!resolvedData && !isLoading) return <ChartSkeleton key={chart.id} isDark={isDark} />;
+                                                if (!resolvedData && !isLoading) return <div key={chart.id} className="lg:col-span-2 md:col-span-3 col-span-1"><ChartSkeleton isDark={isDark} /></div>;
+
+                                                const spanClass = charts.length === 5
+                                                    ? (chartIdx === 0 || chartIdx === 1 ? "lg:col-span-3 md:col-span-3 col-span-1" : chartIdx === 4 ? "lg:col-span-2 md:col-span-6 col-span-1" : "lg:col-span-2 md:col-span-3 col-span-1")
+                                                    : charts.length === 1
+                                                    ? "lg:col-span-6 md:col-span-6 col-span-1"
+                                                    : charts.length === 2
+                                                    ? "lg:col-span-3 md:col-span-3 col-span-1"
+                                                    : charts.length === 3
+                                                    ? "lg:col-span-2 md:col-span-2 col-span-1"
+                                                    : charts.length === 4
+                                                    ? "lg:col-span-3 md:col-span-3 col-span-1"
+                                                    : (chartIdx % 5 === 0 || chartIdx % 5 === 1 ? "lg:col-span-3 md:col-span-3 col-span-1" : chartIdx % 5 === 4 ? "lg:col-span-2 md:col-span-6 col-span-1" : "lg:col-span-2 md:col-span-3 col-span-1");
+
                                                 return (
-                                                    <Panel key={`${selectedVersionId}-insight-${chart.id}`}>
-                                                        <PanelHeader title={chart.title || `Insight ${chart.id}`} actions={renderChartActions(chart)} />
-                                                        <div className="p-4">
-                                                            <ChartRenderer
-                                                                chart={{ ...chart, data: resolvedData, type: chart_overrides[chart.id]?.type || chart.type }}
-                                                                chartColors={chartColors}
-                                                                isDark={isDark}
-                                                                onFilterClick={handleChartFilterClick}
-                                                                targetColumn={analytics?.target_column}
-                                                                quickReact={quickReactCharts}
-                                                            />
-                                                        </div>
-                                                    </Panel>
+                                                    <div key={`${selectedVersionId}-insight-${chart.id}`} className={spanClass}>
+                                                        <Panel>
+                                                            <PanelHeader title={chart.title || `Insight ${chart.id}`} actions={renderChartActions(chart)} />
+                                                            <div className="p-4">
+                                                                <ChartRenderer
+                                                                    chart={{ ...chart, data: resolvedData, type: chart_overrides[chart.id]?.type || chart.type }}
+                                                                    chartColors={chartColors}
+                                                                    isDark={isDark}
+                                                                    onFilterClick={handleChartFilterClick}
+                                                                    targetColumn={analytics?.target_column}
+                                                                    quickReact={quickReactCharts}
+                                                                />
+                                                            </div>
+                                                        </Panel>
+                                                    </div>
                                                 );
                                             })}
                                         </div>

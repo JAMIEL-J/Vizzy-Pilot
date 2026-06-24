@@ -7,7 +7,10 @@ export const Panel = React.forwardRef<
 >(({ className, elevated, ...props }, ref) => (
   <div
     ref={ref}
-    className={cn(elevated ? "panel-elev" : "panel", className)}
+    className={cn(
+      "bg-bg-card border border-border-main rounded-2xl shadow-sm",
+      className
+    )}
     {...props}
   />
 ));
@@ -25,13 +28,13 @@ export function PanelHeader({
   icon?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
+    <div className="flex items-start justify-between gap-3 border-b border-border-main px-5 py-4">
       <div className="flex items-start gap-2.5">
-        {icon && <div className="mt-0.5 text-muted-foreground">{icon}</div>}
-        <div>
-          <h3 className="text-[12.5px] font-semibold tracking-tight">{title}</h3>
+        {icon && <div className="mt-0.5 text-themed-muted">{icon}</div>}
+        <div className="text-left">
+          <h3 className="text-sm font-sans font-bold text-themed-main leading-snug">{title}</h3>
           {subtitle && (
-            <p className="mt-0.5 text-[11.5px] text-muted-foreground">{subtitle}</p>
+            <p className="mt-0.5 text-xs text-themed-muted font-sans">{subtitle}</p>
           )}
         </div>
       </div>
@@ -50,17 +53,17 @@ export function Pill({
   className?: string;
 }) {
   const tones: Record<string, string> = {
-    default: "bg-surface-2 text-muted-foreground border-border",
-    success: "bg-[color-mix(in_oklab,var(--success)_15%,transparent)] text-success border-[color-mix(in_oklab,var(--success)_30%,transparent)]",
-    warning: "bg-[color-mix(in_oklab,var(--warning)_15%,transparent)] text-warning border-[color-mix(in_oklab,var(--warning)_30%,transparent)]",
-    danger: "bg-[color-mix(in_oklab,var(--destructive)_15%,transparent)] text-destructive border-[color-mix(in_oklab,var(--destructive)_30%,transparent)]",
-    info: "bg-[color-mix(in_oklab,var(--accent)_15%,transparent)] text-accent border-[color-mix(in_oklab,var(--accent)_30%,transparent)]",
-    accent: "bg-[color-mix(in_oklab,var(--primary)_18%,transparent)] text-primary border-[color-mix(in_oklab,var(--primary)_30%,transparent)]",
+    default: "bg-surface-2 border-border-main text-themed-muted",
+    success: "bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400",
+    warning: "bg-amber-500/10 border-amber-500/20 text-amber-600 dark:text-amber-400",
+    danger: "bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-400",
+    info: "bg-blue-500/10 border-blue-500/20 text-blue-600 dark:text-blue-400",
+    accent: "bg-themed-main/10 border-themed-main/20 text-themed-main",
   };
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10.5px] font-medium",
+        "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-sans font-bold uppercase tracking-wider",
         tones[tone],
         className,
       )}
@@ -72,7 +75,7 @@ export function Pill({
 
 export function Kbd({ children }: { children: React.ReactNode }) {
   return (
-    <kbd className="inline-flex h-4 min-w-4 items-center justify-center rounded border border-border bg-surface-2 px-1 font-mono text-[10px] text-muted-foreground">
+    <kbd className="inline-flex h-4 min-w-4 items-center justify-center rounded border border-border-main bg-surface-2 px-1 font-mono text-[9px] text-themed-muted">
       {children}
     </kbd>
   );
@@ -86,7 +89,7 @@ export function BtnGhost({
   return (
     <button
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-md border border-transparent px-2 py-1 text-[11.5px] font-medium text-muted-foreground transition hover:bg-surface-2 hover:text-foreground",
+        "inline-flex items-center gap-1.5 rounded-xl border border-transparent px-3 py-1.5 text-xs font-sans font-bold uppercase tracking-wider text-themed-muted hover:bg-surface-2 hover:text-themed-main transition-all cursor-pointer border-none bg-transparent",
         className,
       )}
       {...props}
@@ -104,7 +107,7 @@ export function BtnSecondary({
   return (
     <button
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-2 px-2.5 py-1 text-[11.5px] font-medium text-foreground transition hover:border-border-strong hover:bg-surface-3",
+        "inline-flex items-center gap-1.5 rounded-xl border border-border-main bg-bg-card px-3.5 py-2 text-xs font-sans font-bold uppercase tracking-wider text-themed-main hover:bg-surface-2 transition-all cursor-pointer",
         className,
       )}
       {...props}
@@ -122,7 +125,7 @@ export function BtnPrimary({
   return (
     <button
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-md bg-foreground px-2.5 py-1.5 text-[11.5px] font-semibold text-background transition hover:bg-foreground/90",
+        "inline-flex items-center gap-1.5 rounded-xl bg-themed-main px-3.5 py-2 text-xs font-sans font-bold uppercase tracking-wider text-primary-foreground hover:opacity-90 transition-all cursor-pointer border-none",
         className,
       )}
       {...props}
@@ -140,7 +143,7 @@ export function BtnAccent({
   return (
     <button
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-[11.5px] font-semibold text-primary-foreground transition hover:opacity-90",
+        "inline-flex items-center gap-1.5 rounded-xl bg-themed-main px-3.5 py-2 text-xs font-sans font-bold uppercase tracking-wider text-primary-foreground hover:opacity-90 transition-all cursor-pointer border-none",
         className,
       )}
       {...props}

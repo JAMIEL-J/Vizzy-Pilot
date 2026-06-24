@@ -95,15 +95,9 @@ html {
 .floating-input:focus-within label,
 .floating-input input:not(:placeholder-shown) + label {
     transform: translateY(-1.5rem) scale(0.85);
-    background-color: #ffffff;
+    background-color: #FCFAF5;
     padding: 0 0.25rem;
-    color: #3525cd;
-}
-
-.dark .floating-input:focus-within label,
-.dark .floating-input input:not(:placeholder-shown) + label {
-    background-color: #f9f9ff;
-    color: #4f46e5;
+    color: #16231b;
 }
 
 .glass-effect {
