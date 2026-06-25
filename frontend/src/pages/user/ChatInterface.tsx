@@ -78,10 +78,17 @@ const getInsightSqlQueries = (msg: ChatMessage): InsightSqlQuery[] => {
 
 const renderInsightPoints = (content: string) => {
     const lines = (content || '').split(/\n+/).map((line) => line.replace(/^\s*(?:-\s*|\d+[.)]\s*)/, '').trim()).filter(Boolean);
+    if (lines.length === 0) {
+        return <ReactMarkdown remarkPlugins={[remarkGfm]}>{content || ''}</ReactMarkdown>;
+    }
     return (
         <ol className="list-decimal pl-5 space-y-3">
             {lines.map((line, idx) => (
-                <li key={idx} className="pl-1">{line}</li>
+                <li key={idx} className="pl-1 leading-relaxed">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ p: 'span' }}>
+                        {line}
+                    </ReactMarkdown>
+                </li>
             ))}
         </ol>
     );
@@ -869,7 +876,7 @@ export default function ChatInterface() {
                                         {msg.role === 'assistant' && (
                                             <div className="w-10 h-10 rounded-sm bg-surface-3 border-b-2 border-border-strong flex items-center justify-center flex-shrink-0 font-mono text-xs font-bold text-foreground font-display font-light shadow-elev-1">VX</div>
                                         )}
-                                        <div className={`px-5 py-4 rounded-xl border ${msg.role === 'user' ? 'bg-surface-3 text-foreground border-border shadow-sm' : 'bg-surface-2 text-foreground border-border'} ${['analysis', 'visualization', 'dashboard', 'comparative', 'aggregative', 'trend'].includes(msg.intent_type || '') && msg.output_data?.type !== 'kpi' ? 'w-full' : ''} ${msg.output_data?.type === 'kpi' ? 'w-auto' : ''}`}>
+                                        <div className={`px-5 py-4 rounded-xl border ${msg.role === 'user' ? 'bg-surface-3 text-foreground border-border shadow-sm' : 'bg-surface-2 text-foreground border-border'} ${['analysis', 'visualization', 'dashboard', 'comparative', 'aggregative', 'trend', 'interpretive'].includes(msg.intent_type || '') && msg.output_data?.type !== 'kpi' && msg.output_data?.chart?.type !== 'kpi' ? 'w-full' : ''} ${(msg.output_data?.type === 'kpi' || msg.output_data?.chart?.type === 'kpi') ? 'w-full max-w-md' : ''}`}>
                                             {msg.role === 'assistant' && (msg.output_data?.type === 'interpretive_text' || msg.output_data?.source === 'orchestrator_interpretive') && (
                                                 <div className="mb-2 flex items-center">
                                                     <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold tracking-wider uppercase bg-[#8B5CF6]/15 text-[#8B5CF6] border border-[#8B5CF6]/30">

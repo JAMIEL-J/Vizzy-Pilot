@@ -688,8 +688,9 @@ async def auto_render_dashboard(
                             "format_type": chart.get("format_type"),
                         }
                     
+                    dataset = session.get(Dataset, version.dataset_id)
                     return DashboardAnalyticsResponse(
-                        dataset_name=version.source_reference.split('/')[-1],
+                        dataset_name=dataset.name if dataset else version.source_reference.split('/')[-1],
                         total_rows=total_rows,
                         domain=domain.value,
                         domain_confidence=confidence,
@@ -830,8 +831,9 @@ async def auto_render_dashboard(
 
             # Ensure all returned values are JSON-serializable
             try:
+                dataset = session.get(Dataset, version.dataset_id)
                 return DashboardAnalyticsResponse(
-                    dataset_name=version.source_reference.split('/')[-1],
+                    dataset_name=dataset.name if dataset else version.source_reference.split('/')[-1],
                     total_rows=total_rows,
                     domain=domain.value,
                     domain_confidence=confidence,
