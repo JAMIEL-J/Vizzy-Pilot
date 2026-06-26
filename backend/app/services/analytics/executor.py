@@ -410,22 +410,38 @@ class Executor:
         data: list,
         columns: list,
         schema: dict,
-        coder_metadata: dict
+        coder_metadata: dict,
+        force_deep_analysis: bool = False
     ) -> str:
         """Synthesizer Phase: Produce explanations and key insights from the execution results using secondary narrative model."""
-        system_prompt = (
-            "You are an expert data synthesizer (Synthesizer agent).\n"
-            "Your job is to explain the SQL query results to the user in a clear, narrative analyst style.\n\n"
-            "RULES:\n"
-            "1. Output must be formatted as 2-4 markdown bullet points (using '- ').\n"
-            "2. Lead with the most important finding/trend first.\n"
-            "3. Sound natural, direct, and specific (like a real analyst talking to a colleague).\n"
-            "4. Cite key numbers from the results, including currency symbols for money, and percentages where appropriate.\n"
-            "5. Multi-Driver Synthesis: For driver/churn analytics, ensure the narrative describes how the different drivers "
-            "   (e.g., Contract types, support ticket volume, payment types) correlate together to cause the outcome.\n"
-            "6. Cite or mention the SQL structure or key columns used (e.g., 'grouped by category' or 'filtering for East region').\n"
-            "7. Keep the analysis grounded ONLY in the returned data. Do not hallucinate values."
-        )
+        if force_deep_analysis:
+            system_prompt = (
+                "You are an elite data strategist and synthesizer (Synthesizer agent).\n"
+                "Your job is to perform a DEEP ANALYSIS on the SQL query results and extract highly actionable insights.\n\n"
+                "RULES:\n"
+                "1. You MUST start your response with a single line: '**Key Insight:** <One sentence bold synthesis of the most critical finding>'\n"
+                "2. Following that, output 3-5 markdown bullet points (using '- ').\n"
+                "3. Do NOT just describe the chart or state the numbers. Explain WHY they matter, what anomalies exist, and what the business impact is.\n"
+                "4. Identify correlations, causal hypotheses, or hidden drivers in the data.\n"
+                "5. Cite key numbers from the results, including currency symbols for money, and percentages where appropriate.\n"
+                "6. Sound natural, direct, and authoritative (like a real strategist talking to an executive).\n"
+                "7. Keep the analysis grounded ONLY in the returned data. Do not hallucinate values."
+            )
+        else:
+            system_prompt = (
+                "You are an expert data synthesizer (Synthesizer agent).\n"
+                "Your job is to explain the SQL query results to the user in a clear, narrative analyst style.\n\n"
+                "RULES:\n"
+                "1. Output must be formatted as 2-4 markdown bullet points (using '- ').\n"
+                "2. Lead with the most important finding/trend first.\n"
+                "3. Sound natural, direct, and specific (like a real analyst talking to a colleague).\n"
+                "4. Cite key numbers from the results, including currency symbols for money, and percentages where appropriate.\n"
+                "5. Multi-Driver Synthesis: For driver/churn analytics, ensure the narrative describes how the different drivers "
+                "   (e.g., Contract types, support ticket volume, payment types) correlate together to cause the outcome.\n"
+                "6. Cite or mention the SQL structure or key columns used (e.g., 'grouped by category' or 'filtering for East region').\n"
+                "7. Keep the analysis grounded ONLY in the returned data. Do not hallucinate values."
+            )
+            
         user_prompt = (
             f"User Question: {user_query}\n\n"
             f"Executed SQL Query: {sql}\n\n"
@@ -446,7 +462,8 @@ class Executor:
         user_query: str,
         db: DBEngine,
         table_name: str = "data",
-        progress_callback: Optional[Callable[[dict], Awaitable[None]]] = None
+        progress_callback: Optional[Callable[[dict], Awaitable[None]]] = None,
+        force_deep_analysis: bool = False
     ) -> dict:
         """
         Main self-healing loop for DuckDB Execution using the multi-agent flow.
@@ -683,7 +700,8 @@ class Executor:
                 data=result_data,
                 columns=result_columns,
                 schema=schema,
-                coder_metadata=final_coder_meta
+                coder_metadata=final_coder_meta,
+                force_deep_analysis=force_deep_analysis
             )
         except Exception as e:
             logger.error(f"Synthesizer failed: {e}")

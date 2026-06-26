@@ -1044,7 +1044,7 @@ async def send_message(
             # ── Intent Detection (6-type heuristic) ──
             detected_intent, intent_confidence, intent_label = classify_intent_fast(query_text)
             is_dashboard = detected_intent == 'dashboard'
-            interpretive_text_mode = (_looks_interpretive_query(query_text) and not _explicitly_requests_visual(query_text)) or request.force_deep_analysis
+            interpretive_text_mode = (_looks_interpretive_query(query_text) and not _explicitly_requests_visual(query_text))
 
             if is_schema_columns_query:
                 from app.models.dataset_version import DatasetVersion
@@ -1187,6 +1187,7 @@ async def send_message(
                             user_query=contextual_query,
                             db=db_engine,
                             table_name=table_name,
+                            force_deep_analysis=request.force_deep_analysis
                         )
 
                 except Exception as e:
@@ -1439,7 +1440,7 @@ async def send_message_stream(
                         query_text = _rewrite_clarification_query(request.content)
                         detected_intent, intent_confidence, intent_label = classify_intent_fast(query_text)
                         is_dashboard = detected_intent == 'dashboard'
-                        interpretive_text_mode = (_looks_interpretive_query(query_text) and not _explicitly_requests_visual(query_text)) or request.force_deep_analysis
+                        interpretive_text_mode = (_looks_interpretive_query(query_text) and not _explicitly_requests_visual(query_text))
                         is_schema_columns_query = _is_schema_columns_query(query_text) and not _explicitly_requests_visual(query_text)
 
                         if is_schema_columns_query:
@@ -1555,6 +1556,7 @@ async def send_message_stream(
                                         db=db_engine,
                                         table_name=table_name,
                                         progress_callback=progress_callback,
+                                        force_deep_analysis=request.force_deep_analysis
                                     )
                             except Exception as e:
                                 logger.warning(f"NL2SQL engine error in stream: {e}")

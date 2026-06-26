@@ -14,6 +14,7 @@ import {
 import { Panel, PanelHeader, Pill, BtnGhost, BtnSecondary, BtnAccent } from '@/components/ui/primitive';
 import RuixenMoonChat from '../../components/ui/ruixen-moon-chat';
 import { PromptInputBox } from '@/components/ui/ai-prompt-box';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 // --- Helpers ---
 const isInsightMessage = (msg: ChatMessage) => {
@@ -213,6 +214,20 @@ export default function ChatInterface() {
     const [artifactWidthPct] = useState(52);
     const [error, setError] = useState<string | null>(null);
     const [draftMessage, setDraftMessage] = useState('');
+
+    const location = useLocation();
+    const navigate = useNavigate();
+
+    useEffect(() => {
+        if (location.state?.datasetId) {
+            setSelectedDatasetId(location.state.datasetId);
+            if (location.state?.initialPrompt) {
+                setDraftMessage(location.state.initialPrompt);
+            }
+            // Clear state so refresh doesn't trigger it again
+            navigate(location.pathname, { replace: true, state: {} });
+        }
+    }, [location, navigate]);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const abortControllerRef = useRef<AbortController | null>(null);

@@ -25,6 +25,7 @@ import { Panel, PanelHeader, Pill, BtnSecondary, BtnPrimary, BtnGhost, BtnAccent
 import { GitCompare, RefreshCw, Wand2, Sparkles, Eye, Download, TrendingUp, TrendingDown, AlertCircle, X, ChevronDown } from 'lucide-react';
 import { VIZZY_THEME } from '../../theme/tokens';
 import { toast } from 'react-hot-toast';
+import { useNavigate } from 'react-router-dom';
 
 // Extracted components
 import KPICard from '../../components/dashboard/KPICard';
@@ -231,6 +232,7 @@ const KPI_CARD_COLORS = [
 
 export default function UserDashboard() {
     const { theme } = useTheme();
+    const navigate = useNavigate();
     const isDark = theme === 'dark';
     const cacheRef = useRef<DashboardCacheBundle>(getDashboardCacheBundle());
     const [analytics, setAnalytics] = useState<DashboardAnalytics | null>(null);
@@ -343,9 +345,14 @@ export default function UserDashboard() {
 
     const handleDeepDive = () => {
         setIsInsightOpen(false);
-        // If the chat interface is integrated, we would trigger a predefined prompt here.
-        // For now, we'll just notify the user.
+        const prompt = `Deep dive into the recent insight: ${narrative.substring(0, 50)}...`;
         toast.success("Opening deep dive chat with Vizzy Pilot...");
+        navigate('/user/chat', { 
+            state: { 
+                datasetId: selectedDataset?.dataset_id,
+                initialPrompt: prompt
+            } 
+        });
     };
 
 
