@@ -182,7 +182,7 @@ DOMAIN_SCHEMAS: Dict[DomainType, Dict[str, List[str]]] = {
 UNIVERSAL_SCHEMA: Dict[str, List[str]] = {
     "dim_date": ["date", "time", "year", "month", "quarter", "period", "timestamp"],
     "dim_country": ["country", "nation"],
-    "dim_region": ["region", "state", "province", "territory", "city", "zone"],
+    "dim_region": ["region", "state", "province", "territory", "city", "zone", "location"],
 }
 
 # Keep for backward compatibility with priority sorting logic

@@ -18,11 +18,20 @@
 </head>
 
 <body>
-  <!-- VizzyPilot: Light-only theme, remove dark class on load -->
+  <!-- Theme initialization: Prevents FOUC by setting theme before React mounts -->
   <script>
     (function () {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
+      try {
+        const savedTheme = localStorage.getItem('theme');
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        if (savedTheme === 'dark' || (!savedTheme && prefersDark)) {
+          document.documentElement.classList.add('dark');
+          document.documentElement.style.setProperty('color-scheme', 'dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+          document.documentElement.style.setProperty('color-scheme', 'light');
+        }
+      } catch (e) {}
     })();
   </script>
   <div id="root"></div>

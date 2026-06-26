@@ -91,6 +91,28 @@ const WORLD_ALIAS: Record<string, string> = {
     "be": "Belgium"
 };
 
+// ─── Major City → US State / Country aliases ────────────────────────────────
+const CITY_TO_REGION: Record<string, string> = {
+    // US Cities -> US States
+    "miami": "florida", "los angeles": "california", "san francisco": "california", 
+    "san diego": "california", "new york": "new york", "new york city": "new york", 
+    "nyc": "new york", "chicago": "illinois", "houston": "texas", "dallas": "texas", 
+    "austin": "texas", "seattle": "washington", "boston": "massachusetts", 
+    "atlanta": "georgia", "las vegas": "nevada", "denver": "colorado", 
+    "philadelphia": "pennsylvania", "phoenix": "arizona", "detroit": "michigan",
+    "portland": "oregon", "nashville": "tennessee", "orlando": "florida",
+    "washington dc": "district of columbia", "dc": "district of columbia",
+    
+    // World Cities -> Countries
+    "london": "united kingdom", "paris": "france", "tokyo": "japan",
+    "berlin": "germany", "madrid": "spain", "rome": "italy", "toronto": "canada",
+    "vancouver": "canada", "sydney": "australia", "melbourne": "australia",
+    "dubai": "united arab emirates", "beijing": "china", "shanghai": "china",
+    "mumbai": "india", "delhi": "india", "mexico city": "mexico", 
+    "sao paulo": "brazil", "seoul": "south korea", "singapore": "singapore",
+    "amsterdam": "netherlands", "moscow": "russian federation"
+};
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface GeoDataPoint {
     name: string;
@@ -108,11 +130,47 @@ interface GeoMapCardProps {
     quickReact?: boolean;
 }
 
-const GeoMapCard: React.FC<GeoMapCardProps> = ({ data, mapType = 'world', chartTitle, formatType, isDark = true, quickReact = false }) => {
+const GeoMapCard: React.FC<GeoMapCardProps> = ({ data, mapType: providedMapType = 'world', chartTitle, formatType, isDark = true, quickReact = false }) => {
     const [features, setFeatures] = useState<any[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
     const [zoom, setZoom] = useState<number>(1);
     const [selectedMetric, setSelectedMetric] = useState<string>('value');
+
+    const mapType = useMemo(() => {
+        if (!data || data.length === 0) return providedMapType;
+        if (providedMapType === 'us_states') return 'us_states';
+        const names = data.map(d => {
+            if (d?.name) return String(d.name);
+            if (d?.label) return String(d.label);
+            const strKey = Object.keys(d || {}).find(k => {
+                const lowerK = String(k).toLowerCase();
+                return lowerK !== 'value' && !lowerK.includes('metric') && typeof d[k] === 'string' && isNaN(Number(d[k]));
+            });
+            return String(strKey ? d[strKey] : '');
+        }).map(s => s.trim().toUpperCase());
+        
+        // Unambiguous world indicators (countries that are definitely not US states)
+        const worldIndicators = ['US', 'USA', 'UK', 'GB', 'FR', 'AU', 'JP', 'IT', 'ES', 'BR', 'CN', 'RU', 'ZA', 'MX', 'UNITED STATES', 'UNITED KINGDOM', 'GERMANY', 'FRANCE', 'AUSTRALIA', 'CANADA'];
+        const worldMatches = names.filter(n => worldIndicators.includes(n));
+        
+        // Count how many are world cities
+        const worldCityMatches = names.filter(n => {
+            const mapped = CITY_TO_REGION[n.toLowerCase()];
+            return mapped && !Object.values(US_ABBREV_TO_FULL).map(s=>s.toLowerCase()).includes(mapped);
+        });
+        if (worldMatches.length > 0 || (worldCityMatches.length > 0 && worldCityMatches.length > names.length * 0.2)) return 'world';
+
+        const usAbbrevs = ['AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY', 'DC'];
+        const fullStates = Object.values(US_ABBREV_TO_FULL).map(s => s.toUpperCase());
+        const usCityMatches = names.filter(n => {
+            const mapped = CITY_TO_REGION[n.toLowerCase()];
+            return mapped && Object.values(US_ABBREV_TO_FULL).map(s=>s.toLowerCase()).includes(mapped);
+        });
+        
+        const matches = names.filter(n => usAbbrevs.includes(n) || fullStates.includes(n));
+        if ((matches.length + usCityMatches.length) > 0 && (matches.length + usCityMatches.length) / names.length >= 0.25) return 'us_states';
+        return providedMapType;
+    }, [data, providedMapType]);
 
     const geoUrl = GEO_URLS[mapType];
 
@@ -144,20 +202,76 @@ const GeoMapCard: React.FC<GeoMapCardProps> = ({ data, mapType = 'world', chartT
     // Build O(1) lookup map from normalized name → data point
     const dataLookup = useMemo(() => {
         const map = new Map<string, GeoDataPoint>();
+        
+        // Helper to find the correct string key for the dimension
+        const getName = (d: any) => {
+            if (d?.name) return d.name;
+            if (d?.label) return d.label;
+            // Fallback to finding the first string property that isn't 'value' or 'metrics'
+            const strKey = Object.keys(d || {}).find(k => {
+                const lowerK = String(k).toLowerCase();
+                return lowerK !== 'value' && !lowerK.includes('metric') && typeof d[k] === 'string' && isNaN(Number(d[k]));
+            });
+            return strKey ? d[strKey] : undefined;
+        };
+
         data.forEach((d) => {
-            const raw = String(d?.name || '').trim();
+            const rawName = getName(d);
+            const raw = String(rawName || '').trim();
             if (!raw) return;
             const lower = raw.toLowerCase();
-            map.set(lower, d);
+            
+            // Map city directly to state/country if it exists
+            const aliasedLower = CITY_TO_REGION[lower] || lower;
 
+            // Simple additive aggregation for cities mapped to the same state/country
+            if (map.has(aliasedLower)) {
+                const existing = map.get(aliasedLower)!;
+                const newValue = { ...existing };
+                if (typeof d.value === 'number') {
+                    newValue.value = (Number(existing.value) || 0) + d.value;
+                }
+                const existingNames = Array.isArray(existing._originalNames) ? existing._originalNames : (existing.name ? [existing.name] : []);
+                newValue._originalNames = Array.from(new Set([...existingNames, rawName]));
+                map.set(aliasedLower, newValue);
+            } else {
+                const newValue = { ...d, _originalNames: [rawName] };
+                map.set(aliasedLower, newValue);
+            }
+
+            // Also maintain the expanded aliases for US States / World Countries
             if (mapType === 'us_states') {
                 const expanded = US_ABBREV_TO_FULL[raw.toUpperCase()];
-                if (expanded) map.set(expanded.toLowerCase(), d);
+                if (expanded) {
+                    const expLower = expanded.toLowerCase();
+                    if (map.has(expLower)) {
+                        const existing = map.get(expLower)!;
+                        const newValue = { ...existing };
+                        if (typeof d.value === 'number') newValue.value = (Number(existing.value) || 0) + d.value;
+                        const existingNames = Array.isArray(existing._originalNames) ? existing._originalNames : (existing.name ? [existing.name] : []);
+                        newValue._originalNames = Array.from(new Set([...existingNames, rawName]));
+                        map.set(expLower, newValue);
+                    } else {
+                        map.set(expLower, { ...d, _originalNames: [rawName] });
+                    }
+                }
             }
 
             if (mapType === 'world') {
-                const aliased = WORLD_ALIAS[lower];
-                if (aliased) map.set(aliased.toLowerCase(), d);
+                const wAliased = WORLD_ALIAS[lower];
+                if (wAliased) {
+                    const wLower = wAliased.toLowerCase();
+                    if (map.has(wLower)) {
+                        const existing = map.get(wLower)!;
+                        const newValue = { ...existing };
+                        if (typeof d.value === 'number') newValue.value = (Number(existing.value) || 0) + d.value;
+                        const existingNames = Array.isArray(existing._originalNames) ? existing._originalNames : (existing.name ? [existing.name] : []);
+                        newValue._originalNames = Array.from(new Set([...existingNames, rawName]));
+                        map.set(wLower, newValue);
+                    } else {
+                        map.set(wLower, { ...d, _originalNames: [rawName] });
+                    }
+                }
             }
         });
         return map;
@@ -251,6 +365,7 @@ const GeoMapCard: React.FC<GeoMapCardProps> = ({ data, mapType = 'world', chartT
                 name,
                 value: rowValue,
                 metrics,
+                originalNames: matched?._originalNames,
             };
         });
     }, [features, dataLookup]);
@@ -354,6 +469,7 @@ const GeoMapCard: React.FC<GeoMapCardProps> = ({ data, mapType = 'world', chartT
                         feature: row.feature,
                         value: rowMetricValue(row),
                         metrics: row.metrics,
+                        originalNames: row.originalNames,
                     })),
                 },
             ],
@@ -381,7 +497,15 @@ const GeoMapCard: React.FC<GeoMapCardProps> = ({ data, mapType = 'world', chartT
                     callbacks: {
                         title: (items: any[]) => {
                             const raw = items?.[0]?.raw;
-                            return String(raw?.feature?.properties?.name || items?.[0]?.label || 'Region');
+                            const stateName = String(raw?.feature?.properties?.name || items?.[0]?.label || 'Region');
+                            const orig = raw?.originalNames;
+                            if (orig && Array.isArray(orig) && orig.length > 0) {
+                                const filtered = orig.filter(n => String(n).toLowerCase() !== stateName.toLowerCase());
+                                if (filtered.length > 0) {
+                                    return `${stateName} (${filtered.join(', ')})`;
+                                }
+                            }
+                            return stateName;
                         },
                         label: (ctx: any) => {
                             const rawVal = ctx?.raw?.value;
@@ -476,7 +600,7 @@ const GeoMapCard: React.FC<GeoMapCardProps> = ({ data, mapType = 'world', chartT
             ) : (
                 <div className="h-full w-full pt-6 pb-6 px-1 overflow-hidden">
                     <div style={{ transform: `scale(${zoom})`, transformOrigin: 'center center', transition: 'transform 160ms ease-out' }}>
-                        <ReactChart type={'choropleth' as any} data={chartData as any} options={options as any} />
+                        <ReactChart key={mapType} type={'choropleth' as any} data={chartData as any} options={options as any} />
                     </div>
                 </div>
             )}

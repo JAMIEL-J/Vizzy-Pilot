@@ -57,7 +57,7 @@ def _generate_geo_charts(df: pd.DataFrame, classification: ColumnClassification)
             return any(kw in col.lower() for kw in keywords)
 
     # 1. Find all geo-type dimension columns
-    geo_keywords = ['country', 'state', 'province', 'region', 'continent', 'nation', 'territory']
+    geo_keywords = ['country', 'state', 'province', 'region', 'continent', 'nation', 'territory', 'location', 'city', 'county']
     geo_cols = [d for d in classification.dimensions if _semantic_check(d, geo_keywords)]
 
     if not geo_cols:
@@ -143,7 +143,9 @@ def _generate_geo_charts(df: pd.DataFrame, classification: ColumnClassification)
                 "metric_col": primary_metric,
                 "metrics": [_beautify_column_name(m) for m in financial_metrics[:3]],
             },
-            format_type="currency"
+            format_type="currency",
+            dimension=best_geo,
+            metric=primary_metric
         ))
 
     return charts
