@@ -37,7 +37,7 @@ export default function AdminLogin() {
     <div id="auth-root" className="min-h-screen bg-[#F5F2EB] flex flex-col justify-between relative overflow-hidden select-none py-12 px-4 sm:px-6 lg:px-8">
       {/* Dynamic ambient grid patterns inside login page */}
       <div className="absolute inset-x-0 top-0 h-96 bg-gradient-to-b from-[#E4DED4]/30 to-transparent pointer-events-none" />
-      <div className="absolute -top-40 -left-40 w-96 h-96 rounded-full bg-purple-500/[0.03] blur-[100px] pointer-events-none" />
+      <div className="absolute -top-40 -left-40 w-96 h-96 rounded-full bg-blue-500/[0.03] blur-[100px] pointer-events-none" />
       <div className="absolute -bottom-40 -right-40 w-96 h-96 rounded-full bg-indigo-500/[0.03] blur-[100px] pointer-events-none" />
 
       {/* Header Bar */}
@@ -66,7 +66,7 @@ export default function AdminLogin() {
         {/* Left Side: Brand presentation / Editorial */}
         <div className="lg:col-span-6 text-left space-y-6 lg:pr-8">
           <div className="inline-flex items-center space-x-2 px-2.5 py-1 bg-white/70 backdrop-blur-md border border-[#E4DED4] rounded-full text-[10px] font-mono font-bold uppercase tracking-widest text-[#7C725D]">
-            <span className="h-1.5 w-1.5 rounded-full bg-purple-550 animate-pulse" />
+            <span className="h-1.5 w-1.5 rounded-full bg-blue-550 animate-pulse" />
             <span>Operator Access Protocol</span>
           </div>
 
@@ -81,7 +81,7 @@ export default function AdminLogin() {
           {/* Integrated visual system stats list */}
           <div className="space-y-3.5 pt-4">
             <div className="flex items-center space-x-3 text-xs font-mono">
-              <div className="h-8 w-8 rounded-lg bg-white/60 border border-white flex items-center justify-center text-purple-600 shadow-sm shrink-0">
+              <div className="h-8 w-8 rounded-lg bg-white/60 border border-white flex items-center justify-center text-blue-600 shadow-sm shrink-0">
                 <ShieldCheck className="h-4 w-4" />
               </div>
               <div>
@@ -123,7 +123,7 @@ export default function AdminLogin() {
                     </h3>
                     
                     {/* Mode Indicator badge */}
-                    <span className="text-[9px] font-mono font-bold px-2.5 py-0.5 rounded-full border border-purple-100 bg-purple-50 text-purple-700 uppercase">
+                    <span className="text-[9px] font-mono font-bold px-2.5 py-0.5 rounded-full border border-blue-100 bg-blue-50 text-blue-700 uppercase">
                       SYSTEM ADMIN
                     </span>
                   </div>
@@ -162,7 +162,7 @@ export default function AdminLogin() {
                         required
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
-                        className="w-full bg-[#FCFAF5] border border-[#E4DED4] rounded-xl pl-10 pr-4 py-2.5 text-sm text-gray-900 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-all font-sans"
+                        className="w-full bg-[#FCFAF5] border border-[#E4DED4] rounded-xl pl-10 pr-4 py-2.5 text-sm text-gray-900 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all font-sans"
                         disabled={isLoading}
                       />
                     </div>
@@ -177,7 +177,7 @@ export default function AdminLogin() {
                       <button
                         type="button"
                         onClick={() => setShowPassword(!showPassword)}
-                        className="text-xs font-semibold text-purple-700 hover:underline flex items-center gap-1 cursor-pointer bg-transparent border-none"
+                        className="text-xs font-semibold text-blue-700 hover:underline flex items-center gap-1 cursor-pointer bg-transparent border-none"
                       >
                         {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                         <span>{showPassword ? "Hide" : "Show"}</span>
@@ -191,7 +191,7 @@ export default function AdminLogin() {
                         required
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
-                        className="w-full bg-[#FCFAF5] border border-[#E4DED4] rounded-xl pl-10 pr-4 py-2.5 text-sm text-gray-900 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-all font-sans"
+                        className="w-full bg-[#FCFAF5] border border-[#E4DED4] rounded-xl pl-10 pr-4 py-2.5 text-sm text-gray-900 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all font-sans"
                         disabled={isLoading}
                       />
                     </div>
@@ -203,7 +203,7 @@ export default function AdminLogin() {
                     type="submit"
                     disabled={isLoading}
                     className={`w-full flex items-center justify-center space-x-2 py-3 px-4 rounded-xl text-xs font-bold uppercase tracking-wider text-white shadow-sm transition-all focus:outline-none cursor-pointer mt-4 ${
-                      isLoading ? "bg-[#7C725D] cursor-not-allowed" : "bg-purple-900 hover:bg-purple-950 ring-1 ring-purple-500/10"
+                      isLoading ? "bg-[#7C725D] cursor-not-allowed" : "bg-blue-900 hover:bg-blue-950 ring-1 ring-blue-500/10"
                     }`}
                   >
                     {isLoading ? (
@@ -222,7 +222,7 @@ export default function AdminLogin() {
 
                 {/* Footer system status note */}
                 <div className="pt-4 border-t border-dashed border-gray-150 text-center font-sans text-[10px] text-[#7C725D] flex items-center justify-center gap-1.5">
-                  <span className="h-1.5 w-1.5 rounded-full bg-purple-500 animate-pulse" />
+                  <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
                   <span>This is a secure admin area. All actions are logged.</span>
                 </div>
               </motion.div>

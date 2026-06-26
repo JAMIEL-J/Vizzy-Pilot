@@ -62,7 +62,7 @@ export default function AdminLayout() {
             {/* Sidebar */}
             <aside
                 className={`
-                    bg-gradient-to-b from-navy to-admin-purple text-white shrink-0 
+                    bg-gradient-to-b from-navy to-admin-blue text-white shrink-0 
                     transition-all duration-300 ease-in-out relative flex flex-col h-full
                     ${isCollapsed ? 'w-20' : 'w-64'}
                 `}
@@ -103,7 +103,7 @@ export default function AdminLayout() {
                     <div className={`flex-1 overflow-y-auto min-h-0 space-y-6 scrollbar-hide hover:scrollbar-default transition-all duration-500 ${isCollapsed ? 'px-3' : 'px-0'}`}>
                         {/* Admin Badge */}
                         <div className={`
-                            flex items-center px-3 py-1.5 bg-admin-purple/30 rounded-full text-[10px] uppercase tracking-wider font-bold transition-all duration-300 shrink-0
+                            flex items-center px-3 py-1.5 bg-admin-blue/30 rounded-full text-[10px] uppercase tracking-wider font-bold transition-all duration-300 shrink-0
                             ${isCollapsed ? 'opacity-0 -translate-x-10 pointer-events-none w-0 h-0 p-0 mb-0 overflow-hidden' : 'opacity-100 translate-x-0 w-max mb-8'}
                         `}>
                             <svg className="w-3 h-3 mr-1.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
@@ -156,7 +156,7 @@ export default function AdminLayout() {
                             <p className="text-gray-400 dark:text-gray-500 text-xs font-medium uppercase tracking-wider mt-0.5">Platform Intel</p>
                         </div>
                         <div className="flex items-center space-x-4">
-                            <select className="px-4 py-2 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-admin-purple outline-none cursor-pointer transition-colors" style={{ background: 'var(--bg-card)', color: 'var(--text-muted)', border: '1px solid var(--border-main)' }}>
+                            <select className="px-4 py-2 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-admin-blue outline-none cursor-pointer transition-colors" style={{ background: 'var(--bg-card)', color: 'var(--text-muted)', border: '1px solid var(--border-main)' }}>
                                 <option>Last 7 days</option>
                                 <option>Last 30 days</option>
                                 <option>Last 90 days</option>
@@ -164,12 +164,12 @@ export default function AdminLayout() {
                             </select>
                             <ThemeToggle size="sm" />
                             <div className="flex items-center space-x-3 pl-4" style={{ borderLeft: '1px solid var(--border-main)' }}>
-                                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-admin-purple to-primary-blue flex items-center justify-center text-white font-bold shadow-md transform hover:rotate-6 transition-transform">
+                                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-admin-blue to-primary-blue flex items-center justify-center text-white font-bold shadow-md transform hover:rotate-6 transition-transform">
                                     A
                                 </div>
                                 <div className="hidden lg:block text-right">
                                     <p className="text-sm font-bold" style={{ color: 'var(--text-main)' }}>Admin User</p>
-                                    <p className="text-[10px] font-bold text-admin-purple uppercase tracking-tighter">Super Admin</p>
+                                    <p className="text-[10px] font-bold text-admin-blue uppercase tracking-tighter">Super Admin</p>
                                 </div>
                                 <Button
                                     type="button"

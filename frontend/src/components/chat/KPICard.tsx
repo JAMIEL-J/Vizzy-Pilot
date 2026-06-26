@@ -54,7 +54,7 @@ export const KPICard: React.FC<KPICardProps> = ({
                         {metrics.map((metric) => (
                             <div
                                 key={metric.label}
-                                className="flex items-baseline justify-between gap-4 py-1.5 border-b border-border-main/40 last:border-b-0"
+                                className="flex items-center justify-between gap-4 py-1.5 border-b border-border-main/40 last:border-b-0"
                             >
                                 <span className="text-sm font-semibold font-serif text-gray-900 dark:text-white min-w-0">
                                     {metric.label}

@@ -49,7 +49,7 @@ export default function Login() {
       {/* Dynamic ambient grid patterns inside login page */}
       <div className="absolute inset-x-0 top-0 h-96 bg-gradient-to-b from-[#E4DED4]/30 to-transparent pointer-events-none" />
       <div className="absolute -top-40 -left-40 w-96 h-96 rounded-full bg-indigo-500/[0.03] blur-[100px] pointer-events-none" />
-      <div className="absolute -bottom-40 -right-40 w-96 h-96 rounded-full bg-purple-500/[0.03] blur-[100px] pointer-events-none" />
+      <div className="absolute -bottom-40 -right-40 w-96 h-96 rounded-full bg-blue-500/[0.03] blur-[100px] pointer-events-none" />
 
       {/* Header Bar */}
       <div className="max-w-7xl w-full mx-auto flex justify-between items-center relative z-10 mb-8">
@@ -102,7 +102,7 @@ export default function Login() {
             </div>
 
             <div className="flex items-center space-x-3 text-xs font-mono">
-              <div className="h-8 w-8 rounded-lg bg-white/60 border border-white flex items-center justify-center text-purple-600 shadow-sm shrink-0">
+              <div className="h-8 w-8 rounded-lg bg-white/60 border border-white flex items-center justify-center text-blue-600 shadow-sm shrink-0">
                 <Cpu className="h-4 w-4" />
               </div>
               <div>
@@ -271,7 +271,7 @@ export default function Login() {
                   <div className="pt-2">
                     <Link
                       to="/admin/login"
-                      className="inline-flex items-center space-x-1.5 text-[11px] font-semibold px-3 py-1.5 rounded-full border border-purple-150 bg-purple-50 text-purple-800 hover:bg-purple-100 transition-colors text-decoration-none"
+                      className="inline-flex items-center space-x-1.5 text-[11px] font-semibold px-3 py-1.5 rounded-full border border-blue-150 bg-blue-50 text-blue-800 hover:bg-blue-100 transition-colors text-decoration-none"
                     >
                       <ShieldCheck className="h-3.5 w-3.5" />
                       <span>Secure System Operator Login</span>

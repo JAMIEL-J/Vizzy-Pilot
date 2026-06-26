@@ -25,7 +25,7 @@ export default function AdminSettings() {
                             type="text"
                             value={siteName}
                             onChange={(e) => setSiteName(e.target.value)}
-                            className="w-full max-w-md px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-admin-purple"
+                            className="w-full max-w-md px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-admin-blue"
                         />
                     </div>
                     <div>
@@ -34,7 +34,7 @@ export default function AdminSettings() {
                             type="number"
                             value={maxUploadSize}
                             onChange={(e) => setMaxUploadSize(e.target.value)}
-                            className="w-full max-w-md px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-admin-purple"
+                            className="w-full max-w-md px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-admin-blue"
                         />
                     </div>
                 </div>
@@ -52,7 +52,7 @@ export default function AdminSettings() {
                         <Button
                             type="button"
                             onClick={() => setEnableRegistration(!enableRegistration)}
-                            className={`relative w-12 h-6 rounded-full transition ${enableRegistration ? 'bg-admin-purple' : 'bg-gray-300'}`}
+                            className={`relative w-12 h-6 rounded-full transition ${enableRegistration ? 'bg-admin-blue' : 'bg-gray-300'}`}
                             variant="ghost"
                             size="icon"
                         >
@@ -95,7 +95,7 @@ export default function AdminSettings() {
 
             {/* Save Button */}
             <div className="flex justify-end">
-                <Button type="button" className="px-6 py-2 bg-admin-purple text-white rounded-lg hover:bg-admin-purple/90 transition">
+                <Button type="button" className="px-6 py-2 bg-admin-blue text-white rounded-lg hover:bg-admin-blue/90 transition">
                     Save Changes
                 </Button>
             </div>

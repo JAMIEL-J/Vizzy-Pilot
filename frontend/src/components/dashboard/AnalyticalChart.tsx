@@ -788,7 +788,7 @@ export default function AnalyticalChart({
                       : groupIdx === 0
                       ? "bg-gradient-to-r from-indigo-700 to-indigo-900"
                       : groupIdx === 1
-                      ? "bg-gradient-to-r from-purple-700 to-purple-900"
+                      ? "bg-gradient-to-r from-blue-700 to-blue-900"
                       : groupIdx === 2
                       ? "bg-gradient-to-r from-emerald-600 to-emerald-800"
                       : groupIdx === 3

@@ -32,13 +32,13 @@ const activityData = [
 const recentUsers = [
     { name: 'John Smith', email: 'john@company.com', time: '2 min ago', color: 'from-blue-400 to-blue-600' },
     { name: 'Sarah Johnson', email: 'sarah@startup.io', time: '15 min ago', color: 'from-green-400 to-green-600' },
-    { name: 'Mike Wilson', email: 'mike@enterprise.com', time: '1 hour ago', color: 'from-purple-400 to-purple-600' },
+    { name: 'Mike Wilson', email: 'mike@enterprise.com', time: '1 hour ago', color: 'from-blue-400 to-blue-600' },
 ];
 
 const recentActivity = [
     { user: 'John', action: 'uploaded', target: 'sales_q4.csv', time: '2 min ago', icon: 'upload', color: 'bg-blue-100 text-blue-600' },
     { user: 'Sarah', action: 'created a', target: 'bar chart', time: '5 min ago', icon: 'chart', color: 'bg-green-100 text-green-600' },
-    { user: 'Mike', action: 'asked', target: '"What\'s the total revenue?"', time: '12 min ago', icon: 'chat', color: 'bg-purple-100 text-purple-600' },
+    { user: 'Mike', action: 'asked', target: '"What\'s the total revenue?"', time: '12 min ago', icon: 'chat', color: 'bg-blue-100 text-blue-600' },
 ];
 
 // KPI Card Component
@@ -85,9 +85,9 @@ export default function AdminDashboard() {
                     title="Total Users"
                     value="1,247"
                     change="+18%"
-                    iconBg="bg-admin-purple/10"
+                    iconBg="bg-admin-blue/10"
                     icon={
-                        <svg className="w-6 h-6 text-admin-purple" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-6 h-6 text-admin-blue" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path>
                         </svg>
                     }
@@ -103,7 +103,7 @@ export default function AdminDashboard() {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                         </svg>
                     }
-                    subtext={<span className="text-admin-purple">27% of total users</span>}
+                    subtext={<span className="text-admin-blue">27% of total users</span>}
                 />
                 <KPICard
                     title="Datasets Uploaded"
@@ -186,7 +186,7 @@ export default function AdminDashboard() {
                     <div className="flex items-center justify-between mb-4">
                         <h3 className="text-lg font-bold text-navy dark:text-white">User Growth</h3>
                         <div className="flex space-x-2">
-                            <Button type="button" size="sm" className="px-3 py-1 text-xs bg-admin-purple text-white rounded-full">Monthly</Button>
+                            <Button type="button" size="sm" className="px-3 py-1 text-xs bg-admin-blue text-white rounded-full">Monthly</Button>
                             <Button type="button" variant="ghost" size="sm" className="px-3 py-1 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors">Weekly</Button>
                         </div>
                     </div>
@@ -240,7 +240,7 @@ export default function AdminDashboard() {
                 <div className="bg-white dark:bg-[#111827] rounded-xl shadow-sm border border-gray-200 dark:border-gray-800">
                     <div className="p-6 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
                         <h3 className="text-lg font-bold text-navy dark:text-white">Recent Users</h3>
-                        <Link to="/admin/users" className="text-sm text-admin-purple hover:underline">View All →</Link>
+                        <Link to="/admin/users" className="text-sm text-admin-blue hover:underline">View All →</Link>
                     </div>
                     <div className="divide-y divide-gray-200 dark:divide-gray-800">
                         {recentUsers.map((user, index) => (
@@ -264,7 +264,7 @@ export default function AdminDashboard() {
                 <div className="bg-white dark:bg-[#111827] rounded-xl shadow-sm border border-gray-200 dark:border-gray-800">
                     <div className="p-6 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
                         <h3 className="text-lg font-bold text-navy dark:text-white">Recent Activity</h3>
-                        <Link to="/admin/audit" className="text-sm text-admin-purple hover:underline">View All →</Link>
+                        <Link to="/admin/audit" className="text-sm text-admin-blue hover:underline">View All →</Link>
                     </div>
                     <div className="divide-y divide-gray-200 dark:divide-gray-800">
                         {recentActivity.map((activity, index) => (

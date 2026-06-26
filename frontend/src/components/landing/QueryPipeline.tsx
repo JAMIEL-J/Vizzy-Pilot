@@ -231,7 +231,7 @@ export default function QueryPipeline() {
                         </div>
                         <div className="bg-[#fafafa] border border-[#e4e4e0] p-3 rounded-lg flex flex-col justify-between text-left">
                           <span className="font-mono text-[9px] text-[#1c1c1a]/40 uppercase">Filtering Logic</span>
-                          <span className="font-sans font-medium text-xs text-[#1c1c1a] mt-1 bg-purple-400/10 px-1.5 py-0.5 rounded self-start border border-purple-500/20">
+                          <span className="font-sans font-medium text-xs text-[#1c1c1a] mt-1 bg-blue-400/10 px-1.5 py-0.5 rounded self-start border border-blue-500/20">
                             schema_v === "v1.2"
                           </span>
                         </div>

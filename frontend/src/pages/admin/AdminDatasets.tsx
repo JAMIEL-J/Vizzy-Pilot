@@ -76,14 +76,14 @@ export default function AdminDatasets() {
                                 placeholder="Search datasets or owners..."
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-700 bg-transparent text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 rounded-lg focus:ring-2 focus:ring-admin-purple focus:border-transparent outline-none transition-colors"
+                                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-700 bg-transparent text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 rounded-lg focus:ring-2 focus:ring-admin-blue focus:border-transparent outline-none transition-colors"
                             />
                         </div>
                     </div>
                     <select
                         value={statusFilter}
                         onChange={(e) => setStatusFilter(e.target.value)}
-                        className="px-4 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#111827] text-gray-700 dark:text-gray-300 rounded-lg focus:ring-2 focus:ring-admin-purple outline-none transition-colors"
+                        className="px-4 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#111827] text-gray-700 dark:text-gray-300 rounded-lg focus:ring-2 focus:ring-admin-blue outline-none transition-colors"
                     >
                         <option value="all">All Status</option>
                         <option value="active">Active</option>
@@ -133,7 +133,7 @@ export default function AdminDatasets() {
                                     <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{dataset.createdAt}</td>
                                     <td className="px-6 py-4 text-right">
                                         <div className="flex items-center justify-end space-x-2">
-                                            <Button type="button" variant="ghost" size="icon" className="p-2 text-gray-500 hover:text-admin-purple hover:bg-admin-purple/10 rounded-lg transition" title="View">
+                                            <Button type="button" variant="ghost" size="icon" className="p-2 text-gray-500 hover:text-admin-blue hover:bg-admin-blue/10 rounded-lg transition" title="View">
                                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>

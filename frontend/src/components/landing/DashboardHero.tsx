@@ -315,7 +315,7 @@ export default function DashboardHero() {
               {/* HEADER BAR (Aether style) */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4 mb-3">
                 <div className="flex items-center space-x-3 text-left">
-                  <div className="h-4 w-4 rounded-full bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 animate-pulse shadow-sm shadow-purple-200" />
+                  <div className="h-4 w-4 rounded-full bg-gradient-to-tr from-indigo-500 via-blue-500 to-pink-500 animate-pulse shadow-sm shadow-blue-200" />
                   <div className="flex flex-col">
                     <span className="font-sans text-[11px] sm:text-[12px] font-bold text-gray-950 tracking-[0.15em] uppercase leading-none">
                       Aether Analytics Dashboard
@@ -471,7 +471,7 @@ export default function DashboardHero() {
                         { title: "Email Marketing", val: "78%", grad: "from-amber-400 to-orange-400", styleColor: "bg-amber-400" },
                         { title: "Social Ads", val: "82%", grad: "from-pink-400 to-rose-400", styleColor: "bg-pink-400" },
                         { title: "Content Strategy", val: "88%", grad: "from-cyan-400 to-blue-500", styleColor: "bg-cyan-450" },
-                        { title: "SEO optimization", val: "62%", grad: "from-purple-400 to-indigo-500", styleColor: "bg-purple-400" }
+                        { title: "SEO optimization", val: "62%", grad: "from-blue-400 to-indigo-500", styleColor: "bg-blue-400" }
                       ].map((item) => (
                         <div key={item.title}>
                           <div className="flex justify-between text-[11px] font-semibold text-gray-950 mb-1">

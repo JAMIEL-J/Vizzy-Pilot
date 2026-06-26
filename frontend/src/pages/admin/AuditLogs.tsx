@@ -17,7 +17,7 @@ const actionLabels: Record<string, { label: string; color: string }> = {
     'dataset.upload': { label: 'Dataset Upload', color: 'bg-blue-100 text-blue-800' },
     'dataset.download': { label: 'Dataset Download', color: 'bg-cyan-100 text-cyan-800' },
     'visualization.create': { label: 'Visualization Created', color: 'bg-green-100 text-green-800' },
-    'dashboard.create': { label: 'Dashboard Created', color: 'bg-purple-100 text-purple-800' },
+    'dashboard.create': { label: 'Dashboard Created', color: 'bg-blue-100 text-blue-800' },
     'chat.query': { label: 'Chat Query', color: 'bg-indigo-100 text-indigo-800' },
     'user.login': { label: 'User Login', color: 'bg-gray-100 text-gray-800' },
     'user.logout': { label: 'User Logout', color: 'bg-gray-100 text-gray-600' },
@@ -57,14 +57,14 @@ export default function AuditLogs() {
                                 placeholder="Search by user, email, or target..."
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-700 bg-transparent text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 rounded-lg focus:ring-2 focus:ring-admin-purple focus:border-transparent outline-none transition-colors"
+                                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-700 bg-transparent text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 rounded-lg focus:ring-2 focus:ring-admin-blue focus:border-transparent outline-none transition-colors"
                             />
                         </div>
                     </div>
                     <select
                         value={actionFilter}
                         onChange={(e) => setActionFilter(e.target.value)}
-                        className="px-4 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#111827] text-gray-700 dark:text-gray-300 rounded-lg focus:ring-2 focus:ring-admin-purple outline-none transition-colors"
+                        className="px-4 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#111827] text-gray-700 dark:text-gray-300 rounded-lg focus:ring-2 focus:ring-admin-blue outline-none transition-colors"
                     >
                         <option value="all">All Actions</option>
                         <option value="dataset">Dataset Actions</option>
@@ -76,9 +76,9 @@ export default function AuditLogs() {
                     </select>
                     <input
                         type="date"
-                        className="px-4 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#111827] text-gray-700 dark:text-gray-300 rounded-lg focus:ring-2 focus:ring-admin-purple outline-none transition-colors"
+                        className="px-4 py-2 border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#111827] text-gray-700 dark:text-gray-300 rounded-lg focus:ring-2 focus:ring-admin-blue outline-none transition-colors"
                     />
-                    <Button type="button" className="px-4 py-2 bg-admin-purple text-white rounded-lg hover:bg-admin-purple/90 transition flex items-center gap-2">
+                    <Button type="button" className="px-4 py-2 bg-admin-blue text-white rounded-lg hover:bg-admin-blue/90 transition flex items-center gap-2">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
                         </svg>
@@ -141,7 +141,7 @@ export default function AuditLogs() {
                         <Button type="button" variant="outline" size="sm" className="px-3 py-1 border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 transition-colors" disabled>
                             Previous
                         </Button>
-                        <Button type="button" size="sm" className="px-3 py-1 bg-admin-purple text-white rounded-lg text-sm">1</Button>
+                        <Button type="button" size="sm" className="px-3 py-1 bg-admin-blue text-white rounded-lg text-sm">1</Button>
                         <Button type="button" variant="outline" size="sm" className="px-3 py-1 border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">2</Button>
                         <Button type="button" variant="outline" size="sm" className="px-3 py-1 border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">3</Button>
                         <span className="text-gray-500 dark:text-gray-500">...</span>
