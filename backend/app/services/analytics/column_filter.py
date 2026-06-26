@@ -417,6 +417,8 @@ def _is_date_column(df: pd.DataFrame, col: str) -> bool:
 def _is_target_column(df: pd.DataFrame, col: str) -> bool:
     """Check if column is a target/outcome column."""
     col_lower = col.lower().replace('_', '').replace('-', '')
+    if 'audience' in col_lower:
+        return False
     target_keywords = ['churn', 'target', 'outcome', 'status', 'default', 'converted', 'label', 'class', 'exited', 'attrition', 'left', 'complain']
     
     if any(kw in col_lower for kw in target_keywords):

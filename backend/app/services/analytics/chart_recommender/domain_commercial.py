@@ -1,4 +1,9 @@
 """Domain Commercial - extracted from generators.py"""
+from .prioritization import _should_average_metric, _trend_aggregation_for_metric, _get_metric_prefix
+from .query_helpers import _get_ytd_comparison, _get_time_trend, _get_scatter_data, _distribution_chart, _smart_aggregate, _get_yoy_comparison
+from .titles import _pick_column_by_keywords
+from .aggregators import _safe_groupby_mean
+from .domain_ops import _generate_generic_charts
 
 import logging
 from typing import Any, Dict, List, Optional
@@ -597,8 +602,29 @@ def _generate_marketing_charts(df: pd.DataFrame, classification: ColumnClassific
             'HIGH', 'Acquisition efficiency and spend-performance balance',
             format_type='percentage' if conv_role == 'rate' else 'number',
             dimension=spend_metric, metric=conv_metric,
-            aggregation='mean' if conv_role == 'rate' else 'sum'
+            aggregation='mean' if conv_role == 'rate' else 'sum',
+            section='Key Insights'
         ))
+
+        # 2.5) Cost Per Acquisition (CPA) / Efficiency Insight
+        try:
+            if primary_dim:
+                grouped = df.groupby(primary_dim, observed=True).agg({spend_metric: 'sum', conv_metric: 'sum'}).reset_index()
+                grouped['CPA'] = grouped[spend_metric] / grouped[conv_metric].replace(0, pd.NA)
+                grouped = grouped.dropna(subset=['CPA']).sort_values('CPA').head(10)
+                
+                if not grouped.empty:
+                    cpa_data = [{'name': str(row[primary_dim]), 'value': round(float(row['CPA']), 2)} for _, row in grouped.iterrows()]
+                    add_chart(ChartRecommendation(
+                        '', f'Cost Per Acquisition (CPA) by {_beautify_column_name(primary_dim)}', 'bar', cpa_data,
+                        'HIGH', 'Critical marketing efficiency metric (Lower CPA is better)',
+                        format_type='currency',
+                        dimension=primary_dim, metric='CPA',
+                        aggregation='mean',
+                        section='Key Insights'
+                    ))
+        except Exception:
+            pass
 
     # 3) Trend charts for representative metrics.
     if dates:

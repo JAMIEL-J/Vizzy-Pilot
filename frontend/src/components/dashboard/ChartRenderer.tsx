@@ -719,7 +719,6 @@ const ChartRenderer = ({
                 ticks: {
                     color: chartColors.text,
                     maxTicksLimit: 6,
-                    stepSize: valueAxisStep,
                     font: axisTickFont,
                     callback: (v: any) => fmtTick(v, axisLabel)
                 },
@@ -741,7 +740,6 @@ const ChartRenderer = ({
                 ticks: {
                     color: chartColors.text,
                     maxTicksLimit: 6,
-                    stepSize: valueAxisStep,
                     font: axisTickFont,
                     callback: (v: any) => fmtTick(v, axisLabel)
                 },
@@ -783,7 +781,6 @@ const ChartRenderer = ({
                 ticks: {
                     color: chartColors.text,
                     maxTicksLimit: 6,
-                    stepSize: scatterXAxisStep,
                     font: axisTickFont,
                     callback: (v: any) => fmtTick(v, scatterXAxisLabel)
                 },
@@ -800,7 +797,6 @@ const ChartRenderer = ({
                 ticks: {
                     color: chartColors.text,
                     maxTicksLimit: 6,
-                    stepSize: scatterYAxisStep,
                     font: axisTickFont,
                     callback: (v: any) => fmtTick(v, scatterYAxisLabel)
                 },

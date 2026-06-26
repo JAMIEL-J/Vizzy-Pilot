@@ -33,9 +33,9 @@ COUNTRY_KEYWORDS = {
 }
 
 WORLD_KEYWORDS = {
-    'usa', 'us', 'united states', 'uk', 'united kingdom', 'germany',
-    'france', 'china', 'india', 'brazil', 'australia', 'canada',
-    'japan', 'russia', 'mexico', 'italy', 'spain', 'south korea'
+    'usa', 'us', 'united states', 'uk', 'gb', 'united kingdom', 'germany', 'de',
+    'france', 'fr', 'china', 'cn', 'india', 'in', 'brazil', 'br', 'australia', 'au', 'canada', 'ca',
+    'japan', 'jp', 'russia', 'ru', 'mexico', 'mx', 'italy', 'it', 'spain', 'es', 'south korea', 'kr'
 }
 
 def _detect_map_type(col_values: List[str]) -> Optional[str]:

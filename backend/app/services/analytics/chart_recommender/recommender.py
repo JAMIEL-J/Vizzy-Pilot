@@ -1,4 +1,10 @@
 """Recommender - extracted from generators.py"""
+from .prioritization import _should_average_metric, _metric_format_type, _infer_time_value_label, _trend_aggregation_for_metric, _prioritize_metrics
+from .titles import _clean_title, _is_low_value_column, _beautify_column_name, _create_smart_title
+from .sanitization import _safe_to_datetime, _sanitize_chart_data, _coerce_numeric_metric_series
+from .query_helpers import _get_time_trend, _to_trend_point_key, _distribution_chart, _normalize_percentage_chart_values, _deduplicate_charts, _smart_aggregate
+from .domain_ops import _generate_geo_charts
+from .churn_analytics import _build_target_rate_chart
 
 import json
 import logging

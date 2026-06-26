@@ -42,11 +42,53 @@ const WORLD_ALIAS: Record<string, string> = {
     "us": "United States of America",
     "united states": "United States of America",
     "uk": "United Kingdom",
+    "gb": "United Kingdom",
     "uae": "United Arab Emirates",
+    "ae": "United Arab Emirates",
     "russia": "Russian Federation",
+    "ru": "Russian Federation",
     "south korea": "South Korea",
+    "kr": "South Korea",
     "korea": "South Korea",
     "czech republic": "Czechia",
+    "cz": "Czechia",
+    "ca": "Canada",
+    "de": "Germany",
+    "fr": "France",
+    "au": "Australia",
+    "in": "India",
+    "br": "Brazil",
+    "cn": "China",
+    "jp": "Japan",
+    "it": "Italy",
+    "es": "Spain",
+    "mx": "Mexico",
+    "nl": "Netherlands",
+    "ch": "Switzerland",
+    "se": "Sweden",
+    "id": "Indonesia",
+    "tr": "Turkey",
+    "sa": "Saudi Arabia",
+    "za": "South Africa",
+    "ar": "Argentina",
+    "pl": "Poland",
+    "th": "Thailand",
+    "il": "Israel",
+    "sg": "Singapore",
+    "my": "Malaysia",
+    "ph": "Philippines",
+    "vn": "Vietnam",
+    "nz": "New Zealand",
+    "ie": "Ireland",
+    "dk": "Denmark",
+    "no": "Norway",
+    "fi": "Finland",
+    "pt": "Portugal",
+    "gr": "Greece",
+    "ro": "Romania",
+    "hu": "Hungary",
+    "at": "Austria",
+    "be": "Belgium"
 };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -103,7 +145,8 @@ const GeoMapCard: React.FC<GeoMapCardProps> = ({ data, mapType = 'world', chartT
     const dataLookup = useMemo(() => {
         const map = new Map<string, GeoDataPoint>();
         data.forEach((d) => {
-            const raw = d.name.trim();
+            const raw = String(d?.name || '').trim();
+            if (!raw) return;
             const lower = raw.toLowerCase();
             map.set(lower, d);
 

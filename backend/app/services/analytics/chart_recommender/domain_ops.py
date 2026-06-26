@@ -1,4 +1,9 @@
 """Domain Ops - extracted from generators.py"""
+from .prioritization import _should_average_metric, _metric_format_type, _trend_aggregation_for_metric
+from .titles import _pick_column_by_keywords, _beautify_column_name, _create_smart_title
+from .aggregators import _safe_groupby_mean
+from .query_helpers import _get_time_trend, _get_scatter_data, _distribution_chart, _smart_aggregate
+from .churn_analytics import _build_target_rate_chart
 
 import logging
 from typing import Any, Dict, List, Optional

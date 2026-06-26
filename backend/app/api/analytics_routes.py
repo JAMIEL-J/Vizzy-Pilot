@@ -44,6 +44,13 @@ from app.services.analytics.pivot_generator import generate_pivot_config, genera
 from app.services.analytics.duckdb_builder import get_or_build_duckdb, duckdb_exists, get_duckdb_path
 from app.services.analytics.duckdb_chart_builder import execute_chart_queries, execute_kpi_queries
 from app.services.analytics.duckdb_reader import DuckDBReader
+from app.services.analytics.chart_recommender import (
+    _smart_aggregate, _safe_groupby_sum, _safe_groupby_mean, 
+    _get_time_trend, _get_churn_rate_by_segment, _get_value_at_risk,
+    _get_stacked_churn_counts, _get_lifecycle_cohorts, _distribution_chart,
+    _get_churn_count_by_segment, _get_churned_vs_retained_avg, _safe_value_counts,
+    _safe_to_datetime,
+)
 from app.services.visualization.dashboard_generator import generate_overview_dashboard_duckdb
 from sqlmodel import select
 import pandas as pd
@@ -117,6 +124,8 @@ def _find_target_column(df: pd.DataFrame) -> Optional[str]:
     # Pass 1: Strong keywords across ALL dtypes (catches numeric 0/1 churn columns)
     for col in all_cols:
         col_lower = col.lower().replace('_', '').replace('-', '')
+        if 'audience' in col_lower:
+            continue
         if any(kw in col_lower for kw in strong_keywords):
             if df[col].nunique() <= 5:
                 return col
@@ -124,8 +133,10 @@ def _find_target_column(df: pd.DataFrame) -> Optional[str]:
     # Pass 2: Moderate keywords across ALL dtypes
     for col in all_cols:
         col_lower = col.lower().replace('_', '').replace('-', '')
+        if 'audience' in col_lower:
+            continue
         if any(kw in col_lower for kw in moderate_keywords):
-            if df[col].nunique() <= 5:
+            if df[col].nunique() <= 10:
                 return col
     
     # Pass 3: Weak keywords (only categorical to avoid false positives)
@@ -1179,15 +1190,6 @@ async def get_dashboard_analytics(  # pyright: ignore
             filtered_by_identity: Dict[tuple[str, str, str, str, str], Any] = {
                 _chart_identity_key(v): v for v in charts_filtered.values()
             }
-
-            from app.services.analytics.chart_recommender import (
-                _smart_aggregate, _safe_groupby_sum, _safe_groupby_mean, 
-                _get_time_trend, _get_churn_rate_by_segment, _get_value_at_risk,
-                _get_stacked_churn_counts, _get_lifecycle_cohorts, _distribution_chart,
-                _get_churn_count_by_segment, _get_churned_vs_retained_avg, _safe_value_counts,
-                _safe_to_datetime,
-            )
-
             charts: Dict[str, Any] = {}
             duckdb_success = duckdb_result.get("success", False)
             duckdb_slots = set(duckdb_result.get("duckdb_slots", []))
