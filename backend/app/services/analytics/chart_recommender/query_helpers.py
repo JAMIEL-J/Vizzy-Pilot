@@ -8,7 +8,7 @@ import pandas as pd
 from .aggregators import _safe_groupby_sum, _safe_groupby_mean, _safe_value_counts
 from .models import ChartRecommendation
 from .prioritization import _should_average_metric
-from .sanitization import _POISON_STRINGS, _safe_float, _safe_to_datetime
+from .sanitization import _POISON_STRINGS, _safe_float, _safe_to_datetime, _coerce_numeric_metric_series
 from .titles import _beautify_column_name, _format_categorical_value
 
 logger = logging.getLogger(__name__)
