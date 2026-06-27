@@ -44,9 +44,13 @@ workspace_env/
 Thumbs.db
 
 # AI Agents & Workspace
+.claude/
+.cursorrules
 .agent/
 .gemini/
 .ai/
+.opencode/
+.superpowers/
 
 # Logs and Debugging
 *.log
@@ -59,6 +63,19 @@ tmp_*.txt
 temp_*.py
 tmp_test_executor.py
 test_charts_result.json
+backend/_check_ds.py
+backend/debug_churn_count.py
+backend/scratch.txt
+backend/scratch/
+backend/scratch_test_500.py
+backend/security_smoke_test.py
+backend/test_*.py
+backend/test_*.json
+backend/verify_semantic_mapper.py
+backend/vizzy_dashboard_impl_plan.md
+frontend/fix_*.py
+frontend/migrate*.py
+frontend/out.txt
 
 # Database & Data
 *.db
@@ -70,6 +87,7 @@ uploads/
 **/uploads/
 data/vizzy_analytics.duckdb
 data/vizzy_analytics.duckdb.wal
+backend/tests/datasets/*.csv
 
 # Testing
 .coverage
