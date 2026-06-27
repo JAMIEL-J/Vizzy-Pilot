@@ -33,6 +33,7 @@ workspace_env/
 **/.env
 **/.env.local
 **/.env.*.local
+.env.example
 
 # IDEs
 .vscode/
@@ -51,6 +52,10 @@ Thumbs.db
 .ai/
 .opencode/
 .superpowers/
+.github/
+BUG_FIX_CONTEXT.md
+CLAUDE.md
+bugs_identified.md
 
 # Logs and Debugging
 *.log
@@ -97,6 +102,8 @@ htmlcov/
 .nosepy
 nosetests.xml
 coverage.xml
+backend/tests/test_*.py
+tests/fixtures/
 
 # Node (Frontend)
 node_modules/
@@ -126,3 +133,4 @@ out/
 vizzy_system_architecture_*.png
 vizzy_architecture.html
 project_documentation.html
+docs/
