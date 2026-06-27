@@ -207,6 +207,11 @@ def generate_overview_dashboard_duckdb(
                 if col in classification.excluded:
                     classification.excluded.remove(col)
 
+                # Remove from existing canonical mappings to prevent ghost templated charts
+                keys_to_remove = [k for k, v in classification.mappings.items() if v == col]
+                for k in keys_to_remove:
+                    del classification.mappings[k]
+
                 role_lower = role.lower()
                 role_info = ROLE_TAXONOMY.get(role_lower, {})
                 affinity = role_info.get("affinity")

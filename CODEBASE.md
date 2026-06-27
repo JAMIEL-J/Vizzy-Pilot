@@ -4,6 +4,15 @@ This file contains the complete conceptual and structural map of the Vizzy Analy
 
 ---
 
+## 📝 Recent Architectural Changes Log
+**2026-06-26: Analyst Team Routing & Dashboard Integration**
+- **Dashboard Deep Dive**: `UserDashboard.tsx` (`handleDeepDive`) now uses React Router `useNavigate` to redirect to `/user/chat`, passing `datasetId` and `initialPrompt` in state.
+- **Chat State Initialization**: `ChatInterface.tsx` uses `useLocation` to read routing state, automatically setting the active dataset and pre-filling the chat box.
+- **"Think" Mode Routing**: `chat_routes.py` (`force_deep_analysis=True`) now correctly routes to the `Executor` (Multi-Agent flow) rather than bypassing it for the legacy diagnostic script.
+- **Deep Analysis Prompting**: `executor.py` (`_run_synthesis`) now enforces a strict `**Key Insight:**` format with strategic causality/anomaly extraction when `force_deep_analysis` is active, replacing basic chart descriptions.
+<!--  -->
+---
+
 ## 🏗️ System Architecture Overview
 
 Vizzy Analytics is a full-stack natural language query engine that translates plain-text questions into validated database operations, executes them via a hybrid engine, streams results, and preserves an immutable cleaning and transformation log.

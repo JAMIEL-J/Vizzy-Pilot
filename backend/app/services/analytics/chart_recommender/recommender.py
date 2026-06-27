@@ -475,13 +475,28 @@ def _generate_all_columns_charts(
     # 1.  BUILD CLEAN COLUMN POOLS
     # ------------------------------------------------------------------
     dims_all = [c for c in (classification.dimensions or []) if c in df.columns and not _is_low_value_column(c)]
-    metrics_all = [c for c in (classification.metrics or []) if c in df.columns and not _is_low_value_column(c)]
+    
+    # Filter out demographic/ID columns that are numeric but act as dimensions (e.g., Age)
+    raw_metrics = [c for c in (classification.metrics or []) if c in df.columns and not _is_low_value_column(c)]
+    metrics_all = []
+    for m in raw_metrics:
+        m_lower = m.lower()
+        if m_lower == 'age' or m_lower.endswith('_age') or m_lower.endswith(' age'):
+            # Force into extra_cols so it acts as a dimension
+            pass
+        elif 'year' in m_lower or 'zip' in m_lower or 'id' in m_lower:
+            pass
+        else:
+            metrics_all.append(m)
+            
     dates_all = [c for c in (classification.dates or []) if c in df.columns and not _is_low_value_column(c)]
 
     # Also grab any column present in df that is numeric or has low-enough cardinality
     extra_cols = []
     for col in df.columns:
         if col not in dims_all and col not in metrics_all and col not in dates_all:
+            if classification.excluded and col in classification.excluded:
+                continue
             if not _is_low_value_column(col):
                 extra_cols.append(col)
 
@@ -985,6 +1000,9 @@ def recommend_charts(df: pd.DataFrame, domain: DomainType, classification: Colum
             and chart.chart_type in ("pie", "donut", "hbar", "bar")
             and (target_col is None or chart.dimension.lower() != target_col.lower())
         )
+        if getattr(chart, 'is_domain_specific', False):
+            is_single_col_dist = False
+            
         if not is_single_col_dist:
             key_insight_charts.append(chart)
     charts = key_insight_charts

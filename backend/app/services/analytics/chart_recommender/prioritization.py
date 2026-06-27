@@ -6,9 +6,9 @@ from typing import Any, List, Optional
 
 METRIC_PRIORITY_KEYWORDS = [
     # Tier 1: Revenue & Sales (highest priority) & Critical Health Outcomes
-    ['revenue', 'sales', 'totalcharges', 'total_charges', 'income', 'gross', 'los', 'length_of_stay', 'mortality', 'readmission'],
+    ['revenue', 'sales', 'totalcharges', 'total_charges', 'income', 'gross', 'los', 'length_of_stay', 'mortality', 'readmission', 'billing'],
     # Tier 2: Cost & Expense & Clinical Scores
-    ['cost', 'expense', 'spending', 'monthlycharges', 'monthly_charges', 'price', 'score', 'rate', 'prevalence', 'incidence'],
+    ['cost', 'expense', 'spending', 'monthlycharges', 'monthly_charges', 'price', 'score', 'rate', 'prevalence', 'incidence', 'amount', 'charge'],
     # Tier 3: Profit & Margins & Vital Measurements
     ['profit', 'margin', 'net', 'earning', 'vital', 'pressure', 'bmi', 'weight', 'temperature'],
     # Tier 4: Volume & Quantity 

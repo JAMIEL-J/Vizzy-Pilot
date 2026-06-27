@@ -1001,6 +1001,11 @@ async def get_dashboard_analytics(  # pyright: ignore
                     if col in classification.dates: classification.dates.remove(col)
                     if col in classification.excluded: classification.excluded.remove(col)
                     
+                    # Remove from existing canonical mappings to prevent ghost templated charts
+                    keys_to_remove = [k for k, v in classification.mappings.items() if v == col]
+                    for k in keys_to_remove:
+                        del classification.mappings[k]
+
                     # Add to new list based on semantic role mapping
                     role_lower = role.lower()
                     role_info = ROLE_TAXONOMY.get(role_lower, {})

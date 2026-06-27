@@ -1638,96 +1638,250 @@ def _generate_healthcare_kpis(df: pd.DataFrame, classification: ColumnClassifica
     """Generate operational/clinical KPIs for Healthcare domain."""
     kpis = []
     
-    # Detect key columns
-    patient_col = _find_column(df, ['patient', 'patientid', 'name'], classification, semantic_map_json=semantic_map_json)
+    # 1. Enhanced Pre-Mapper Role Definitions (Semantic Detection)
+    patient_col = _find_column(df, ['patient', 'patientid', 'name', 'mrn', 'subject_id'], classification, semantic_map_json=semantic_map_json)
+    encounter_col = _find_column(df, ['encounter', 'visit', 'admission_id', 'hadm_id'], classification, semantic_map_json=semantic_map_json)
     age_col = _find_column(df, ['age'], classification, semantic_map_json=semantic_map_json)
-    condition_col = _find_column(df, ['condition', 'diagnosis', 'disease', 'medical_condition'], classification, semantic_map_json=semantic_map_json)
-    insurance_col = _find_column(df, ['insurance', 'provider', 'insurance_provider'], classification, semantic_map_json=semantic_map_json)
-    cost_col = _find_column(df, ['cost', 'charge', 'charges', 'bill', 'billing', 'billing_amount'], classification, semantic_map_json=semantic_map_json)
+    condition_col = _find_column(df, ['condition', 'diagnosis', 'disease', 'medical_condition', 'drg', 'drg_code'], classification, semantic_map_json=semantic_map_json)
+    insurance_col = _find_column(df, ['insurance', 'provider', 'insurance_provider', 'payer', 'primary_payer'], classification, semantic_map_json=semantic_map_json)
+    cost_col = _find_column(df, ['cost', 'charge', 'charges', 'bill', 'billing', 'billing_amount', 'total_amount', 'paid'], classification, semantic_map_json=semantic_map_json)
+    
+    # Advanced / Calculated columns
+    admit_date_col = _find_column(df, ['admit', 'admission', 'admission_date', 'date_of_admission'], classification, semantic_map_json=semantic_map_json)
+    discharge_date_col = _find_column(df, ['discharge', 'discharge_date', 'date_of_discharge'], classification, semantic_map_json=semantic_map_json)
+    los_col = _find_column(df, ['los', 'length_of_stay', 'days_in_hospital'], classification, semantic_map_json=semantic_map_json)
+    readmission_col = _find_column(df, ['readmission', 'readmitted', '30_day_readmit'], classification, semantic_map_json=semantic_map_json)
+    mortality_col = _find_column(df, ['mortality', 'deceased', 'expired', 'death', 'died'], classification, semantic_map_json=semantic_map_json)
     
     total_patients = df[patient_col].nunique() if patient_col else len(df)
+    local_total = total_rows if total_rows > 0 else len(df)
     
-    # 1. Patient Volume
+    # 1. Total Patients / Encounters (Always applicable)
     kpis.append(KPI(
         key="patient_volume",
-        title="Patient Volume",
-        value=total_patients,
+        title="Total Patients",
+        value=local_total,
         format="number",
         icon="users",
         confidence="HIGH",
-        reason="Unique patients" if patient_col else "Total records",
-        subtitle=f"{len(df)} total visits"
+        reason="Total records in dataset",
+        subtitle=f"{total_patients} unique individuals" if patient_col else "Total encounters"
     ))
     
-    # 2. Average Age
-    if age_col:
+    # 2. Average Length of Stay (ALOS) - Derived or Explicit
+    if admit_date_col and discharge_date_col and admit_date_col in df.columns and discharge_date_col in df.columns:
+        try:
+            admit = _safe_to_datetime(df[admit_date_col])
+            discharge = _safe_to_datetime(df[discharge_date_col])
+            calculated_los = (discharge - admit).dt.days
+            avg_los = float(calculated_los[calculated_los >= 0].mean())
+            if pd.notna(avg_los):
+                kpis.append(KPI(
+                    key="avg_los",
+                    title="Avg Length of Stay",
+                    value=round(avg_los, 1),
+                    format="number",
+                    icon="activity",
+                    confidence="HIGH",
+                    reason=f"Calculated from {admit_date_col} to {discharge_date_col}",
+                    subtitle="Days"
+                ))
+        except Exception:
+            pass
+    elif los_col:
+        avg_los = _safe_mean(df, los_col, reader=reader)
+        kpis.append(KPI(
+            key="avg_los",
+            title="Avg Length of Stay",
+            value=round(avg_los, 1),
+            format="number",
+            icon="activity",
+            confidence="HIGH",
+            reason=f"Mean of {los_col}",
+            subtitle="Days"
+        ))
+
+    # 3. Readmission Rate
+    if readmission_col and readmission_col in df.columns:
+        readmits = _count_target_positive(df, readmission_col, reader=reader)
+        rate = round((readmits / local_total) * 100, 1) if local_total > 0 else 0
+        kpis.append(KPI(
+            key="readmission_rate",
+            title="Readmission Rate",
+            value=rate,
+            format="percent",
+            icon="alert-circle",
+            confidence="HIGH",
+            reason=f"Based on {readmission_col}",
+            subtitle=f"{readmits} total readmissions"
+        ))
+
+    # 4. Average Cost per Encounter & Total Billing
+    if cost_col:
+        total_cost = _safe_sum(df, cost_col, reader=reader)
+        encounters = df[encounter_col].nunique() if encounter_col else local_total
+        avg_cost = total_cost / encounters if encounters > 0 else 0
+        kpis.append(KPI(
+            key="avg_cost_per_encounter",
+            title="Avg Cost per Encounter",
+            value=avg_cost,
+            format="currency",
+            icon="dollar-sign",
+            confidence="HIGH",
+            reason=f"Total {cost_col} / Encounters",
+            subtitle="Per patient encounter"
+        ))
+        
+        kpis.append(KPI(
+            key="total_billing",
+            title="Total Billing",
+            value=total_cost,
+            format="currency",
+            icon="briefcase",
+            confidence="HIGH",
+            reason=f"Sum of {cost_col}"
+        ))
+
+    # 5. Mortality / Severity 
+    if mortality_col and mortality_col in df.columns:
+        deaths = _count_target_positive(df, mortality_col, reader=reader)
+        mortality_rate = round((deaths / local_total) * 100, 1) if local_total > 0 else 0
+        kpis.append(KPI(
+            key="mortality_rate",
+            title="Mortality Rate",
+            value=mortality_rate,
+            format="percent",
+            icon="alert-triangle",
+            confidence="HIGH",
+            reason=f"Based on {mortality_col}",
+            subtitle=f"{deaths} recorded cases"
+        ))
+
+    # 5.5 Emergency Admission Rate
+    admission_type_col = _find_column(df, ['admission_type', 'intake_method', 'admit_type', 'admission'], classification, semantic_map_json=semantic_map_json)
+    if admission_type_col and admission_type_col in df.columns:
+        try:
+            if reader:
+                # Find the count of 'Emergency' or 'Urgent'
+                emergency_data = reader.query(f"SELECT COUNT(*) as count FROM data WHERE LOWER(CAST(\"{admission_type_col}\" AS VARCHAR)) LIKE '%emergency%' OR LOWER(CAST(\"{admission_type_col}\" AS VARCHAR)) LIKE '%urgent%'")
+                emergency_count = emergency_data[0]['count'] if emergency_data else 0
+            else:
+                s = df[admission_type_col].astype(str).str.lower()
+                emergency_count = s[s.str.contains('emergency|urgent', na=False)].shape[0]
+            
+            if emergency_count > 0:
+                emergency_rate = round((emergency_count / local_total) * 100, 1) if local_total > 0 else 0
+                kpis.append(KPI(
+                    key="emergency_rate",
+                    title="Emergency Intake",
+                    value=emergency_rate,
+                    format="percent",
+                    icon="ambulance",
+                    confidence="MEDIUM",
+                    reason="Emergency or Urgent admissions",
+                    subtitle=f"{emergency_count} urgent cases"
+                ))
+        except Exception:
+            pass
+
+    # 6. Top Condition (Text KPI)
+    if condition_col and condition_col in df.columns:
+        try:
+            if reader:
+                top3_data = reader.query(f"SELECT \"{condition_col}\" as val, COUNT(*) as count FROM data WHERE \"{condition_col}\" IS NOT NULL GROUP BY 1 ORDER BY count DESC LIMIT 3")
+                if top3_data:
+                    top_condition = str(top3_data[0]['val'])
+                    other_conditions = ", ".join([str(r['val']) for r in top3_data[1:]])
+                    top_count = int(top3_data[0]['count'])
+                    top_pct = round((top_count / local_total) * 100, 1) if local_total > 0 else 0
+                    subtitle = f"Followed by {other_conditions}" if other_conditions else f"Accounts for {top_pct}%"
+                    
+                    kpis.append(KPI(
+                        key="top_condition",
+                        title="Top Condition",
+                        value=top_condition,
+                        format="text",
+                        icon="activity",
+                        confidence="HIGH",
+                        reason=f"Most frequent {condition_col}",
+                        subtitle=subtitle
+                    ))
+            else:
+                top3 = df[condition_col].value_counts().head(3)
+                if not top3.empty:
+                    top_condition = str(top3.index[0])
+                    other_conditions = ", ".join([str(x) for x in top3.index[1:]])
+                    top_count = int(top3.iloc[0])
+                    top_pct = round((top_count / len(df)) * 100, 1) if len(df) > 0 else 0
+                    subtitle = f"Followed by {other_conditions}" if other_conditions else f"Accounts for {top_pct}%"
+                    
+                    kpis.append(KPI(
+                        key="top_condition",
+                        title="Top Condition",
+                        value=top_condition,
+                        format="text",
+                        icon="activity",
+                        confidence="HIGH",
+                        reason=f"Most frequent {condition_col}",
+                        subtitle=subtitle
+                    ))
+        except Exception:
+            pass
+
+    # 7. Top Medication (Text KPI)
+    medication_col = _find_column(df, ['medication', 'drug', 'medicine', 'prescription'], classification, semantic_map_json=semantic_map_json)
+    if medication_col and medication_col in df.columns:
+        try:
+            if reader:
+                top_med_data = reader.query(f"SELECT \"{medication_col}\" as val, COUNT(*) as count FROM data WHERE \"{medication_col}\" IS NOT NULL GROUP BY 1 ORDER BY count DESC LIMIT 1")
+                if top_med_data:
+                    med_name = str(top_med_data[0]['val'])
+                    med_count = int(top_med_data[0]['count'])
+                    med_pct = round((med_count / local_total) * 100, 1) if local_total > 0 else 0
+                    
+                    kpis.append(KPI(
+                        key="top_medication",
+                        title="Top Medication",
+                        value=med_name,
+                        format="text",
+                        icon="plus-square",
+                        confidence="HIGH",
+                        reason=f"Most frequent {medication_col}",
+                        subtitle=f"Given to {med_pct}% of patients"
+                    ))
+            else:
+                top_med = df[medication_col].value_counts().head(1)
+                if not top_med.empty:
+                    med_name = str(top_med.index[0])
+                    med_count = int(top_med.iloc[0])
+                    med_pct = round((med_count / len(df)) * 100, 1) if len(df) > 0 else 0
+                    
+                    kpis.append(KPI(
+                        key="top_medication",
+                        title="Top Medication",
+                        value=med_name,
+                        format="text",
+                        icon="plus-square",
+                        confidence="HIGH",
+                        reason=f"Most frequent {medication_col}",
+                        subtitle=f"Given to {med_pct}% of patients"
+                    ))
+        except Exception:
+            pass
+    if age_col and len(kpis) < 6:
         avg_age = _safe_mean(df, age_col, reader=reader)
         kpis.append(KPI(
             key="avg_age",
             title="Avg Patient Age",
             value=round(avg_age, 1),
             format="number",
-            icon="activity",
+            icon="user",
             confidence="HIGH",
             reason=f"Mean of {age_col}",
             subtitle="Demographic indicator"
         ))
-    
-    # 3. Condition Prevalence (Top 3 chronic conditions as % of total)
-    if condition_col and condition_col in df.columns:
-        try:
-            top3 = df[condition_col].value_counts().head(3)
-            top3_count = int(top3.sum())
-            top3_pct = round((top3_count / len(df)) * 100, 1) if len(df) > 0 else 0
-            top3_names = ", ".join(top3.index.tolist())
-            kpis.append(KPI(
-                key="condition_prevalence",
-                title="Top 3 Conditions",
-                value=top3_pct,
-                format="percent",
-                icon="alert-circle",
-                confidence="HIGH",
-                reason=f"Top 3 conditions cover {top3_pct}% of patients",
-                subtitle=top3_names
-            ))
-        except Exception:
-            pass
-    
-    # 4. Insurance Coverage Ratio
-    if insurance_col and insurance_col in df.columns:
-        try:
-            local_total = total_rows if total_rows > 0 else len(df)
-            # Self-pay detection
-            self_pay_keywords = ['self', 'self-pay', 'selfpay', 'none', 'no insurance', 'uninsured', 'cash']
-            insured = df[~df[insurance_col].astype(str).str.lower().str.strip().isin(self_pay_keywords)]
-            coverage_pct = round((len(insured) / local_total) * 100, 1) if local_total > 0 else 0
-            kpis.append(KPI(
-                key="insurance_coverage",
-                title="Insurance Coverage",
-                value=coverage_pct,
-                format="percent",
-                icon="shield",
-                confidence="HIGH",
-                reason=f"Patients with insurance coverage",
-                subtitle=f"{len(insured)} of {local_total} covered"
-            ))
-        except Exception:
-            pass
-    
-    # 5. Total Billing
-    if cost_col:
-        total_cost = _safe_sum(df, cost_col, reader=reader)
-        kpis.append(KPI(
-            key="total_billing",
-            title="Total Billing",
-            value=total_cost,
-            format="currency",
-            icon="dollar",
-            confidence="HIGH",
-            reason=f"Sum of {cost_col}"
-        ))
-    
-    return kpis
+
+    return kpis[:8]
 
 
 def _generate_hr_kpis(df: pd.DataFrame, classification: ColumnClassification, semantic_map_json: Optional[str] = None, reader: Optional["DuckDBReader"] = None, total_rows: int = 0) -> List[KPI]:
@@ -2690,7 +2844,7 @@ def _dynamic_kpi_limit(
         DomainType.CHURN: 6,
         DomainType.MARKETING: 4,
         DomainType.FINANCE: 4,
-        DomainType.HEALTHCARE: 5,
+        DomainType.HEALTHCARE: 8,
         DomainType.HR: 8,
         DomainType.LOGISTICS: 4,
         DomainType.EDUCATION: 4,

@@ -45,240 +45,229 @@ from .titles import (
 logger = logging.getLogger(__name__)
 
 def _generate_healthcare_charts(df: pd.DataFrame, classification: ColumnClassification) -> List[ChartRecommendation]:
-    """Generate operational/clinical charts for the Healthcare domain.
-    
-    Priority order:
-    1. Condition Distribution (Bar) — where to focus expertise
-    2. Avg Age by Condition (Bar) — demographic risk factors
-    3. Insurance Provider Breakdown (Donut) — payer mix / revenue source
-    4. Billing by Condition (HBar) — highest cost conditions
-    5. Admission Types (Pie) — intake method breakdown
-    6. Billing Trend (Line) — revenue timeline
-    7. Admissions Over Time (Line) — patient volume trend
-    8. Gender (Pie) — demographics
-    
-    Explicitly EXCLUDED: Blood Type (clutter for general dashboards).
-    """
+    """Generate operational/clinical charts for the Healthcare domain."""
     charts = []
     def add_chart(rec):
-        if rec: charts.append(rec)
+        if rec:
+            rec.is_domain_specific = True
+            charts.append(rec)
 
     pm = classification.metrics
     pd_ = classification.dimensions
     dates = classification.dates
+    excluded = classification.excluded
 
-    # Detect columns
-    cost_col = next((c for c in pm if any(kw in c.lower() for kw in ['cost', 'charge', 'bill'])), None)
-    age_col = next((c for c in pm if 'age' in c.lower()), None)
-    los_col = next((c for c in pm if 'los' in c.lower() or 'stay' in c.lower()), None)
+    # 1. Enhanced Pre-Mapper Role Definitions (Semantic Detection)
+    patient_col = _pick_column_by_keywords(df, pd_, ['patient', 'patientid', 'name', 'mrn', 'subject_id'], exclude=excluded)
+    encounter_col = _pick_column_by_keywords(df, pd_, ['encounter', 'visit', 'admission_id', 'hadm_id'], exclude=excluded)
+    age_col = _pick_column_by_keywords(df, pm, ['age'], exclude=excluded)
+    condition_col = _pick_column_by_keywords(df, pd_, ['condition', 'diagnosis', 'disease', 'medical_condition', 'drg', 'drg_code', 'icd'], exclude=excluded)
+    insurance_col = _pick_column_by_keywords(df, pd_, ['insurance', 'provider', 'insurance_provider', 'payer', 'primary_payer'], exclude=excluded)
+    cost_col = _pick_column_by_keywords(df, pm, ['cost', 'charge', 'charges', 'bill', 'billing', 'billing_amount', 'total_amount', 'paid'], exclude=excluded)
     
-    condition_col = next((c for c in pd_ if any(kw in c.lower() for kw in ['condition', 'diagnos', 'disease'])), None)
-    insurance_col = next((c for c in pd_ if 'insurance' in c.lower()), None)
-    admission_type_col = next((c for c in pd_ if 'admission' in c.lower()), None)
-    gender_col = next((c for c in pd_ if 'gender' in c.lower() or 'sex' in c.lower()), None)
-    dept_col = next((c for c in pd_ if 'department' in c.lower() or 'ward' in c.lower()), None)
-    hospital_col = next((c for c in pd_ if 'hospital' in c.lower() or 'facility' in c.lower() or 'clinic' in c.lower()), None)
-    doctor_col = next((c for c in pd_ if any(kw in c.lower() for kw in ['doctor', 'physician', 'provider'])), None)
-    medication_col = next((c for c in pd_ if 'medication' in c.lower() or 'drug' in c.lower() or 'medicine' in c.lower()), None)
+    admission_type_col = _pick_column_by_keywords(df, pd_, ['admission_type', 'intake_method', 'admit_type', 'admission'], exclude=excluded)
+    gender_col = _pick_column_by_keywords(df, pd_, ['gender', 'sex'], exclude=excluded)
+    dept_col = _pick_column_by_keywords(df, pd_, ['department', 'ward', 'unit'], exclude=excluded)
+    hospital_col = _pick_column_by_keywords(df, pd_, ['hospital', 'facility', 'clinic', 'location'], exclude=excluded)
+    doctor_col = _pick_column_by_keywords(df, pd_, ['doctor', 'physician', 'provider', 'attending'], exclude=excluded)
+    medication_col = _pick_column_by_keywords(df, pd_, ['medication', 'drug', 'medicine', 'prescription'], exclude=excluded)
+    
+    # Advanced / Calculated columns
+    admit_date_col = _pick_column_by_keywords(df, dates, ['admit', 'admission', 'admission_date', 'date_of_admission'], exclude=excluded)
+    if not admit_date_col and dates: admit_date_col = dates[0]
+    
+    los_col = _pick_column_by_keywords(df, pm, ['los', 'length_of_stay', 'days_in_hospital'], exclude=excluded)
+    readmission_col = _pick_column_by_keywords(df, pd_ + classification.targets, ['readmission', 'readmitted', '30_day_readmit'], exclude=excluded)
+    mortality_col = _pick_column_by_keywords(df, pd_ + classification.targets, ['mortality', 'deceased', 'expired', 'death', 'died'], exclude=excluded)
 
-    # ── 1. Condition Distribution (Bar) ──────────────────────────────────────
-    if condition_col:
-        add_chart(_distribution_chart(
-            df, condition_col,
-            'Top Medical Conditions', 'HIGH',
-            'Identifies where expertise and equipment should be focused',
-            'Patients', prefer_pie=False
+    # ── 1. Readmission Rate by Condition (Bar) ────────────────────────────────
+    if condition_col and readmission_col:
+        add_chart(_build_target_rate_chart(
+            df, readmission_col, condition_col,
+            f'Readmission Rate by {_beautify_column_name(condition_col)}',
+            'Identifies high-risk clinical conditions driving readmissions'
         ))
 
-    # ── 2. Avg Age by Condition (Bar) ────────────────────────────────────────
-    if age_col and condition_col:
-        data = _safe_groupby_mean(df, condition_col, age_col)
+    # ── 2. Total Cost by Condition (Bar) ──────────────────────────────────────
+    if condition_col and cost_col:
+        data = _safe_groupby_sum(df, condition_col, cost_col)
         if data:
             add_chart(ChartRecommendation(
-                '', 'Avg Patient Age by Condition', 'bar', data, 'HIGH',
-                'Correlates age groups with illnesses to predict patient surges',
-                format_type='number', value_label='Years',
-                dimension=condition_col, metric=age_col, aggregation='mean'
+                '', f'Total Cost by {_beautify_column_name(condition_col)}', 'hbar', data, 'HIGH',
+                'Highest cost conditions driving facility expenses',
+                format_type='currency', value_label='Cost',
+                dimension=condition_col, metric=cost_col, aggregation='sum'
             ))
 
-    # ── 3. Insurance Provider Breakdown (Donut) ──────────────────────────────
+    # ── 3. Average Length of Stay by Condition (Bar) ──────────────────────────
+    if condition_col and los_col:
+        data = _safe_groupby_mean(df, condition_col, los_col)
+        if data:
+            add_chart(ChartRecommendation(
+                '', f'Avg Length of Stay by {_beautify_column_name(condition_col)}', 'hbar', data, 'HIGH',
+                'Resource utilization and capacity forecasting',
+                format_type='number', value_label='Days',
+                dimension=condition_col, metric=los_col, aggregation='mean'
+            ))
+
+    # ── 4. Cost vs. Length of Stay (Scatter) ──────────────────────────────────
+    if cost_col and los_col:
+        data = _get_scatter_data(df, los_col, cost_col, label_col=condition_col or dept_col)
+        if data:
+            add_chart(ChartRecommendation(
+                '', f'Cost vs. Length of Stay', 'scatter', data, 'HIGH',
+                'Correlation between time in hospital and total charges',
+                dimension=los_col, metric=cost_col, aggregation='mean'
+            ))
+
+    # ── 5. Revenue / Cost by Payer Mix (Donut) ────────────────────────────────
     if insurance_col:
         if cost_col:
             data = _safe_groupby_sum(df, insurance_col, cost_col)
             add_chart(ChartRecommendation(
-                '', 'Revenue by Insurance Provider', 'donut', data, 'HIGH',
-                'Payer mix — which insurers dominate your revenue stream',
+                '', 'Revenue by Payer Mix', 'donut', data, 'HIGH',
+                'Financial exposure across insurance providers',
                 format_type='currency', value_label='Revenue',
                 dimension=insurance_col, metric=cost_col, aggregation='sum'
             ))
         else:
             add_chart(_distribution_chart(
                 df, insurance_col,
-                'Insurance Provider Breakdown', 'HIGH',
-                'Payer mix by patient count', 'Patients', prefer_pie=False
+                'Payer Mix (Patient Volume)', 'HIGH',
+                'Insurance provider distribution', 'Patients', prefer_pie=True
             ))
 
-    # ── 4. Billing by Condition (HBar) ───────────────────────────────────────
-    if condition_col and cost_col:
-        data = _safe_groupby_sum(df, condition_col, cost_col)
-        if data:
-            add_chart(ChartRecommendation(
-                '', 'Total Billing by Condition', 'hbar', data, 'HIGH',
-                'Highest cost conditions driving facility expenses',
-                format_type='currency', value_label='Billing Amount',
-                dimension=condition_col, metric=cost_col, aggregation='sum'
-            ))
-
-    # ── 5. Admission Types (Pie) ─────────────────────────────────────────────
-    if admission_type_col:
-        add_chart(_distribution_chart(
-            df, admission_type_col,
-            'Admission Types', 'HIGH',
-            'Emergency vs Elective vs Urgent intake breakdown',
-            'Patients', prefer_pie=True
-        ))
-
-    # ── 6. Billing Trend Over Time (Line) ────────────────────────────────────
-    if dates and cost_col:
-        data = _get_time_trend(
-            df,
-            dates[0],
-            cost_col,
-            aggregation=_trend_aggregation_for_metric(cost_col),
-        )
-        if data:
-            add_chart(ChartRecommendation(
-                '', 'Hospital Billing Trend', 'line', data, 'HIGH',
-                'Revenue timeline to track financial health',
-                format_type='currency', value_label='Billing',
-                dimension=dates[0], metric=cost_col, aggregation='sum'
-            ))
-
-    # ── 7. Patient Admissions Over Time (Line) ───────────────────────────────
-    if dates:
+    # ── 6. Admissions Over Time (Area/Line) ──────────────────────────────────
+    if admit_date_col:
         try:
-            date_col = dates[0]
             df_temp = df.copy()
-            df_temp[date_col] = _safe_to_datetime(df_temp[date_col])
-            df_temp = df_temp.dropna(subset=[date_col])
-
-            trend = df_temp.groupby(pd.Grouper(key=date_col, freq='MS')).size()
-            data = []
-            for k, v in trend.items():
-                ts_label, ts_date = _to_trend_point_key(k)
-                if ts_label is None:
-                    continue
-                data.append({
-                    "timestamp": ts_label,
-                    "date": ts_date,
-                    "value": int(v),
-                })
+            df_temp[admit_date_col] = _safe_to_datetime(df_temp[admit_date_col])
+            df_temp = df_temp.dropna(subset=[admit_date_col])
+            trend = df_temp.groupby(pd.Grouper(key=admit_date_col, freq='MS')).size()
+            data = [{"timestamp": ts_label, "date": ts_date, "value": int(v)} 
+                    for k, v in trend.items() 
+                    for ts_label, ts_date in [_to_trend_point_key(k)] if ts_label is not None]
             if data:
                 add_chart(ChartRecommendation(
-                    '', 'Patient Admissions Over Time', 'area', data, 'HIGH',
-                    'Patient volume trend over time',
+                    '', 'Admissions Trend Over Time', 'area', data, 'HIGH',
+                    'Patient volume flow',
                     format_type='number', value_label='Admissions',
-                    dimension=date_col, metric=None, aggregation='count'
+                    dimension=admit_date_col, metric=None, aggregation='count'
                 ))
         except Exception:
             pass
 
-    # ── 8. Gender Demographics (Pie) ─────────────────────────────────────────
-    if gender_col:
+    # ── 7. Mortality Rate by Department (Bar) ─────────────────────────────────
+    if dept_col and mortality_col:
+        add_chart(_build_target_rate_chart(
+            df, mortality_col, dept_col,
+            f'Mortality Rate by {_beautify_column_name(dept_col)}',
+            'Clinical outcome tracking across departments'
+        ))
+
+    # ── 8. Admission Types (Pie) ─────────────────────────────────────────────
+    if admission_type_col:
         add_chart(_distribution_chart(
-            df, gender_col,
-            'Patient Demographics (Gender)', 'MEDIUM',
-            'Gender distribution of patient population',
+            df, admission_type_col,
+            'Admission Types', 'MEDIUM',
+            'Emergency vs Elective intake breakdown',
             'Patients', prefer_pie=True
         ))
 
-    # ── 9. Avg LOS by Department/Condition (HBar) ───────────────────────────
-    primary_dim = dept_col or condition_col
-    if primary_dim and los_col:
-        data = _safe_groupby_mean(df, primary_dim, los_col)
-        if data:
-            add_chart(ChartRecommendation(
-                '', f'Avg Length of Stay by {_beautify_column_name(primary_dim)}', 'hbar',
-                data, 'HIGH', 'Resource utilization efficiency',
-                format_type='number', value_label='Days',
-                dimension=primary_dim, metric=los_col, aggregation='mean'
-            ))
-
-    # ── 10. Billing by Admission Type (Bar) ──────────────────────────────────
-    if admission_type_col and cost_col:
-        data = _safe_groupby_sum(df, admission_type_col, cost_col)
-        if data:
-            add_chart(ChartRecommendation(
-                '', 'Billing by Admission Type', 'bar', data, 'HIGH',
-                'Cost comparison across intake methods',
-                format_type='currency', value_label='Billing Amount',
-                dimension=admission_type_col, metric=cost_col, aggregation='sum'
-            ))
-    # ── 11. Billing by Hospital (HBar) ─────────────────────────────────────────
-    if hospital_col and cost_col:
-        data = _safe_groupby_sum(df, hospital_col, cost_col)
-        if data:
-            add_chart(ChartRecommendation(
-                '', f'Total Billing by {_beautify_column_name(hospital_col)}', 'hbar', data, 'HIGH',
-                'Revenue distribution across facilities',
-                format_type='currency', value_label='Billing Amount',
-                dimension=hospital_col, metric=cost_col, aggregation='sum'
-            ))
-
-    # ── 12. Top Doctors by Patient Volume (Bar) ──────────────────────────────
+    # ── 9. Condition Distribution (Bar) ──────────────────────────────────────
+    if condition_col:
+        add_chart(_distribution_chart(
+            df, condition_col,
+            'Top Medical Conditions', 'MEDIUM',
+            'Identifies where expertise and equipment should be focused',
+            'Patients', prefer_pie=False
+        ))
+        
+    # ── 10. Top Doctors by Patient Volume (Bar) ──────────────────────────────
     if doctor_col:
         add_chart(_distribution_chart(
             df, doctor_col,
-            f'Top {_beautify_column_name(doctor_col)}s by Patient Volume', 'HIGH',
+            f'Top {_beautify_column_name(doctor_col)}s by Patient Volume', 'MEDIUM',
             'Workload distribution across physicians',
             'Patients', prefer_pie=False
         ))
+        
+    # ── 11. Top Hospitals / Facilities (Bar) ─────────────────────────────────
+    if hospital_col:
+        add_chart(_distribution_chart(
+            df, hospital_col,
+            f'Patient Volume by {_beautify_column_name(hospital_col)}', 'MEDIUM',
+            'Facility utilization and volume',
+            'Patients', prefer_pie=False
+        ))
 
-    # ── 13. Medication Distribution (Bar/Donut) ──────────────────────────────
+    # ── 12. Medication Distribution (Pie/Bar) ────────────────────────────────
     if medication_col:
         add_chart(_distribution_chart(
             df, medication_col,
-            f'Top Prescribed {_beautify_column_name(medication_col)}s', 'HIGH',
-            'Most common prescriptions in the facility',
-            'Prescriptions', prefer_pie=df[medication_col].nunique() <= 6
+            'Top Prescribed Medications', 'MEDIUM',
+            'Pharmacy utilization patterns',
+            'Prescriptions', prefer_pie=False
         ))
+        
+    # ── 13. Test Results (Pie/Bar) ───────────────────────────────────────────
+    test_result_col = _pick_column_by_keywords(df, pd_, ['test', 'result', 'lab'], exclude=excluded)
+    if test_result_col:
+        add_chart(_distribution_chart(
+            df, test_result_col,
+            'Test Results Distribution', 'MEDIUM',
+            'Clinical testing outcomes',
+            'Patients', prefer_pie=True
+        ))
+        
+    # ── 14. Financials by Doctor (Bar) ───────────────────────────────────────
+    if doctor_col and cost_col:
+        data = _safe_groupby_sum(df, doctor_col, cost_col)
+        if data:
+            add_chart(ChartRecommendation(
+                '', f'Total Revenue by {_beautify_column_name(doctor_col)}', 'hbar', data, 'MEDIUM',
+                'Physician financial contribution',
+                format_type='currency', value_label='Revenue',
+                dimension=doctor_col, metric=cost_col, aggregation='sum'
+            ))
 
     # ── EXHAUSTIVE DIMENSION COVERAGE ──────────────────────────────────────────
-    # For every recognized dimension that hasn't been used in a chart above,
-    # generate a distribution chart + a metric cross-tab so no insight is missed.
-    MAX_CHARTS = 20
+    MAX_CHARTS = 15
     used_dims = {condition_col, insurance_col, admission_type_col, dept_col,
-                 gender_col, hospital_col, doctor_col, medication_col}
-    used_dims.discard(None)  # Remove None entries
+                 gender_col, hospital_col, doctor_col, medication_col, test_result_col}
+    used_dims.discard(None)
     
     avail_dims = [d for d in pd_ if d not in used_dims]
-    primary_metric = cost_col or (pm[0] if pm else None)  # Best available metric
+    
+    # STRICT FALLBACK: Only perform dimension cross-tabs if we have a true operational metric.
+    # We DO NOT want to cross-tab every dimension against 'Age' or a random numeric column.
+    operational_metric = cost_col or los_col
     
     for dim in avail_dims:
         if len(charts) >= MAX_CHARTS:
             break
         nunique = df[dim].nunique()
         if nunique < 2 or nunique > 50:
-            continue  # Skip useless (1 value) or too noisy (>50) dimensions
+            continue
         
-        # Distribution chart for this dimension
+        # 1. Always add the volume distribution
         add_chart(_distribution_chart(
             df, dim,
-            f'{_beautify_column_name(dim)} Distribution', 'MEDIUM',
+            f'{_beautify_column_name(dim)} Distribution', 'LOW',
             f'Patient distribution by {_beautify_column_name(dim)}',
             'Count', prefer_pie=nunique <= 5
         ))
         
-        # Metric cross-tab: pair with the best available metric
-        if primary_metric and len(charts) < MAX_CHARTS:
-            agg = 'mean' if _should_average_metric(primary_metric) else 'sum'
-            data = _safe_groupby_mean(df, dim, primary_metric) if agg == 'mean' else _safe_groupby_sum(df, dim, primary_metric)
+        # 2. Add operational metric cross-tab (Cost/LOS)
+        if operational_metric and len(charts) < MAX_CHARTS:
+            agg = 'mean' if _should_average_metric(operational_metric) else 'sum'
+            data = _safe_groupby_mean(df, dim, operational_metric) if agg == 'mean' else _safe_groupby_sum(df, dim, operational_metric)
             if data:
                 add_chart(ChartRecommendation(
-                    '', f'{_beautify_column_name(primary_metric)} by {_beautify_column_name(dim)}',
-                    'bar' if nunique < 8 else 'hbar', data, 'MEDIUM',
-                    f'{_beautify_column_name(primary_metric)} breakdown across {_beautify_column_name(dim)}',
-                    dimension=dim, metric=primary_metric, aggregation=agg
+                    '', f'{_beautify_column_name(operational_metric)} by {_beautify_column_name(dim)}',
+                    'bar' if nunique < 8 else 'hbar', data, 'LOW',
+                    f'{_beautify_column_name(operational_metric)} breakdown across {_beautify_column_name(dim)}',
+                    dimension=dim, metric=operational_metric, aggregation=agg
                 ))
 
     # Assign slot numbers
