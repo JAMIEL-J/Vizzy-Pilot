@@ -130,7 +130,7 @@ export function TopNav() {
             </div>
             <div>
               <span className="font-sans text-xs font-bold text-themed-main tracking-[0.15em] uppercase leading-none block">
-                VIZZY PILOT OPERATOR
+                VIZZY PILOT AI
               </span>
               <span className="font-sans text-[10px] text-themed-muted uppercase font-semibold block mt-0.5">
                 Session active • persistent connection established
