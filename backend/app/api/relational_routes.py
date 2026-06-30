@@ -44,12 +44,14 @@ logger = get_logger(__name__)
 
 class JoinColumn(BaseModel):
     """A single column pair in a join condition."""
+
     left_column: str = Field(..., min_length=1, max_length=255)
     right_column: str = Field(..., min_length=1, max_length=255)
 
 
 class JoinConfig(BaseModel):
     """Definition of a join relationship between two tables."""
+
     join_id: str = Field(..., min_length=1, max_length=64)
     left_table: str = Field(..., min_length=1, max_length=255)
     right_table: str = Field(..., min_length=1, max_length=255)
@@ -60,6 +62,7 @@ class JoinConfig(BaseModel):
 
 class CreateJoinRequest(BaseModel):
     """Request to create a new join configuration."""
+
     left_table: str = Field(..., min_length=1, max_length=255)
     right_table: str = Field(..., min_length=1, max_length=255)
     join_type: str = Field(..., pattern="^(inner|left|right|outer|cross)$")
@@ -69,12 +72,14 @@ class CreateJoinRequest(BaseModel):
 
 class JoinListResponse(BaseModel):
     """Response listing all join configurations for a dataset version."""
+
     joins: List[JoinConfig]
     available_tables: List[str]
 
 
 class JoinValidationRequest(BaseModel):
     """Request to validate a join configuration before saving."""
+
     left_table: str = Field(..., min_length=1, max_length=255)
     right_table: str = Field(..., min_length=1, max_length=255)
     join_type: str = Field(..., pattern="^(inner|left|right|outer|cross)$")
@@ -83,6 +88,7 @@ class JoinValidationRequest(BaseModel):
 
 class JoinValidationResponse(BaseModel):
     """Response from join validation."""
+
     is_valid: bool
     reason: str = ""
     estimated_output_rows: Optional[int] = None
@@ -91,11 +97,13 @@ class JoinValidationResponse(BaseModel):
 
 class ApplyJoinRequest(BaseModel):
     """Request to apply all configured joins and create a DuckDB VIEW."""
+
     view_name: Optional[str] = Field(default="joined_view", max_length=255)
 
 
 class TableInfo(BaseModel):
     """Info about a table in the dataset."""
+
     table_name: str
     original_filename: str
     row_count: Optional[int] = None
@@ -105,6 +113,7 @@ class TableInfo(BaseModel):
 
 class TablesListResponse(BaseModel):
     """Response listing all tables and their schemas."""
+
     tables: List[TableInfo]
     version_id: str
     has_join_view: bool = False
@@ -158,7 +167,9 @@ async def check_table_ownership_or_raise(
 
 def _safe_table_name(filename: str) -> str:
     """Derive a safe DuckDB table name from a filename."""
-    name = re.sub(r"[^\w]", "_", filename.rsplit(".", 1)[0] if "." in filename else filename)
+    name = re.sub(
+        r"[^\w]", "_", filename.rsplit(".", 1)[0] if "." in filename else filename
+    )
     name = re.sub(r"_+", "_", name).strip("_")
     return name.lower()[:64] or "table"
 
@@ -180,7 +191,9 @@ def _get_join_registry(session, dataset_id: UUID) -> Dict[str, Any]:
         return {"joins": [], "tables": []}
 
 
-def _save_join_registry(dataset_id: UUID, version_id: UUID, registry: Dict[str, Any]) -> None:
+def _save_join_registry(
+    dataset_id: UUID, version_id: UUID, registry: Dict[str, Any]
+) -> None:
     """Persist join registry to version join_config_json."""
     from app.models.database import get_session
 
@@ -202,6 +215,7 @@ def _discover_tables_in_duckdb(dataset_id: UUID, version_id: UUID) -> List[str]:
         return []
 
     import duckdb
+
     try:
         con = duckdb.connect(str(duckdb_path), read_only=True)
         try:
@@ -214,13 +228,16 @@ def _discover_tables_in_duckdb(dataset_id: UUID, version_id: UUID) -> List[str]:
         return []
 
 
-def _get_table_columns(dataset_id: UUID, version_id: UUID, table_name: str) -> List[Dict[str, str]]:
+def _get_table_columns(
+    dataset_id: UUID, version_id: UUID, table_name: str
+) -> List[Dict[str, str]]:
     """Get column names and types for a table in DuckDB."""
     duckdb_path = get_duckdb_path(dataset_id, version_id)
     if not duckdb_path.exists():
         return []
 
     import duckdb
+
     try:
         con = duckdb.connect(str(duckdb_path), read_only=True)
         try:
@@ -282,7 +299,10 @@ async def upload_multiple_files(
     # Get or create a version to attach tables to
     latest_version = get_latest_version(session=session, dataset_id=dataset_id)
     if not latest_version:
-        raise HTTPException(status_code=404, detail="No dataset version found. Upload a primary file first.")
+        raise HTTPException(
+            status_code=404,
+            detail="No dataset version found. Upload a primary file first.",
+        )
 
     existing_table_count = get_table_count(session, latest_version.id)
 
@@ -292,6 +312,7 @@ async def upload_multiple_files(
     for idx, file in enumerate(files):
         try:
             from app.api.upload_routes import _validate_file_security
+
             _validate_file_security(file, settings.storage.max_file_size_mb)
 
             try:
@@ -306,7 +327,7 @@ async def upload_multiple_files(
                 continue
 
             table_name = _safe_table_name(file.filename)
-            is_primary = (existing_table_count == 0 and idx == 0)
+            is_primary = existing_table_count == 0 and idx == 0
 
             # Save raw CSV to disk
             from app.core.storage import get_version_dir
@@ -317,36 +338,44 @@ async def upload_multiple_files(
             raw_path = version_dir / f"{table_name}.csv"
             raw_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # Stream file to disk
             max_bytes = settings.storage.max_file_size_mb * 1024 * 1024
-            total = 0
-            with open(raw_path, "wb") as out_file:
-                for chunk in iter(lambda: file.file.read(1024 * 1024), b""):
-                    total += len(chunk)
-                    if total > max_bytes:
-                        raise InvalidOperation(
-                            operation="multi_upload",
-                            reason="File exceeds maximum allowed size",
-                        )
-                    out_file.write(chunk)
 
-            # Infer schema from sample
-            try:
-                with open(raw_path, "rb") as f:
-                    sample_df = load_csv_sample(f, nrows=5)
-                schema = infer_schema(sample_df)
-                schema_json = json.dumps(schema.get("columns", []))
-            except Exception:
-                schema = {}
-                schema_json = None
+            def _process_file_sync():
+                # Stream file to disk
+                total = 0
+                with open(raw_path, "wb") as out_file:
+                    for chunk in iter(lambda: file.file.read(1024 * 1024), b""):
+                        total += len(chunk)
+                        if total > max_bytes:
+                            raise InvalidOperation(
+                                operation="multi_upload",
+                                reason="File exceeds maximum allowed size",
+                            )
+                        out_file.write(chunk)
 
-            # Count rows
-            row_count = 0
-            try:
-                with open(raw_path, "r", encoding="utf-8", errors="ignore") as f:
-                    row_count = max(sum(1 for _ in f) - 1, 0)
-            except Exception:
-                pass
+                # Infer schema from sample
+                try:
+                    with open(raw_path, "rb") as f:
+                        sample_df = load_csv_sample(f, nrows=5)
+                    local_schema = infer_schema(sample_df)
+                    local_schema_json = json.dumps(local_schema.get("columns", []))
+                except Exception:
+                    local_schema = {}
+                    local_schema_json = None
+
+                # Count rows
+                local_row_count = 0
+                try:
+                    with open(raw_path, "r", encoding="utf-8", errors="ignore") as f:
+                        local_row_count = max(sum(1 for _ in f) - 1, 0)
+                except Exception:
+                    pass
+
+                return local_schema, local_schema_json, local_row_count
+
+            import asyncio
+
+            schema, schema_json, row_count = await asyncio.to_thread(_process_file_sync)
 
             # Create DatasetTable entry
             dataset_table = create_dataset_table(
@@ -372,15 +401,17 @@ async def upload_multiple_files(
                     table_name=table_name,
                 )
 
-            results.append({
-                "filename": file.filename,
-                "table_name": table_name,
-                "table_id": str(dataset_table.id),
-                "version_id": str(latest_version.id),
-                "schema": schema.get("columns", []),
-                "row_count": row_count,
-                "is_primary": is_primary,
-            })
+            results.append(
+                {
+                    "filename": file.filename,
+                    "table_name": table_name,
+                    "table_id": str(dataset_table.id),
+                    "version_id": str(latest_version.id),
+                    "schema": schema.get("columns", []),
+                    "row_count": row_count,
+                    "is_primary": is_primary,
+                }
+            )
 
         except HTTPException:
             raise
@@ -409,12 +440,17 @@ def _build_multi_duckdb_background(
 
     async def run_build():
         try:
-            logger.info(f"[Background] Adding table '{table_name}' to DuckDB for dataset={dataset_id}")
+            logger.info(
+                f"[Background] Adding table '{table_name}' to DuckDB for dataset={dataset_id}"
+            )
             await add_table_to_duckdb(dataset_id, version_id, csv_path, table_name)
             logger.info(f"[Background] DuckDB table '{table_name}' added successfully")
         except Exception as e:
             mark_duckdb_failed(dataset_id, version_id, str(e))
-            logger.error(f"[Background] DuckDB table '{table_name}' build failed: {e}", exc_info=True)
+            logger.error(
+                f"[Background] DuckDB table '{table_name}' build failed: {e}",
+                exc_info=True,
+            )
 
     asyncio.run(run_build())
 
@@ -459,25 +495,29 @@ async def list_dataset_tables(
     # DatasetTable entries first (source of truth)
     for dt in db_tables:
         columns = _get_table_columns(dataset_id, latest_version.id, dt.table_name)
-        tables.append(TableInfo(
-            table_name=dt.table_name,
-            original_filename=dt.original_filename,
-            row_count=dt.row_count,
-            columns=columns,
-            is_primary=dt.is_primary,
-        ))
+        tables.append(
+            TableInfo(
+                table_name=dt.table_name,
+                original_filename=dt.original_filename,
+                row_count=dt.row_count,
+                columns=columns,
+                is_primary=dt.is_primary,
+            )
+        )
         seen_names.add(dt.table_name)
 
     # Add DuckDB-only tables not tracked in DatasetTable (legacy compat)
     for tbl_name in duckdb_tables:
         if tbl_name not in seen_names and not tbl_name.startswith("_"):
             columns = _get_table_columns(dataset_id, latest_version.id, tbl_name)
-            tables.append(TableInfo(
-                table_name=tbl_name,
-                original_filename=tbl_name,
-                columns=columns,
-                is_primary=(tbl_name == "data"),
-            ))
+            tables.append(
+                TableInfo(
+                    table_name=tbl_name,
+                    original_filename=tbl_name,
+                    columns=columns,
+                    is_primary=(tbl_name == "data"),
+                )
+            )
 
     return TablesListResponse(
         tables=tables,
@@ -525,20 +565,39 @@ async def create_join(
 
     available_tables = _discover_tables_in_duckdb(dataset_id, latest_version.id)
     if request.left_table not in available_tables:
-        raise HTTPException(status_code=400, detail=f"Table '{request.left_table}' not found in dataset")
+        raise HTTPException(
+            status_code=400, detail=f"Table '{request.left_table}' not found in dataset"
+        )
     if request.right_table not in available_tables:
-        raise HTTPException(status_code=400, detail=f"Table '{request.right_table}' not found in dataset")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Table '{request.right_table}' not found in dataset",
+        )
 
     # Validate join columns exist using safe identifiers
     import duckdb
+
     duckdb_path = get_duckdb_path(dataset_id, latest_version.id)
     if not duckdb_path.exists():
-        raise HTTPException(status_code=400, detail="DuckDB not ready. Please wait for upload processing.")
+        raise HTTPException(
+            status_code=400,
+            detail="DuckDB not ready. Please wait for upload processing.",
+        )
 
     con = duckdb.connect(str(duckdb_path), read_only=True)
     try:
-        left_cols = {r[0] for r in con.execute(f"DESCRIBE {safe_identifier(request.left_table)}").fetchall()}
-        right_cols = {r[0] for r in con.execute(f"DESCRIBE {safe_identifier(request.right_table)}").fetchall()}
+        left_cols = {
+            r[0]
+            for r in con.execute(
+                f"DESCRIBE {safe_identifier(request.left_table)}"
+            ).fetchall()
+        }
+        right_cols = {
+            r[0]
+            for r in con.execute(
+                f"DESCRIBE {safe_identifier(request.right_table)}"
+            ).fetchall()
+        }
     except QuerySafetyError as e:
         raise HTTPException(status_code=400, detail=f"Invalid table name: {e}")
     finally:
@@ -553,9 +612,15 @@ async def create_join(
             raise HTTPException(status_code=400, detail=f"Invalid column name: {e}")
 
         if col.left_column not in left_cols:
-            raise HTTPException(status_code=400, detail=f"Column '{col.left_column}' not found in '{request.left_table}'")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Column '{col.left_column}' not found in '{request.left_table}'",
+            )
         if col.right_column not in right_cols:
-            raise HTTPException(status_code=400, detail=f"Column '{col.right_column}' not found in '{request.right_table}'")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Column '{col.right_column}' not found in '{request.right_table}'",
+            )
 
     join_id = f"j_{uuid4().hex[:12]}"
 
@@ -572,8 +637,10 @@ async def create_join(
     joins = registry.get("joins", [])
 
     for existing in joins:
-        if (existing.get("left_table") == request.left_table and
-                existing.get("right_table") == request.right_table):
+        if (
+            existing.get("left_table") == request.left_table
+            and existing.get("right_table") == request.right_table
+        ):
             raise HTTPException(
                 status_code=409,
                 detail=f"Join between '{request.left_table}' and '{request.right_table}' already exists. Delete it first.",
@@ -696,9 +763,13 @@ async def validate_join(
 
     available_tables = _discover_tables_in_duckdb(dataset_id, latest_version.id)
     if request.left_table not in available_tables:
-        return JoinValidationResponse(is_valid=False, reason=f"Table '{request.left_table}' not found")
+        return JoinValidationResponse(
+            is_valid=False, reason=f"Table '{request.left_table}' not found"
+        )
     if request.right_table not in available_tables:
-        return JoinValidationResponse(is_valid=False, reason=f"Table '{request.right_table}' not found")
+        return JoinValidationResponse(
+            is_valid=False, reason=f"Table '{request.right_table}' not found"
+        )
 
     # Build safe ON clause using safe_identifier
     try:
@@ -723,6 +794,7 @@ async def validate_join(
     )
 
     import duckdb
+
     con = duckdb.connect(str(duckdb_path), read_only=True)
     try:
         result = con.execute(join_sql)
@@ -791,17 +863,23 @@ async def apply_joins(
 
     duckdb_path = get_duckdb_path(dataset_id, version_id)
     if not duckdb_path.exists():
-        raise HTTPException(status_code=400, detail="DuckDB not ready. Please wait for upload processing.")
+        raise HTTPException(
+            status_code=400,
+            detail="DuckDB not ready. Please wait for upload processing.",
+        )
 
     registry = _get_join_registry(session, dataset_id)
     joins = registry.get("joins", [])
 
     if not joins:
-        raise HTTPException(status_code=400, detail="No join configurations found. Create joins first.")
+        raise HTTPException(
+            status_code=400, detail="No join configurations found. Create joins first."
+        )
 
     view_name = request.view_name or "joined_view"
 
     import duckdb
+
     con = duckdb.connect(str(duckdb_path))
     try:
         result = JoinManager.create_joined_view(
