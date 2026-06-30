@@ -10,15 +10,18 @@ import {
   Rocket,
   ChevronDown,
   Database,
+  GitBranch,
 } from "lucide-react";
 import { PromptInputBox } from "@/components/ui/ai-prompt-box";
-
 
 interface RuixenMoonChatProps {
   onSendMessage?: (msg: string, options?: { forceDeepAnalysis?: boolean; enableSuggestions?: boolean }) => void;
   datasets?: { id: string; name: string }[];
   selectedDatasetId?: string;
   onDatasetChange?: (id: string) => void;
+  versions?: { id: string; version_number: number; source_type?: string }[];
+  selectedVersionId?: string;
+  onVersionChange?: (id: string) => void;
   suggestions?: string[];
 }
 
@@ -27,10 +30,15 @@ export default function RuixenMoonChat({
   datasets = [],
   selectedDatasetId = "",
   onDatasetChange,
+  versions = [],
+  selectedVersionId = "",
+  onVersionChange,
   suggestions = [],
 }: RuixenMoonChatProps) {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isVersionDropdownOpen, setIsVersionDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const versionDropdownRef = useRef<HTMLDivElement>(null);
 
   // Close dropdown on click outside
   useEffect(() => {
@@ -38,14 +46,17 @@ export default function RuixenMoonChat({
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setIsDropdownOpen(false);
       }
+      if (versionDropdownRef.current && !versionDropdownRef.current.contains(event.target as Node)) {
+        setIsVersionDropdownOpen(false);
+      }
     };
-    if (isDropdownOpen) {
+    if (isDropdownOpen || isVersionDropdownOpen) {
       document.addEventListener("mousedown", handleClickOutside);
     }
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [isDropdownOpen]);
+  }, [isDropdownOpen, isVersionDropdownOpen]);
 
   return (
     <div className="relative w-full h-full flex flex-col items-center justify-center rounded-xl overflow-hidden bg-[radial-gradient(125%_125%_at_50%_101%,rgba(255,140,60,0.65)_10.5%,rgba(255,180,100,0.5)_20%,rgba(250,210,225,0.7)_40%,rgba(225,235,250,0.9)_70%,rgba(255,255,255,1)_100%)] dark:bg-[radial-gradient(125%_125%_at_50%_101%,rgba(245,87,2,1)_10.5%,rgba(245,120,2,1)_16%,rgba(245,140,2,1)_17.5%,rgba(245,170,100,1)_25%,rgba(238,174,202,1)_40%,rgba(202,179,214,1)_65%,rgba(148,201,233,1)_100%)]">
@@ -65,7 +76,7 @@ export default function RuixenMoonChat({
       {/* Input Box Section */}
       <div className="w-full max-w-3xl z-10 px-4">
         {datasets.length > 0 && onDatasetChange && (
-          <div className="mb-6 flex items-center justify-center">
+          <div className="mb-6 flex items-center justify-center gap-3">
             <div className="flex items-center bg-black/10 dark:bg-black/25 backdrop-blur-md border border-white/20 dark:border-white/10 rounded-2xl p-1.5 shadow-lg relative z-50 transition-all hover:border-white/30 dark:hover:border-white/20" ref={dropdownRef}>
               <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-neutral-700 dark:text-white/70 font-semibold bg-white/30 dark:bg-white/10 px-3.5 py-1.5 rounded-xl mr-2">
                 <Database className="w-3.5 h-3.5 text-neutral-800 dark:text-white/80" />
@@ -74,9 +85,9 @@ export default function RuixenMoonChat({
               <button
                 type="button"
                 onClick={() => setIsDropdownOpen((prev) => !prev)}
-                className="flex items-center justify-between gap-3 px-4 py-1.5 bg-black/5 dark:bg-black/45 border border-white/15 dark:border-white/10 rounded-xl text-sm font-medium text-neutral-900 dark:text-white focus:outline-none min-w-[240px] transition-all hover:bg-black/10 dark:hover:bg-black/60 hover:scale-[1.01] hover:border-white/25 dark:hover:border-white/20 active:scale-[0.99]"
+                className="flex items-center justify-between gap-3 px-4 py-1.5 bg-black/5 dark:bg-black/45 border border-white/15 dark:border-white/10 rounded-xl text-sm font-medium text-neutral-900 dark:text-white focus:outline-none min-w-[200px] transition-all hover:bg-black/10 dark:hover:bg-black/60 hover:scale-[1.01] hover:border-white/25 dark:hover:border-white/20 active:scale-[0.99]"
               >
-                <span className="truncate max-w-[200px] text-left">
+                <span className="truncate max-w-[160px] text-left">
                   {selectedDatasetId
                     ? datasets.find((d) => d.id === selectedDatasetId)?.name
                     : "Select a dataset..."}
@@ -85,7 +96,7 @@ export default function RuixenMoonChat({
               </button>
 
               {isDropdownOpen && (
-                <div className="absolute top-[calc(100%+8px)] left-0 mt-0 w-full min-w-[300px] max-h-[300px] overflow-y-auto bg-white/95 dark:bg-[#1C1C1F]/95 backdrop-blur-xl border border-neutral-200 dark:border-white/10 rounded-xl shadow-2xl z-50 flex flex-col py-1.5 animate-in fade-in zoom-in-95 duration-150">
+                <div className="absolute top-[calc(100%+8px)] left-0 mt-0 w-full min-w-[280px] max-h-[300px] overflow-y-auto bg-white/95 dark:bg-[#1C1C1F]/95 backdrop-blur-xl border border-neutral-200 dark:border-white/10 rounded-xl shadow-2xl z-50 flex flex-col py-1.5 animate-in fade-in zoom-in-95 duration-150">
                   <button
                     type="button"
                     onClick={() => {
@@ -122,6 +133,69 @@ export default function RuixenMoonChat({
                 </div>
               )}
             </div>
+
+            {selectedDatasetId && onVersionChange && versions.length > 1 && (
+              <div className="flex items-center bg-black/10 dark:bg-black/25 backdrop-blur-md border border-white/20 dark:border-white/10 rounded-2xl p-1.5 shadow-lg relative z-50 transition-all hover:border-white/30 dark:hover:border-white/20" ref={versionDropdownRef}>
+                <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-neutral-700 dark:text-white/70 font-semibold bg-white/30 dark:bg-white/10 px-3.5 py-1.5 rounded-xl mr-2">
+                  <GitBranch className="w-3.5 h-3.5 text-neutral-800 dark:text-white/80" />
+                  Version
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsVersionDropdownOpen((prev) => !prev)}
+                  className="flex items-center justify-between gap-3 px-4 py-1.5 bg-black/5 dark:bg-black/45 border border-white/15 dark:border-white/10 rounded-xl text-sm font-medium text-neutral-900 dark:text-white focus:outline-none min-w-[120px] transition-all hover:bg-black/10 dark:hover:bg-black/60 hover:scale-[1.01] hover:border-white/25 dark:hover:border-white/20 active:scale-[0.99]"
+                >
+                  <span className="truncate max-w-[100px] text-left">
+                    {(() => {
+                      if (!selectedVersionId) return "Latest";
+                      const v = versions.find((ver) => ver.id === selectedVersionId);
+                      if (!v) return "?";
+                      let type = "Version";
+                      if (v.source_type) {
+                        type = v.source_type.toLowerCase() === 'upload' ? 'Raw' : v.source_type.charAt(0).toUpperCase() + v.source_type.slice(1);
+                      }
+                      return `${type} v${v.version_number}`;
+                    })()}
+                  </span>
+                  <ChevronDown className={cn("w-4 h-4 text-neutral-500 dark:text-neutral-400 transition-transform", isVersionDropdownOpen && "rotate-180")} />
+                </button>
+
+                {isVersionDropdownOpen && (
+                  <div className="absolute top-[calc(100%+8px)] left-0 mt-0 w-full min-w-[160px] max-h-[300px] overflow-y-auto bg-white/95 dark:bg-[#1C1C1F]/95 backdrop-blur-xl border border-neutral-200 dark:border-white/10 rounded-xl shadow-2xl z-50 flex flex-col py-1.5 animate-in fade-in zoom-in-95 duration-150">
+                    {versions.length === 0 ? (
+                      <div className="px-4 py-2.5 text-left text-sm text-neutral-500 dark:text-neutral-400">
+                        No versions found
+                      </div>
+                    ) : (
+                      versions.map((v) => {
+                        let type = "Version";
+                        if (v.source_type) {
+                          type = v.source_type.toLowerCase() === 'upload' ? 'Raw' : v.source_type.charAt(0).toUpperCase() + v.source_type.slice(1);
+                        }
+                        return (
+                          <button
+                            key={v.id}
+                            type="button"
+                            onClick={() => {
+                              onVersionChange(v.id);
+                              setIsVersionDropdownOpen(false);
+                            }}
+                            className={cn(
+                              "px-4 py-2.5 text-left text-sm transition-all hover:bg-black/5 dark:hover:bg-white/10 mx-1.5 rounded-lg truncate flex items-center justify-between",
+                              selectedVersionId === v.id
+                                ? "bg-black/5 dark:bg-white/10 text-neutral-900 dark:text-white font-semibold border-l-2 border-primary"
+                                : "text-neutral-700 dark:text-white/60"
+                            )}
+                          >
+                            <span>{type} v{v.version_number}</span>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 

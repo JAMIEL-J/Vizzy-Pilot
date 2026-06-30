@@ -66,8 +66,8 @@ export const KPICard: React.FC<KPICardProps> = ({
                         ))}
                     </div>
                 ) : (
-                    <div className="text-3xl font-serif tracking-tighter text-gray-900 dark:text-white group-hover:text-primary transition-colors drop-shadow-md">
-                        {prefix}{formattedValue}{suffix}
+                    <div className="text-3xl font-serif tracking-tighter text-gray-900 dark:text-white group-hover:text-primary transition-colors drop-shadow-md flex flex-wrap items-baseline gap-1">
+                        <span className="whitespace-nowrap">{prefix}{formattedValue}{suffix}</span>
                     </div>
                 )}
             </div>

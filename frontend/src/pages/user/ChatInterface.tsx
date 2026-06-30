@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { chatService, type ChatMessage, type ChatSession } from '../../lib/api/chat';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { datasetService, type Dataset } from '../../lib/api/dataset';
+import { datasetService, type Dataset, type DatasetVersionSummary } from '../../lib/api/dataset';
 import ChartRenderer from '../../components/chat/ChartRenderer';
 import SqlEditor from '../../components/chat/SqlEditor';
 import { 
@@ -97,21 +97,33 @@ const renderInsightPoints = (content: string) => {
 
 const splitInsightIntoPoints = (content: string): string[] => {
     if (!content) return [];
+    
     // First, try splitting on newlines (in case the LLM already emitted bullet points)
     const newlinePoints = content
         .split(/\n+/)
-        .map((line) => line.replace(/^\s*(?:-\s*|\d+[.)]\s*)/, '').trim())
+        .map((line) => line.replace(/^\s*(?:-\s*|\d+[.)]\s*|•\s*)/, '').trim())
         .filter(Boolean);
+        
     if (newlinePoints.length > 1) {
         return newlinePoints;
     }
-    // Otherwise, split a paragraph into sentences (handling common abbreviations gracefully)
-    const normalized = content.replace(/\s+/g, ' ').trim();
+    
+    // Otherwise, split a paragraph into sentences
+    let normalized = content.replace(/\s+/g, ' ').trim();
+    normalized = normalized.replace(/^\s*(?:-\s*|\d+[.)]\s*|•\s*)/, '').trim();
     if (!normalized) return [];
-    const sentenceRegex = /[^.!?]+(?:[.!?]+|$)/g;
-    const matches = normalized.match(sentenceRegex);
-    if (matches && matches.length > 1) {
-        return matches.map((s) => s.trim()).filter(Boolean);
+    
+    // Split safely without lookbehind to support older browsers (only split on punctuation followed by space)
+    const parts = normalized.split(/([.!?])\s+/);
+    const sentencePoints: string[] = [];
+    for (let i = 0; i < parts.length; i += 2) {
+        const text = parts[i];
+        const punc = parts[i + 1] || '';
+        if (text) sentencePoints.push((text + punc).trim());
+    }
+    
+    if (sentencePoints.length > 1) {
+        return sentencePoints;
     }
     return [normalized];
 };
@@ -196,6 +208,8 @@ export default function ChatInterface() {
     const [initialSuggestions, setInitialSuggestions] = useState<string[]>([]);
     const [datasets, setDatasets] = useState<Dataset[]>([]);
     const [selectedDatasetId, setSelectedDatasetId] = useState<string>('');
+    const [versions, setVersions] = useState<DatasetVersionSummary[]>([]);
+    const [selectedVersionId, setSelectedVersionId] = useState<string>('');
     const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
     const [chartModes, setChartModes] = useState<Record<string, 'chart' | 'table'>>({});
     const [copiedSqlMsgId, setCopiedSqlMsgId] = useState<string | null>(null);
@@ -221,6 +235,9 @@ export default function ChatInterface() {
     useEffect(() => {
         if (location.state?.datasetId) {
             setSelectedDatasetId(location.state.datasetId);
+            if (location.state?.versionId) {
+                setSelectedVersionId(location.state.versionId);
+            }
             if (location.state?.initialPrompt) {
                 setDraftMessage(location.state.initialPrompt);
             }
@@ -296,6 +313,22 @@ export default function ChatInterface() {
     useEffect(() => { loadDatasets(); loadSessions(); }, []);
 
     useEffect(() => {
+        if (selectedDatasetId) {
+            datasetService.listVersionsForDataset(selectedDatasetId)
+                .then(v => {
+                    setVersions(v || []);
+                    if (v && v.length > 0 && !selectedVersionId) {
+                        setSelectedVersionId(v[v.length - 1].id); // Pick a default or latest
+                    }
+                })
+                .catch(err => console.error("Failed to load versions:", err));
+        } else {
+            setVersions([]);
+            setSelectedVersionId('');
+        }
+    }, [selectedDatasetId]);
+
+    useEffect(() => {
         const timer = window.setInterval(() => setHistoryClock(Date.now()), 60_000);
         return () => window.clearInterval(timer);
     }, []);
@@ -367,9 +400,9 @@ export default function ChatInterface() {
 
     useEffect(() => {
         const initSession = async () => {
-            if (selectedDatasetId && !currentSessionId) {
+            if (selectedDatasetId && !currentSessionId && messages.length === 0) {
                 try {
-                    const newSession = await chatService.createSession(selectedDatasetId, undefined, 'New Analysis');
+                    const newSession = await chatService.createSession(selectedDatasetId, selectedVersionId || undefined, 'New Analysis');
                     setCurrentSessionId(newSession.id);
                     loadSessions();
                     loadSuggestions(newSession.id);
@@ -378,8 +411,9 @@ export default function ChatInterface() {
                 }
             }
         };
-        initSession();
-    }, [selectedDatasetId]);
+        const timer = setTimeout(initSession, 200);
+        return () => clearTimeout(timer);
+    }, [selectedDatasetId, selectedVersionId, currentSessionId, messages.length]);
 
     const handleDownloadCSV = (data: any, title: string) => {
         const rows = Array.isArray(data?.data?.rows) ? data.data.rows : (Array.isArray(data?.rows) ? data.rows : (Array.isArray(data?.data) ? data.data : []));
@@ -439,7 +473,7 @@ export default function ChatInterface() {
         if (!sessionId) {
             try {
                 const title = text.length > 30 ? text.substring(0, 30) + '...' : text;
-                const newSession = await chatService.createSession(selectedDatasetId, undefined, title);
+                const newSession = await chatService.createSession(selectedDatasetId, selectedVersionId || undefined, title);
                 sessionId = newSession.id;
                 setCurrentSessionId(sessionId);
                 loadSessions();
@@ -868,7 +902,20 @@ export default function ChatInterface() {
                             onSendMessage={handleSendMessage} 
                             datasets={datasets} 
                             selectedDatasetId={selectedDatasetId} 
-                            onDatasetChange={setSelectedDatasetId} 
+                            onDatasetChange={(id) => {
+                                setSelectedDatasetId(id);
+                                if (messages.length === 0) {
+                                    setCurrentSessionId(null);
+                                }
+                            }}
+                            versions={versions}
+                            selectedVersionId={selectedVersionId}
+                            onVersionChange={(id) => {
+                                setSelectedVersionId(id);
+                                if (messages.length === 0) {
+                                    setCurrentSessionId(null);
+                                }
+                            }}
                             suggestions={initialSuggestions}
                         />
                     ) : (

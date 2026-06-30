@@ -39,7 +39,16 @@ interface ChartRendererProps {
     variant?: 'default' | 'minimal';
 }
 
-const CHART_COLORS = [...VIZZY_CHART_COLORS];
+const CHART_COLORS = [
+    '#F59E0B', // Amber
+    '#10B981', // Emerald
+    '#6366F1', // Indigo
+    '#EC4899', // Pink
+    '#8B5CF6', // Purple
+    '#14B8A6', // Teal
+    '#F43F5E', // Rose
+    '#3B82F6', // Blue
+];
 
 export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title, currency, variant = 'default' }) => {
     const { theme } = useTheme();
@@ -369,20 +378,22 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
                 ticks: {
                     color: axisColor,
                     font: { size: 11 },
-                    maxRotation: 45,
+                    maxRotation: indexAxis === 'x' ? 45 : 0,
                     minRotation: 0,
                     autoSkip: true,
                     autoSkipPadding: 8,
                     maxTicksLimit: 20,
-                }
+                    ...(indexAxis === 'y' ? { callback: (value: any) => formatValue(value, metricKeyForY) } : {})
+                },
+                beginAtZero: indexAxis === 'y'
             },
             y: {
                 grid: { display: indexAxis === 'x', color: gridColor, drawBorder: false },
                 ticks: {
                     color: axisColor, font: { size: 11 },
-                    callback: (value: any) => indexAxis === 'x' ? formatValue(value, metricKeyForY) : undefined
+                    ...(indexAxis === 'x' ? { callback: (value: any) => formatValue(value, metricKeyForY) } : {})
                 },
-                beginAtZero: true
+                beginAtZero: indexAxis === 'x'
             }
         } : undefined
     });
@@ -420,14 +431,21 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
         const metricLabel = toHumanLabel(data.value_label || data.metric || data.y_axis || valueKey);
         const labels = chartData.map((d: any) => d.name);
 
+        const isMany = chartData.length > 6;
+        const isHbar = type === 'hbar' || isMany;
+
         const chartJsData = {
             labels,
             datasets: [{
                 label: metricLabel,
                 data: chartData.map((d: any) => d.value),
                 metricKey: valueKey,
-                backgroundColor: (context: any) => createBarGradient(context.chart.ctx, context.dataIndex || 0),
-                borderRadius: { topLeft: 8, topRight: 8, bottomLeft: 0, bottomRight: 0 },
+                backgroundColor: isMany 
+                    ? chartData.map(() => CHART_COLORS[0])
+                    : chartData.map((_: any, i: number) => CHART_COLORS[i % CHART_COLORS.length]),
+                borderRadius: isHbar 
+                    ? { topRight: 4, bottomRight: 4, topLeft: 0, bottomLeft: 0 }
+                    : { topLeft: 4, topRight: 4, bottomLeft: 0, bottomRight: 0 },
                 borderSkipped: false
             }]
         };
@@ -436,12 +454,12 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
             <div className="w-full mt-4">
                 <div className="h-96">
                     {(() => {
-                        const barOptions = getCommonOptions(valueKey) as any;
-                        barOptions.interaction = { mode: 'nearest', intersect: true, axis: 'x' };
+                        const barOptions = getCommonOptions(valueKey, isHbar ? 'y' : 'x') as any;
+                        barOptions.interaction = { mode: 'nearest', intersect: true, axis: isHbar ? 'y' : 'x' };
                         barOptions.plugins = barOptions.plugins || {};
                         barOptions.plugins.legend = {
                             ...(barOptions.plugins.legend || {}),
-                            display: true,
+                            display: !isMany, // Hide legend if >6 items
                             position: 'bottom',
                             labels: {
                                 ...((barOptions.plugins.legend || {}).labels || {}),
@@ -471,6 +489,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
                                 chart.update();
                             }
                         };
+
                         return <Bar key={`chat-bar-${theme}`} data={chartJsData} options={barOptions} />;
                     })()}
                 </div>
@@ -482,14 +501,28 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
     const renderLineChart = () => {
         let chartData = [];
         let valueKey = 'value';
+        
+        const formatLabel = (rawName: any) => {
+            let nameStr = String(rawName || '');
+            if (/^\d{4}-\d{2}-\d{2}/.test(nameStr)) {
+                try {
+                    const d = new Date(nameStr);
+                    if (!isNaN(d.getTime())) {
+                        return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric', day: nameStr.length > 10 ? 'numeric' : undefined });
+                    }
+                } catch (e) {}
+            }
+            return nameStr;
+        };
+
         if (data.data?.series) {
             chartData = data.data.series.map((s: any) => ({
-                name: s.timestamp || Object.values(s)[0],
+                name: formatLabel(s.timestamp || Object.values(s)[0]),
                 value: s.value !== undefined ? s.value : Object.values(s)[1],
             }));
         } else if (data.x && data.y) {
             chartData = data.x.map((x: any, i: number) => ({
-                name: x,
+                name: formatLabel(x),
                 value: data.y[i]
             }));
         }
@@ -505,12 +538,19 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
                 label: metricLabel,
                 data: chartData.map((d: any) => d.value),
                 metricKey: valueKey,
-                borderColor: VIZZY_THEME.primary,
-                backgroundColor: 'transparent',
+                borderColor: '#10B981',
+                backgroundColor: (context: any) => {
+                    const ctx = context.chart.ctx;
+                    const gradient = ctx.createLinearGradient(0, 0, 0, 350);
+                    gradient.addColorStop(0, 'rgba(16, 185, 129, 0.35)');
+                    gradient.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
+                    return gradient;
+                },
+                fill: 'origin',
                 tension: 0.4,
                 pointRadius: 0,
                 pointHoverRadius: 6,
-                pointHoverBackgroundColor: VIZZY_THEME.secondary
+                pointHoverBackgroundColor: '#047857'
             }]
         };
 
@@ -712,10 +752,14 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
         case 'bar': return renderBarChart();
         case 'stacked_bar': return renderStackedBarChart();
         case 'stacked': return renderStackedBarChart();
-        case 'line': return renderLineChart();
+        case 'line': 
+        case 'area': 
+            return renderLineChart();
         case 'pie': return renderPieChart();
         case 'table': return renderTable();
-        case 'dashboard': return renderDashboard();
+        case 'dashboard': 
+        case 'mini_dashboard':
+            return renderDashboard();
         default: return (
             <div className="p-4 bg-gray-50 dark:bg-gray-900 rounded border border-gray-200 dark:border-gray-800 text-xs font-mono text-gray-700 dark:text-gray-400">
                 <span className="text-muted-foreground font-bold mb-2 block uppercase text-[10px]">Raw Data Debugger</span>

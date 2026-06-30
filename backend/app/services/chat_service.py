@@ -53,6 +53,8 @@ def create_chat_session(
         except ResourceNotFound:
             logger.warning(f"No active versions found for dataset {dataset_id}")
             # Continue without version - chat will work but without dataset context
+    elif dataset_id and dataset_version_id:
+        logger.info(f"Creating chat session for dataset {dataset_id} using explicit version {dataset_version_id}")
     
     chat_session = ChatSession(
         user_id=user_id,
