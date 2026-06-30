@@ -170,6 +170,19 @@ class JoinManager:
         except Exception:
             available = set()
 
+        # Cache schema mapping
+        schemas: Dict[str, set] = {}
+        schema_query_failed = False
+        try:
+            # information_schema.columns works in duckdb and retrieves all table/column structures
+            all_columns = conn.execute("SELECT table_name, column_name FROM information_schema.columns").fetchall()
+            for table_name, column_name in all_columns:
+                if table_name not in schemas:
+                    schemas[table_name] = set()
+                schemas[table_name].add(column_name)
+        except Exception:
+            schema_query_failed = True
+
         for join_def in joins:
             left = join_def.get("left_table", "")
             right = join_def.get("right_table", "")
@@ -198,28 +211,36 @@ class JoinManager:
 
                 # Verify column exists in table
                 if left in available:
-                    try:
-                        left_cols = {
-                            r[0] for r in conn.execute(
-                                f"DESCRIBE {safe_identifier(left)}"
-                            ).fetchall()
-                        }
-                        if left_col not in left_cols:
+                    if not schema_query_failed and left in schemas:
+                        if left_col not in schemas[left]:
                             errors.append(f"Column '{left_col}' not found in '{left}'")
-                    except Exception as e:
-                        errors.append(f"Cannot inspect table '{left}': {e}")
+                    else:
+                        try:
+                            left_cols = {
+                                r[0] for r in conn.execute(
+                                    f"DESCRIBE {safe_identifier(left)}"
+                                ).fetchall()
+                            }
+                            if left_col not in left_cols:
+                                errors.append(f"Column '{left_col}' not found in '{left}'")
+                        except Exception as e:
+                            errors.append(f"Cannot inspect table '{left}': {e}")
 
                 if right in available:
-                    try:
-                        right_cols = {
-                            r[0] for r in conn.execute(
-                                f"DESCRIBE {safe_identifier(right)}"
-                            ).fetchall()
-                        }
-                        if right_col not in right_cols:
+                    if not schema_query_failed and right in schemas:
+                        if right_col not in schemas[right]:
                             errors.append(f"Column '{right_col}' not found in '{right}'")
-                    except Exception as e:
-                        errors.append(f"Cannot inspect table '{right}': {e}")
+                    else:
+                        try:
+                            right_cols = {
+                                r[0] for r in conn.execute(
+                                    f"DESCRIBE {safe_identifier(right)}"
+                                ).fetchall()
+                            }
+                            if right_col not in right_cols:
+                                errors.append(f"Column '{right_col}' not found in '{right}'")
+                        except Exception as e:
+                            errors.append(f"Cannot inspect table '{right}': {e}")
 
         return {
             "is_valid": len(errors) == 0,
