@@ -170,6 +170,8 @@ class JoinManager:
         except Exception:
             available = set()
 
+        table_schemas = {}
+
         for join_def in joins:
             left = join_def.get("left_table", "")
             right = join_def.get("right_table", "")
@@ -199,11 +201,13 @@ class JoinManager:
                 # Verify column exists in table
                 if left in available:
                     try:
-                        left_cols = {
-                            r[0] for r in conn.execute(
-                                f"DESCRIBE {safe_identifier(left)}"
-                            ).fetchall()
-                        }
+                        if left not in table_schemas:
+                            table_schemas[left] = {
+                                r[0] for r in conn.execute(
+                                    f"DESCRIBE {safe_identifier(left)}"
+                                ).fetchall()
+                            }
+                        left_cols = table_schemas[left]
                         if left_col not in left_cols:
                             errors.append(f"Column '{left_col}' not found in '{left}'")
                     except Exception as e:
@@ -211,11 +215,13 @@ class JoinManager:
 
                 if right in available:
                     try:
-                        right_cols = {
-                            r[0] for r in conn.execute(
-                                f"DESCRIBE {safe_identifier(right)}"
-                            ).fetchall()
-                        }
+                        if right not in table_schemas:
+                            table_schemas[right] = {
+                                r[0] for r in conn.execute(
+                                    f"DESCRIBE {safe_identifier(right)}"
+                                ).fetchall()
+                            }
+                        right_cols = table_schemas[right]
                         if right_col not in right_cols:
                             errors.append(f"Column '{right_col}' not found in '{right}'")
                     except Exception as e:
