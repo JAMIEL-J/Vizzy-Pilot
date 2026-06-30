@@ -1,7 +1,7 @@
 from typing import List, Optional
 from uuid import UUID
 
-from sqlmodel import Session, select, desc
+from sqlmodel import Session, select, func
 from app.models.dataset_version import DatasetVersion
 
 from app.models.dataset import Dataset
@@ -127,16 +127,38 @@ def list_datasets_with_details(
     List datasets with extra details (current_version_id).
     """
     datasets = list_datasets_for_user(session, user_id, role)
+    if not datasets:
+        return []
+
+    dataset_ids = [d.id for d in datasets]
+
+    # Fetch max version_number for each dataset
+    subquery = (
+        select(
+            DatasetVersion.dataset_id,
+            func.max(DatasetVersion.version_number).label("max_version")
+        )
+        .where(DatasetVersion.dataset_id.in_(dataset_ids))
+        .group_by(DatasetVersion.dataset_id)
+        .subquery()
+    )
+
+    # Fetch the actual latest DatasetVersion objects
+    latest_versions = session.exec(
+        select(DatasetVersion)
+        .join(
+            subquery,
+            (DatasetVersion.dataset_id == subquery.c.dataset_id) &
+            (DatasetVersion.version_number == subquery.c.max_version)
+        )
+    ).all()
+
+    version_map = {v.dataset_id: v.id for v in latest_versions}
+
     results = []
     for d in datasets:
-        latest_version = session.exec(
-            select(DatasetVersion)
-            .where(DatasetVersion.dataset_id == d.id)
-            .order_by(desc(DatasetVersion.version_number))
-        ).first()
-        
         d_dict = d.model_dump()
-        d_dict['current_version_id'] = latest_version.id if latest_version else None
+        d_dict['current_version_id'] = version_map.get(d.id)
         results.append(d_dict)
     return results
 
