@@ -182,6 +182,7 @@ class JoinManager:
                 schemas[table_name].add(column_name)
         except Exception:
             schema_query_failed = True
+        table_schemas = {}
 
         for join_def in joins:
             left = join_def.get("left_table", "")
@@ -213,6 +214,15 @@ class JoinManager:
                 if left in available:
                     if not schema_query_failed and left in schemas:
                         if left_col not in schemas[left]:
+                    try:
+                        if left not in table_schemas:
+                            table_schemas[left] = {
+                                r[0] for r in conn.execute(
+                                    f"DESCRIBE {safe_identifier(left)}"
+                                ).fetchall()
+                            }
+                        left_cols = table_schemas[left]
+                        if left_col not in left_cols:
                             errors.append(f"Column '{left_col}' not found in '{left}'")
                     else:
                         try:
@@ -229,6 +239,15 @@ class JoinManager:
                 if right in available:
                     if not schema_query_failed and right in schemas:
                         if right_col not in schemas[right]:
+                    try:
+                        if right not in table_schemas:
+                            table_schemas[right] = {
+                                r[0] for r in conn.execute(
+                                    f"DESCRIBE {safe_identifier(right)}"
+                                ).fetchall()
+                            }
+                        right_cols = table_schemas[right]
+                        if right_col not in right_cols:
                             errors.append(f"Column '{right_col}' not found in '{right}'")
                     else:
                         try:
