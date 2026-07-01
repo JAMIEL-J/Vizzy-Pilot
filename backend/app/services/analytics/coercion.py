@@ -52,7 +52,7 @@ FORMATTING_MAP = {
 
 def build_clean_expression(column: str, pattern_name: str) -> str:
     """Build a DuckDB SQL expression to clean a dirty numeric string."""
-    col = f'"{column}"'
+    col = safe_identifier(column)
     if pattern_name == 'currency_usd':
         return f"REGEXP_REPLACE({col}, '[$,]', '', 'g')"
     elif pattern_name == 'currency_gbp':

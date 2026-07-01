@@ -98,6 +98,8 @@ class DBEngine:
             try:
                 self._write_con.execute(f'DROP TABLE IF EXISTS {safe_identifier(table_name)}')
                 self._write_con.execute(
+                    f"CREATE TABLE {safe_identifier(table_name)} AS SELECT * FROM read_csv_auto(?)",
+                    [effective_path]
                     f"CREATE TABLE {safe_identifier(table_name)} AS SELECT * FROM read_csv_auto('{effective_path}')"
                 )
                 _phase_times["read_csv_auto"] = time.perf_counter() - _t0
@@ -123,6 +125,8 @@ class DBEngine:
                 try:
                     self._write_con.execute(f'DROP TABLE IF EXISTS {safe_identifier(table_name)}')
                     self._write_con.execute(
+                        f"CREATE TABLE {safe_identifier(table_name)} AS SELECT * FROM read_csv_auto(?)",
+                        [effective_path]
                         f"CREATE TABLE {safe_identifier(table_name)} AS SELECT * FROM read_csv_auto('{effective_path}')"
                     )
                     _phase_times["read_csv_auto_retry"] = time.perf_counter() - _t_reencode
@@ -136,6 +140,8 @@ class DBEngine:
                         self._write_con.execute(f'DROP TABLE IF EXISTS {safe_identifier(table_name)}')
                         self._write_con.execute(
                             f"CREATE TABLE {safe_identifier(table_name)} AS SELECT * FROM "
+                            f"read_csv_auto(?, ignore_errors=true)",
+                            [effective_path]
                             f"read_csv_auto('{effective_path}', ignore_errors=true)"
                         )
                     except duckdb.Error as final_err:

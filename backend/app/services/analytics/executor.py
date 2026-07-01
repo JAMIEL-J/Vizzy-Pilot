@@ -1,3 +1,4 @@
+from typing import Callable, Awaitable
 import json
 import time
 import logging
