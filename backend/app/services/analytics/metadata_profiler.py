@@ -136,9 +136,9 @@ def _get_duckdb_physical_type_map(
     Uses DuckDB's catalog-level type information (deterministic, not row-sampled)
     instead of ANY_VALUE(TYPEOF(...)) which is non-deterministic on mixed-type columns.
     """
-    from .query_utils import execute_df
     try:
-        describe_df = execute_df(conn, f"DESCRIBE SELECT * FROM {table_ref}")
+        # Execute directly to avoid duplicate logging in query_utils.execute()
+        describe_df = conn.execute(f"DESCRIBE SELECT * FROM {table_ref}").df()
         type_map: Dict[str, str] = {}
         for _, row in describe_df.iterrows():
             colname = str(row.iloc[0])
