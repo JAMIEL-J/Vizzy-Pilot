@@ -11,6 +11,7 @@ Responsibility: Post-load table optimization (indices, ordering)
 import duckdb
 import logging
 from typing import List, Set
+from .query_utils import safe_identifier
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +131,7 @@ def create_performance_indices(
     date_types = _get_date_like_types()
 
     try:
-        schema_df = conn.execute(f'DESCRIBE "{table_name}"').df()
+        schema_df = conn.execute(f'DESCRIBE {safe_identifier(table_name)}').df()
     except Exception as e:
         logger.warning("Could not describe table '%s' for indexing: %s", table_name, e)
         return []
@@ -150,7 +151,7 @@ def create_performance_indices(
     for col_name in date_cols:
         idx = _index_name(table_name, col_name)
         try:
-            conn.execute(f'CREATE INDEX IF NOT EXISTS "{idx}" ON "{table_name}" ("{col_name}")')
+            conn.execute(f'CREATE INDEX IF NOT EXISTS {safe_identifier(idx)} ON {safe_identifier(table_name)} ({safe_identifier(col_name)})')
             created.append(idx)
         except Exception as e:
             logger.warning("Failed to create index on '%s': %s", col_name, e)
@@ -160,7 +161,7 @@ def create_performance_indices(
     for col_name in low_card_cols:
         idx = _index_name(table_name, col_name)
         try:
-            conn.execute(f'CREATE INDEX IF NOT EXISTS "{idx}" ON "{table_name}" ("{col_name}")')
+            conn.execute(f'CREATE INDEX IF NOT EXISTS {safe_identifier(idx)} ON {safe_identifier(table_name)} ({safe_identifier(col_name)})')
             created.append(idx)
         except Exception as e:
             logger.warning("Failed to create index on '%s': %s", col_name, e)
@@ -187,7 +188,7 @@ def _order_table_by_date(
     This is a no-op if no date column exists or table is empty.
     """
     try:
-        schema_df = conn.execute(f'DESCRIBE "{table_name}"').df()
+        schema_df = conn.execute(f'DESCRIBE {safe_identifier(table_name)}').df()
         date_cols = [
             r["column_name"]
             for _, r in schema_df.iterrows()
@@ -200,18 +201,18 @@ def _order_table_by_date(
         sort_col = date_cols[0]
 
         # Skip if table is empty
-        count = conn.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()[0]
+        count = conn.execute(f'SELECT COUNT(*) FROM {safe_identifier(table_name)}').fetchone()[0]
         if count == 0:
             return
 
         # DuckDB: re-order by clustering via ORDER BY in CTAS + rename
-        tmp_name = f'"{table_name}__reordered"'
-        conn.execute(f'DROP TABLE IF EXISTS {tmp_name}')
+        tmp_name = f'{table_name}__reordered'
+        conn.execute(f'DROP TABLE IF EXISTS {safe_identifier(tmp_name)}')
         conn.execute(
-            f'CREATE TABLE {tmp_name} AS SELECT * FROM "{table_name}" ORDER BY "{sort_col}"'
+            f'CREATE TABLE {safe_identifier(tmp_name)} AS SELECT * FROM {safe_identifier(table_name)} ORDER BY {safe_identifier(sort_col)}'
         )
-        conn.execute(f'DROP TABLE IF EXISTS "{table_name}"')
-        conn.execute(f'ALTER TABLE {tmp_name} RENAME TO "{table_name}"')
+        conn.execute(f'DROP TABLE IF EXISTS {safe_identifier(table_name)}')
+        conn.execute(f'ALTER TABLE {safe_identifier(tmp_name)} RENAME TO {safe_identifier(table_name)}')
         logger.debug("Re-ordered table '%s' by column '%s'", table_name, sort_col)
     except Exception as e:
         logger.warning("Could not re-order table '%s' by date: %s", table_name, e)
