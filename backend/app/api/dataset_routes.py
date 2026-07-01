@@ -3,6 +3,9 @@ from typing import List, Optional
 from uuid import UUID
 import os
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
@@ -20,6 +23,16 @@ from app.core.audit import record_audit_event
 
 
 router = APIRouter()
+
+
+def _current_user_uuid(current_user: RateLimitedUser) -> UUID:
+    try:
+        return UUID(current_user.user_id)
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication context: user id is not a valid UUID",
+        )
 
 
 class DatasetCreateRequest(BaseModel):
@@ -61,7 +74,7 @@ def create_dataset(
     current_user: RateLimitedUser,
 ) -> DatasetResponse:
     try:
-        owner_uuid = UUID(current_user.user_id)
+        owner_uuid = _current_user_uuid(current_user)
         dataset = dataset_service.create_dataset(
             session=session,
             name=request.name,
@@ -69,11 +82,6 @@ def create_dataset(
             description=request.description,
         )
         return DatasetResponse.model_validate(dataset)
-    except (ValueError, TypeError):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication context: user id is not a valid UUID",
-        )
     except InvalidOperation as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -86,14 +94,21 @@ def list_datasets(
     session: DBSession,
     current_user: RateLimitedUser,
 ) -> DatasetListResponse:
-    datasets = dataset_service.list_datasets_with_details(
-        session=session,
-        user_id=UUID(current_user.user_id),
-        role=current_user.role,
-    )
-    return DatasetListResponse(
-        datasets=[DatasetResponse.model_validate(d) for d in datasets]
-    )
+    try:
+        datasets = dataset_service.list_datasets_with_details(
+            session=session,
+            user_id=_current_user_uuid(current_user),
+            role=current_user.role,
+        )
+        return DatasetListResponse(
+            datasets=[DatasetResponse.model_validate(d) for d in datasets]
+        )
+    except Exception as e:
+        logger.exception("Transient error listing datasets")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Temporary database contention. Please retry.",
+        )
 
 
 @router.get("/{dataset_id}", response_model=DatasetResponse)
@@ -106,7 +121,7 @@ def get_dataset(
         dataset = dataset_service.get_dataset_details(
             session=session,
             dataset_id=dataset_id,
-            user_id=UUID(current_user.user_id),
+            user_id=_current_user_uuid(current_user),
             role=current_user.role,
         )
         record_audit_event(
@@ -139,7 +154,7 @@ def delete_dataset(
         dataset_service.deactivate_dataset(
             session=session,
             dataset_id=dataset_id,
-            user_id=UUID(current_user.user_id),
+            user_id=_current_user_uuid(current_user),
             role=current_user.role,
         )
     except ResourceNotFound as e:
@@ -167,11 +182,10 @@ def get_dataset_duckdb_status(
 ) -> DuckDBStatusResponse:
     """Return DuckDB build status for latest active version of a dataset."""
     try:
-        # Reuse existing dataset detail check to enforce ownership/access rules.
-        dataset_service.get_dataset_details(
+        dataset_service.get_dataset_by_id(
             session=session,
             dataset_id=dataset_id,
-            user_id=UUID(current_user.user_id),
+            user_id=_current_user_uuid(current_user),
             role=current_user.role,
         )
 
@@ -196,6 +210,12 @@ def get_dataset_duckdb_status(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=e.message,
         )
+    except Exception as e:
+        logger.exception("Transient error fetching DuckDB status for %s", dataset_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Temporary database contention. Please retry.",
+        )
 
 
 class DatasetMetadataResponse(BaseModel):
@@ -215,11 +235,10 @@ def get_dataset_metadata(
 ) -> DatasetMetadataResponse:
     """Return column details and size metrics for latest version of a dataset."""
     try:
-        # Enforce access checks
-        dataset = dataset_service.get_dataset_details(
+        dataset = dataset_service.get_dataset_by_id(
             session=session,
             dataset_id=dataset_id,
-            user_id=UUID(current_user.user_id),
+            user_id=_current_user_uuid(current_user),
             role=current_user.role,
         )
         record_audit_event(
@@ -227,7 +246,7 @@ def get_dataset_metadata(
             user_id=str(current_user.user_id),
             resource_type="Dataset",
             resource_id=str(dataset_id),
-            metadata={"action": "view_metadata", "dataset_name": dataset.get("name")},
+            metadata={"action": "view_metadata", "dataset_name": dataset.name},
         )
 
         latest_version = get_latest_version(session=session, dataset_id=dataset_id)
@@ -266,4 +285,10 @@ def get_dataset_metadata(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=e.message,
+        )
+    except Exception as e:
+        logger.exception("Transient error fetching metadata for %s", dataset_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Temporary database contention. Please retry.",
         )

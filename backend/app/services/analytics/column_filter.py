@@ -22,6 +22,7 @@ class ColumnClassification:
     targets: List[str] = field(default_factory=list)      # Binary outcome columns
     dates: List[str] = field(default_factory=list)        # Date/time columns
     excluded: List[str] = field(default_factory=list)     # IDs, noise, etc.
+    user_excluded: List[str] = field(default_factory=list) # Explicitly excluded by the user
     currency_columns: List[str] = field(default_factory=list) # Financial metrics
     mappings: Dict[str, str] = field(default_factory=dict)    # Standardized Canonical Keys (e.g., 'metric_revenue')
     modifiers: Dict[str, List[str]] = field(default_factory=dict) # Modifiers (rate, low_bound, etc.)

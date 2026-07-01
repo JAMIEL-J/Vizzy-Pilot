@@ -24,11 +24,18 @@ apiClient.interceptors.request.use(
     }
 );
 
-// Response interceptor to handle token refresh
+// Response interceptor to handle token refresh + 503 retry
 apiClient.interceptors.response.use(
     (response) => response,
     async (error) => {
         const originalRequest = error.config;
+
+        // Retry once on 503 (transient DB contention)
+        if (error.response?.status === 503 && !originalRequest._retried503) {
+            originalRequest._retried503 = true;
+            await new Promise((r) => setTimeout(r, 800));
+            return apiClient(originalRequest);
+        }
 
         // If 401 and not already retried
         if (error.response?.status === 401 && !originalRequest._retry) {
@@ -59,3 +66,4 @@ apiClient.interceptors.response.use(
         return Promise.reject(error);
     }
 );
+

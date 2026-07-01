@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle, CheckCircle2, Sparkles, Play, Database, Loader2, Info,
   ArrowRight, CornerDownRight, Trash2, Edit3, Clock, ChevronLeft,
-  Activity, Table, Eye, Check
+  Activity, Table, Eye, Check, ChevronDown
 } from "lucide-react";
 import { ArcElement, Chart as ChartJS, Tooltip as ChartTooltip, type ChartOptions } from "chart.js";
 import { Doughnut } from "react-chartjs-2";
@@ -43,6 +43,20 @@ export default function DataCleaning() {
 
     const [selectedRecIds, setSelectedRecIds] = useState<Set<string>>(new Set());
     const [selectedStrategies, setSelectedStrategies] = useState<Record<string, string>>({});
+
+    // Custom dropdown states
+    const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+    const datasetDropdownRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        function handleClickOutside(event: MouseEvent) {
+            if (datasetDropdownRef.current && !datasetDropdownRef.current.contains(event.target as Node)) {
+                setIsDropdownOpen(false);
+            }
+        }
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
 
     // Live Preview States
     const [previewData, setPreviewData] = useState<any | null>(null);
@@ -513,22 +527,56 @@ export default function DataCleaning() {
                 description={currentDataset ? `${currentDataset.name} · ${recommendationsList.length} findings` : "Select a dataset to audit"}
                 actions={(
                     <>
-                        <div className="relative">
-                            <select
-                                value={selectedDatasetId}
-                                onChange={(e) => setSelectedDatasetId(e.target.value)}
-                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        <div className="relative inline-block text-left" ref={datasetDropdownRef}>
+                            <button
+                                type="button"
+                                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
                                 disabled={isLoading || isProcessing}
+                                className="flex items-center gap-2 px-3 py-1.5 bg-surface border border-border text-muted-foreground hover:text-foreground text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-accent/30 disabled:opacity-50 disabled:cursor-not-allowed select-none min-w-[150px] justify-between transition-all duration-150"
                             >
-                                <option value="">Select dataset...</option>
-                                {datasets.map(ds => (
-                                    <option key={ds.id} value={ds.id}>{ds.name}</option>
-                                ))}
-                            </select>
-                            <BtnSecondary className="bg-surface border-border text-muted-foreground hover:text-foreground rounded-none">
-                                <Database className="h-3 w-3" />
-                                {currentDataset ? 'Change dataset' : 'Select dataset'}
-                            </BtnSecondary>
+                                <span className="flex items-center gap-2 truncate">
+                                    <Database className="h-3 w-3 shrink-0" />
+                                    <span className="truncate">
+                                        {currentDataset ? currentDataset.name : 'Select dataset'}
+                                    </span>
+                                </span>
+                                <ChevronDown className={`h-3 w-3 transition-transform duration-200 shrink-0 ${isDropdownOpen ? 'rotate-180' : ''}`} />
+                            </button>
+
+                            {isDropdownOpen && (
+                                <div className="absolute right-0 mt-1 w-56 rounded-none border border-border bg-surface shadow-lg z-50 py-1 max-h-60 overflow-y-auto">
+                                    <div className="px-3 py-1 text-[10px] font-bold text-muted-foreground uppercase tracking-wider border-b border-border/40 mb-1">
+                                        Select Dataset
+                                    </div>
+                                    {datasets.length === 0 ? (
+                                        <div className="px-3 py-2 text-xs text-muted-foreground text-center">
+                                            No datasets found
+                                        </div>
+                                    ) : (
+                                        datasets.map(ds => {
+                                            const isSelected = ds.id === selectedDatasetId;
+                                            return (
+                                                <button
+                                                    key={ds.id}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setSelectedDatasetId(ds.id);
+                                                        setIsDropdownOpen(false);
+                                                    }}
+                                                    className={`w-full flex items-center justify-between px-3 py-2 text-xs text-left transition-colors duration-150 ${
+                                                        isSelected
+                                                            ? 'bg-accent/10 text-accent font-semibold'
+                                                            : 'text-foreground hover:bg-[#f4f5f6] dark:hover:bg-[#202227]'
+                                                    }`}
+                                                >
+                                                    <span className="truncate pr-2">{ds.name}</span>
+                                                    {isSelected && <Check className="h-3 w-3 text-accent shrink-0" />}
+                                                </button>
+                                            );
+                                        })
+                                    )}
+                                </div>
+                            )}
                         </div>
                         <BtnPrimary onClick={handleExecuteCleaning} disabled={isProcessing || selectedRecIds.size === 0 || !inspection} className="bg-accent text-accent-foreground hover:opacity-90 rounded-none">
                             {isProcessing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}

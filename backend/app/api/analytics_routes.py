@@ -1021,6 +1021,10 @@ async def get_dashboard_analytics(  # pyright: ignore
                         classification.targets.append(col)
                     elif role_lower in ['excluded', 'identifier', 'generic', 'unclassified'] or affinity == 'filter_only':
                         classification.excluded.append(col)
+                        if is_user_override:
+                            if not hasattr(classification, 'user_excluded'):
+                                classification.user_excluded = []
+                            classification.user_excluded.append(col)
         
         # Find target column for filtering
         target_col = classification.targets[0] if classification.targets else _find_target_column(df)

@@ -108,11 +108,14 @@ def _generate_geo_charts(df: pd.DataFrame, classification: ColumnClassification)
             # Embed additional metrics for multi-metric tooltip
             if secondary_aggs:
                 metrics_dict = {_beautify_column_name(primary_metric): round(float(primary_val), 2)}
+                raw_metrics_dict = {primary_metric: round(float(primary_val), 2)}
                 for m, agg_series in secondary_aggs.items():
                     val = agg_series.get(geo_name, 0)
                     if pd.notna(val):
                         metrics_dict[_beautify_column_name(m)] = round(float(val), 2)
+                        raw_metrics_dict[m] = round(float(val), 2)
                 entry["metrics"] = metrics_dict
+                entry["raw_metrics"] = raw_metrics_dict
             
             data.append(entry)
     except Exception:

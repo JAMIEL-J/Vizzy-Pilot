@@ -27,8 +27,22 @@ if settings.database.is_sqlite:
     engine = create_engine(
         settings.database.url,
         echo=settings.database.echo,
-        connect_args={"check_same_thread": False},  # Required for SQLite + FastAPI
+        connect_args={
+            "check_same_thread": False,  # Required for SQLite + FastAPI
+            "timeout": 30,              # Wait up to 30s for lock instead of failing immediately
+        },
+        pool_pre_ping=True,
     )
+    # Enable WAL mode for concurrent reads (critical for burst API traffic)
+    from sqlalchemy import event as sa_event
+
+    @sa_event.listens_for(engine, "connect")
+    def _set_sqlite_pragma(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.close()
 else:
     engine = create_engine(
         settings.database.url,

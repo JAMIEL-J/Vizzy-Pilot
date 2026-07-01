@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   AlertCircle,
@@ -30,26 +30,39 @@ export default function DatasetList() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
+  const abortRef = useRef<AbortController | null>(null);
+
   useEffect(() => {
     loadDatasets();
+    return () => {
+      abortRef.current?.abort();
+    };
   }, []);
 
   const loadDatasets = async () => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setIsLoading(true);
     setError(null);
     try {
       const data = await datasetService.listDatasets();
+      if (controller.signal.aborted) return;
       setDatasets(data);
-      await loadDatasetMetrics(data);
+      await loadDatasetMetrics(data, controller);
     } catch (err: any) {
+      if (controller.signal.aborted) return;
       console.error("Failed to load datasets:", err);
       setError(err.message || "An unexpected error occurred while loading datasets.");
     } finally {
-      setIsLoading(false);
+      if (!controller.signal.aborted) {
+        setIsLoading(false);
+      }
     }
   };
 
-  const loadDatasetMetrics = async (datasetList: Dataset[]) => {
+  const loadDatasetMetrics = async (datasetList: Dataset[], controller: AbortController) => {
     if (datasetList.length === 0) {
       setRowCountByDataset({});
       setSyncStatusByDataset({});
@@ -98,6 +111,8 @@ export default function DatasetList() {
         })
       );
 
+      if (controller.signal.aborted) return;
+
       for (const item of results) {
         rowsMap[item.datasetId] = item.rowCount;
         statusMap[item.datasetId] = item.syncStatus;
@@ -108,6 +123,7 @@ export default function DatasetList() {
       setSyncStatusByDataset(statusMap);
       setMetadataByDataset(metadataMap);
     } catch (error) {
+      if (controller.signal.aborted) return;
       console.error("Failed to load dataset metrics:", error);
     }
   };

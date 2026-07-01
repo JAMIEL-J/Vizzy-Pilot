@@ -60,8 +60,12 @@ class KPI:
 def _find_column(df: pd.DataFrame, keywords: List[str], classification: ColumnClassification, search_excluded: bool = False, semantic_map_json: Optional[str] = None) -> Optional[str]:
     """Find a column matching any of the keywords using fuzzy semantic matching or a confirmed semantic map."""
     all_cols = classification.metrics + classification.dimensions + classification.targets + classification.dates
+    user_excluded = getattr(classification, 'user_excluded', [])
     if search_excluded:
-        all_cols = all_cols + classification.excluded
+        all_cols = all_cols + [c for c in classification.excluded if c not in user_excluded]
+        for c in df.columns:
+            if c not in all_cols and c not in user_excluded:
+                all_cols.append(c)
 
     # 1. Primary: Use Confirmed Semantic Map (The "Gold Standard")
     if semantic_map_json:
@@ -536,11 +540,11 @@ def _generate_sales_kpis(df: pd.DataFrame, classification: ColumnClassification,
     kpis = []
 
     # Find key columns
-    revenue_col = _find_column(df, ['revenue', 'sales', 'amount', 'total_sales', 'totalsales'], classification, semantic_map_json=semantic_map_json)
-    profit_col = _find_column(df, ['profit', 'gross_profit', 'net_profit'], classification, semantic_map_json=semantic_map_json)
-    quantity_col = _find_column(df, ['quantity', 'qty', 'units', 'volume', 'order_quantity', 'ordered'], classification, semantic_map_json=semantic_map_json)
-    discount_col = _find_column(df, ['discount', 'discount_amount', 'discount_percent'], classification, semantic_map_json=semantic_map_json)
-    customer_col = _find_column(df, ['customer', 'customerid', 'customer_id', 'client'], classification, semantic_map_json=semantic_map_json)
+    revenue_col = _find_column(df, ['revenue', 'sales', 'amount', 'total_sales', 'totalsales'], classification, search_excluded=True, semantic_map_json=semantic_map_json)
+    profit_col = _find_column(df, ['profit', 'gross_profit', 'net_profit'], classification, search_excluded=True, semantic_map_json=semantic_map_json)
+    quantity_col = _find_column(df, ['quantity', 'qty', 'units', 'volume', 'order_quantity', 'ordered'], classification, search_excluded=True, semantic_map_json=semantic_map_json)
+    discount_col = _find_column(df, ['discount', 'discount_amount', 'discount_percent'], classification, search_excluded=True, semantic_map_json=semantic_map_json)
+    customer_col = _find_column(df, ['customer', 'customerid', 'customer_id', 'client'], classification, search_excluded=True, semantic_map_json=semantic_map_json)
     
     # Improved Order Identifier Logic:
     # 1. Search for explicit ID/Number columns first
@@ -579,9 +583,9 @@ def _generate_sales_kpis(df: pd.DataFrame, classification: ColumnClassification,
             order_col = None
     
     total_orders = df[order_col].nunique() if order_col else len(df)
-    product_col = _find_column(df, ['product', 'item', 'sku', 'category'], classification, semantic_map_json=semantic_map_json)
-    region_col = _find_column(df, ['region', 'market', 'zone', 'territory'], classification, semantic_map_json=semantic_map_json)
-    state_col = _find_column(df, ['state', 'province'], classification, semantic_map_json=semantic_map_json)
+    product_col = _find_column(df, ['product', 'item', 'sku', 'category'], classification, search_excluded=True, semantic_map_json=semantic_map_json)
+    region_col = _find_column(df, ['region', 'market', 'zone', 'territory'], classification, search_excluded=True, semantic_map_json=semantic_map_json)
+    state_col = _find_column(df, ['state', 'province'], classification, search_excluded=True, semantic_map_json=semantic_map_json)
 
     # Fallback discovery from dimensions when semantic search misses.
     if not product_col or not region_col or not state_col:
@@ -2862,8 +2866,9 @@ def _dynamic_kpi_limit(
         dynamic_target += 1
 
     # Keep within practical UI limits and available KPI count.
-    dynamic_target = max(3, min(14, dynamic_target))
-    return min(available_count, dynamic_target)
+    # Allowing up to 30 KPIs so user sees all generated metrics
+    dynamic_target = max(6, min(30, dynamic_target + 10))
+    return min(available_count, max(available_count, dynamic_target))
 
 
 def _kpi_priority_bonus(kpi: KPI, domain: DomainType) -> int:

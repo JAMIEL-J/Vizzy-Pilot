@@ -590,12 +590,42 @@ def _generate_all_columns_charts(
         return None
 
     # ------------------------------------------------------------------
-    #   PHASE A — Pair each metric with its best dimension
-    # ------------------------------------------------------------------    
+    #   PHASE 0 — Full Combinations of Primary Metrics and Dimensions
+    # ------------------------------------------------------------------
+    # Ensure no pairing is missed between numeric and category columns
     used_dims_global: set = set()
     used_metrics_global: set = set()
     paired_dims: set = set()       # dimensions already paired with SOME metric in A
 
+    for metric in pm:
+        for dim in dims_all:
+            if len(charts) >= 40:
+                break
+            if metric == dim:
+                continue
+            if (metric.lower(), dim.lower()) in curated_pairs_norm:
+                continue
+            
+            try:
+                nunique = df[dim].nunique()
+            except Exception:
+                continue
+                
+            adaptive_limit = 200
+            if column_profiles and dim in column_profiles:
+                total_rows = column_profiles[dim].get("unique_count", 0) / (column_profiles[dim].get("cardinality", 1.0) or 1.0)
+                adaptive_limit = max(200, int(total_rows * 0.05))
+            if nunique < 2 or nunique > adaptive_limit:
+                continue
+                
+            rec = _make_pairing_chart(dim, metric, used_dims_global, used_metrics_global)
+            if rec is not None:
+                charts.append(rec)
+                paired_dims.add(dim)
+
+    # ------------------------------------------------------------------
+    #   PHASE A — Pair each metric with its best dimension
+    # ------------------------------------------------------------------    
     for metric in pm:
         if metric in used_metrics_global:
             continue

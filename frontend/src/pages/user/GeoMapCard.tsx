@@ -231,6 +231,12 @@ const GeoMapCard: React.FC<GeoMapCardProps> = ({ data, mapType: providedMapType 
                 if (typeof d.value === 'number') {
                     newValue.value = (Number(existing.value) || 0) + d.value;
                 }
+                if (d.metrics && typeof d.metrics === 'object') {
+                    newValue.metrics = { ...existing.metrics };
+                    for (const [k, v] of Object.entries(d.metrics)) {
+                        newValue.metrics[k] = (Number(newValue.metrics[k]) || 0) + Number(v);
+                    }
+                }
                 const existingNames = Array.isArray(existing._originalNames) ? existing._originalNames : (existing.name ? [existing.name] : []);
                 newValue._originalNames = Array.from(new Set([...existingNames, rawName]));
                 map.set(aliasedLower, newValue);
@@ -248,6 +254,12 @@ const GeoMapCard: React.FC<GeoMapCardProps> = ({ data, mapType: providedMapType 
                         const existing = map.get(expLower)!;
                         const newValue = { ...existing };
                         if (typeof d.value === 'number') newValue.value = (Number(existing.value) || 0) + d.value;
+                        if (d.metrics && typeof d.metrics === 'object') {
+                            newValue.metrics = { ...existing.metrics };
+                            for (const [k, v] of Object.entries(d.metrics)) {
+                                newValue.metrics[k] = (Number(newValue.metrics[k]) || 0) + Number(v);
+                            }
+                        }
                         const existingNames = Array.isArray(existing._originalNames) ? existing._originalNames : (existing.name ? [existing.name] : []);
                         newValue._originalNames = Array.from(new Set([...existingNames, rawName]));
                         map.set(expLower, newValue);
@@ -265,6 +277,12 @@ const GeoMapCard: React.FC<GeoMapCardProps> = ({ data, mapType: providedMapType 
                         const existing = map.get(wLower)!;
                         const newValue = { ...existing };
                         if (typeof d.value === 'number') newValue.value = (Number(existing.value) || 0) + d.value;
+                        if (d.metrics && typeof d.metrics === 'object') {
+                            newValue.metrics = { ...existing.metrics };
+                            for (const [k, v] of Object.entries(d.metrics)) {
+                                newValue.metrics[k] = (Number(newValue.metrics[k]) || 0) + Number(v);
+                            }
+                        }
                         const existingNames = Array.isArray(existing._originalNames) ? existing._originalNames : (existing.name ? [existing.name] : []);
                         newValue._originalNames = Array.from(new Set([...existingNames, rawName]));
                         map.set(wLower, newValue);

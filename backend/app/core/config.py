@@ -180,7 +180,7 @@ class RateLimitSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="RATE_LIMIT_")
 
     enabled: bool = Field(default=True)
-    requests_per_minute: int = Field(default=60, ge=1, le=1000)
+    requests_per_minute: int = Field(default=300, ge=1, le=1000)
 
 
 class StorageSettings(BaseSettings):

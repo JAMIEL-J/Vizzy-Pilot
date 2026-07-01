@@ -124,9 +124,9 @@ def _generate_sales_charts(df: pd.DataFrame, classification: ColumnClassificatio
         cost_col = _find_col(['cost', 'cogs', 'expense'], df.columns, is_metric=True)
 
     product_col = _find_col(['product', 'item', 'sku', 'service'], pd_, is_metric=False)
-    category_col = _find_col(['category', 'subcategory', 'segment', 'department', 'type', 'group'], pd_, is_metric=False)
-    segment_col = _find_col(['segment', 'type', 'group', 'class', 'channel'], pd_, exclude=['category', 'product', 'customer', 'order'], is_metric=False)
-    
+    subcategory_col = _find_col(['subcategory', 'sub_category', 'sub-category'], pd_, is_metric=False)
+    category_col = _find_col(['category', 'department', 'group', 'type'], pd_, exclude=['sub'], is_metric=False)
+    segment_col = _find_col(['segment', 'type', 'group', 'class', 'channel'], pd_, exclude=['category', 'product', 'customer', 'order', 'sub'], is_metric=False)    
     # Stricter detection for high-cardinality entities
     entity_excludes = ['segment', 'type', 'group', 'class', 'region', 'state', 'tier', 'status', 'category', 'profile', 'city', 'country', 'zip', 'postal', 'zone']
     customer_col = _find_col(['customer', 'client', 'buyer', 'account', 'user', 'email'], pd_, exclude=entity_excludes, min_unique=5, is_metric=False)
@@ -252,14 +252,18 @@ def _generate_sales_charts(df: pd.DataFrame, classification: ColumnClassificatio
     # ── KEY PROFIT & SALES CHARTS ACROSS ALL CORE DIMENSIONS ──────────
     core_dims = {
         "category": category_col,
+        "subcategory": subcategory_col,
         "product": product_col,
         "geography": geo_col,
+        "region": region_col,
         "segment": segment_col
     }
 
+    seen_core_dims = set()
     for dim_label, dim in core_dims.items():
-        if not dim:
+        if not dim or dim in seen_core_dims:
             continue
+        seen_core_dims.add(dim)
         # Add Sales/Revenue chart for this core dimension if it's not the hero dimension
         if revenue_col and dim != hero_dim:
             data = _smart_aggregate(df, dim, revenue_col, limit=10)
@@ -448,9 +452,9 @@ def _generate_sales_charts(df: pd.DataFrame, classification: ColumnClassificatio
 
     # ── TIER 5: SMART FALLBACKS (Ensure 15+ rich charts) ─────────────
     
-    extra_dims = [d for d in pd_ if d not in (product_col, category_col, geo_col, customer_col, order_col)]
+    extra_dims = [d for d in pd_ if d not in (product_col, category_col, subcategory_col, geo_col, customer_col, order_col)]
     for i, edim in enumerate(extra_dims):
-        if len(charts) >= 22:
+        if len(charts) >= 35:
             break
             
         # Segment Distribution

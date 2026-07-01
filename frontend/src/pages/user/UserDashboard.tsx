@@ -511,7 +511,7 @@ export default function UserDashboard() {
                 setVersionId(latest.id);
                 setSelectedVersionId(latest.id);
                 // Trigger auto-render immediately upon selecting a dataset
-                triggerAutoRender(latest.id);
+                restoreOrAutoRender(latest.id);
             })
             .catch(() => {
                 setVersionId(null);
@@ -538,7 +538,45 @@ export default function UserDashboard() {
         // Clear previous dashboard state immediately to avoid stale sample data
         setAnalytics(null);
         setDashboardData([], {}, {}, 0, null, selectedDatasetId, newVersionId);
-        triggerAutoRender(newVersionId);
+        restoreOrAutoRender(newVersionId);
+    };
+
+    const restoreOrAutoRender = (versionId: string) => {
+        const cacheKey = stableSerialize({
+            schema: DASHBOARD_CACHE_SCHEMA_VERSION,
+            datasetId: selectedDatasetId,
+            versionId: versionId,
+            targetValue: target_value || 'all',
+            selectedDomain: selected_domain || 'auto',
+            filters: normalizedActiveFilters,
+            classificationOverrides: classification_overrides || {},
+        });
+        
+        const sessionCached = getSessionCachedAnalytics(cacheKey);
+        if (sessionCached) {
+            setAnalytics(sessionCached);
+            // Rehydrate Zustand only if it's empty
+            if (!useFilterStore.getState().rawData && sessionCached.raw_data && sessionCached.chart_configs) {
+                const initial: Record<string, any> = {};
+                if (sessionCached.charts) {
+                    Object.entries(sessionCached.charts).forEach(([key, chart]: [string, any]) => {
+                        initial[key] = chart.data;
+                    });
+                }
+                setDashboardData(
+                    sessionCached.raw_data,
+                    sessionCached.chart_configs,
+                    initial,
+                    sessionCached.total_rows || 0,
+                    sessionCached.target_column || null,
+                    selectedDatasetId,
+                    versionId
+                );
+            }
+            return;
+        }
+        
+        triggerAutoRender(versionId);
     };
 
     // Active version display helper
@@ -741,6 +779,19 @@ export default function UserDashboard() {
         const memoryCached = cacheRef.current.analytics.get(cacheKey);
         if (memoryCached && isFresh(memoryCached.createdAt)) {
             applyCachedAnalytics(memoryCached.value);
+            if (!memoryCached.value.raw_data) {
+                if (abortControllerRef.current) {
+                    abortControllerRef.current.abort();
+                }
+                const controller = new AbortController();
+                abortControllerRef.current = controller;
+                const timer = setTimeout(() => {
+                    void loadAnalytics(controller.signal, true);
+                }, 50);
+                return () => {
+                    clearTimeout(timer);
+                };
+            }
             return;
         }
 
@@ -748,6 +799,19 @@ export default function UserDashboard() {
         if (sessionCached) {
             cacheRef.current.analytics.set(cacheKey, sessionCached);
             applyCachedAnalytics(sessionCached);
+            if (!sessionCached.raw_data) {
+                if (abortControllerRef.current) {
+                    abortControllerRef.current.abort();
+                }
+                const controller = new AbortController();
+                abortControllerRef.current = controller;
+                const timer = setTimeout(() => {
+                    void loadAnalytics(controller.signal, true);
+                }, 50);
+                return () => {
+                    clearTimeout(timer);
+                };
+            }
             return;
         }
 
@@ -913,7 +977,9 @@ export default function UserDashboard() {
                 selectedVersionId
             );
 
-            if (data.charts) {
+            const hasLocalData = !!useFilterStore.getState().rawData;
+
+            if (data.charts && !hasLocalData) {
                 const refreshedCharts: Record<string, any> = {};
                 Object.entries(data.charts).forEach(([key, chart]: [string, any]) => {
                     refreshedCharts[key] = chart.data;
@@ -931,10 +997,10 @@ export default function UserDashboard() {
                 return {
                     ...prev,
                     kpis: data.kpis,
-                    charts: data.charts ?? prev.charts,
+                    charts: hasLocalData ? prev.charts : (data.charts ?? prev.charts),
                     target_column: data.target_column ?? prev.target_column,
                     target_values: data.target_values ?? prev.target_values,
-                    all_columns_charts: data.all_columns_charts ?? prev.all_columns_charts,
+                    all_columns_charts: hasLocalData ? prev.all_columns_charts : (data.all_columns_charts ?? prev.all_columns_charts),
                     all_columns_count: data.all_columns_count ?? prev.all_columns_count,
                 };
             });

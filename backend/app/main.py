@@ -22,6 +22,7 @@ from app.core.exceptions import (
     AuthorizationError,
     ResourceNotFound,
     InvalidOperation,
+    RateLimitExceeded,
 )
 from app.api.router import api_router
 
@@ -147,6 +148,14 @@ async def invalid_operation_handler(request: Request, exc: InvalidOperation):
     return JSONResponse(
         status_code=400,
         content={"detail": exc.message, "reason": exc.reason},
+    )
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=429,
+        content={"detail": exc.message},
     )
 
 

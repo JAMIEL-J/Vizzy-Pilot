@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Download, FileSpreadsheet, History, Sparkles, AlertTriangle, Loader2, X } from "lucide-react";
 import { datasetService, type Dataset, type DownloadHistoryItem } from "../../lib/api/dataset";
 import { toast } from "react-hot-toast";
@@ -15,8 +15,13 @@ export default function Downloads() {
     const [historyItems, setHistoryItems] = useState<DownloadHistoryItem[]>([]);
     const [isHistoryLoading, setIsHistoryLoading] = useState(false);
 
+    const abortRef = useRef<AbortController | null>(null);
+
     useEffect(() => {
         loadDatasets();
+        return () => {
+            abortRef.current?.abort();
+        };
     }, []);
 
     useEffect(() => {
@@ -39,37 +44,53 @@ export default function Downloads() {
     };
 
     const loadDatasets = async () => {
+        abortRef.current?.abort();
+        const controller = new AbortController();
+        abortRef.current = controller;
+
         setIsLoading(true);
         setError(null);
         try {
             const data = await datasetService.listDatasets();
+            if (controller.signal.aborted) return;
             setDatasets(data);
 
             const metaMap: Record<string, { raw_size: number; cleaned_size: number | null; row_count: number }> = {};
-            await Promise.all(
+            const results = await Promise.allSettled(
                 data.map(async (ds) => {
-                    try {
-                        const [version, metadata] = await Promise.all([
-                            datasetService.getLatestVersion(ds.id),
-                            datasetService.getDatasetMetadata(ds.id),
-                        ]);
-                        metaMap[ds.id] = {
-                            raw_size: metadata.raw_size || 0,
-                            cleaned_size: metadata.cleaned_size || null,
-                            row_count: version.row_count || 0,
-                        };
-                    } catch (e) {
-                        console.error(`Failed to load details for dataset ${ds.id}:`, e);
-                    }
+                    const [versionResult, metadataResult] = await Promise.allSettled([
+                        datasetService.getLatestVersion(ds.id),
+                        datasetService.getDatasetMetadata(ds.id),
+                    ]);
+                    return {
+                        id: ds.id,
+                        raw_size: metadataResult.status === "fulfilled" ? (metadataResult.value.raw_size || 0) : 0,
+                        cleaned_size: metadataResult.status === "fulfilled" ? (metadataResult.value.cleaned_size || null) : null,
+                        row_count: versionResult.status === "fulfilled" ? (versionResult.value.row_count || 0) : 0,
+                    };
                 })
             );
+            if (controller.signal.aborted) return;
+
+            for (const r of results) {
+                if (r.status === "fulfilled") {
+                    metaMap[r.value.id] = {
+                        raw_size: r.value.raw_size,
+                        cleaned_size: r.value.cleaned_size,
+                        row_count: r.value.row_count,
+                    };
+                }
+            }
             setMetadataMap(metaMap);
         } catch (error) {
+            if (controller.signal.aborted) return;
             console.error("Failed to load datasets:", error);
             setError("We encountered an error while trying to fetch your datasets.");
             toast.error("Failed to load datasets");
         } finally {
-            setIsLoading(false);
+            if (!controller.signal.aborted) {
+                setIsLoading(false);
+            }
         }
     };
 

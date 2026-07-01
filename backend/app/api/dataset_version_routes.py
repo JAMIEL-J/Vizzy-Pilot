@@ -133,6 +133,15 @@ def get_latest_version(
     except AuthorizationError as e:
         raise HTTPException(status_code=403, detail=e.message)
 
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "Transient error fetching latest version for %s", dataset_id
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Temporary database contention. Please retry.",
+        )
+
 
 @router.get("/{version_id}", response_model=VersionResponse)
 def get_version(

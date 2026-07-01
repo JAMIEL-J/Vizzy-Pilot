@@ -393,7 +393,7 @@ const recomputeCharts = (
         const aggregation = (override.aggregation || config.aggregation || (metric ? 'SUM' : 'COUNT')).toUpperCase();
         const metricIsTarget = !!(metric && targetCol && normalizeKey(metric) === normalizeKey(targetCol));
         const isRateChart = /rate|%/i.test(String(config.title || ''));
-        const isCohortChart = /cohort/i.test(String(config.title || ''));
+        const isCohortChart = /cohort|tier/i.test(String(config.title || ''));
         const isRangeChart = /range/i.test(String(config.title || ''));
         const isAtRiskChart = /at\s*risk/i.test(String(config.title || ''));
 
@@ -760,6 +760,52 @@ const recomputeCharts = (
             // Map charts should keep full categorical coverage after filtering.
             if (chartType === 'geo_map') {
                 chartData = chartData.filter((d) => d.name !== 'Unknown');
+                
+                const initialSample = initialChartData?.[slotId]?.[0];
+                if (initialSample?.raw_metrics) {
+                    const rawKeys = Object.keys(initialSample.raw_metrics);
+                    const displayKeys = Object.keys(initialSample.metrics);
+                    
+                    const sums: Record<string, Record<string, number>> = {};
+                    chartData.forEach(d => {
+                        sums[d.name] = {};
+                        rawKeys.forEach(rk => sums[d.name][rk] = 0);
+                    });
+                    
+                    filtered.forEach(row => {
+                        let val = getRowValue(row, dimension);
+                        if (val === null || val === undefined) val = 'Unknown';
+                        else val = String(val);
+                        
+                        if (sums[val]) {
+                            rawKeys.forEach(rk => {
+                                sums[val][rk] += Number(getRowValue(row, rk) || 0);
+                            });
+                        }
+                    });
+                    
+                    chartData = chartData.map(d => {
+                        const newMetrics: Record<string, number> = {};
+                        const newRawMetrics: Record<string, number> = {};
+                        rawKeys.forEach((rawKey, idx) => {
+                            const displayKey = displayKeys[idx] || rawKey;
+                            let aggVal = sums[d.name][rawKey] || 0;
+                            if (scalingFactor && scalingFactor !== 1) {
+                                aggVal = aggVal / scalingFactor;
+                            }
+                            newMetrics[displayKey] = Number(aggVal.toFixed(2));
+                            newRawMetrics[rawKey] = Number(aggVal.toFixed(2));
+                        });
+                        
+                        return {
+                            ...d,
+                            value: newRawMetrics[rawKeys[0]] || d.value,
+                            metrics: newMetrics,
+                            raw_metrics: newRawMetrics
+                        };
+                    });
+                }
+
                 chartData.sort((a, b) => b.value - a.value);
                 charts[slotId] = chartData;
                 continue;
@@ -859,11 +905,12 @@ export const useFilterStore = create<DashboardState>((set, get) => ({
         const activeVersionId = versionId || state.versionId;
         const finalTargetCol = targetCol || state.target_column;
 
-        // Detect dataset OR version change - any change should reset filters/overrides
-        const datasetChanged = activeDatasetId !== state.datasetId;
-        const versionChanged = activeVersionId !== state.versionId;
+        // Detect dataset OR version change - any change should reset filters/overrides, EXCEPT initial load
+        const isInitialLoad = state.datasetId === null;
+        const datasetChanged = !isInitialLoad && activeDatasetId !== state.datasetId;
+        const versionChanged = !isInitialLoad && activeVersionId !== state.versionId;
 
-        // Only restore stored filters/overrides when neither dataset nor version changed
+        // Only restore stored filters/overrides when neither dataset nor version changed, or on initial load
         let finalFilters: Record<string, string[]> = {};
         let finalOverrides: Record<string, ChartOverride> = {};
         let finalClassOverrides: Record<string, ClassificationRole> = {};
