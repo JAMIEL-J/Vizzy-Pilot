@@ -528,6 +528,7 @@ async def export_table(
     import csv
     import io
     import numpy as np
+    from app.services.analytics.query_utils import safe_identifier
 
     if format not in ("csv", "tsv"):
         raise HTTPException(status_code=400, detail="Format must be 'csv' or 'tsv'")
@@ -561,7 +562,7 @@ async def export_table(
             raise HTTPException(status_code=404, detail=f"Table '{table_name}' not found")
 
         # Row count limit check before streaming starts
-        count_res = conn.execute(f'SELECT COUNT(*) FROM "{table_name}"').fetchone()
+        count_res = conn.execute(f'SELECT COUNT(*) FROM {safe_identifier(table_name)}').fetchone()
         row_count = count_res[0] if count_res else 0
         if row_count > MAX_EXPORT_ROWS:
             raise HTTPException(
@@ -572,7 +573,7 @@ async def export_table(
             )
 
         # Fetch all data
-        result = conn.execute(f'SELECT * FROM "{table_name}"')
+        result = conn.execute(f'SELECT * FROM {safe_identifier(table_name)}')
         columns = [desc[0] for desc in result.description]
         rows = result.fetchall()
 

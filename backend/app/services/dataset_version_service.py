@@ -180,8 +180,8 @@ def _fetch_column_profiles_for_ui(
         table = _table_name(dataset_id)
         schema_dtype = {c["name"]: c.get("dtype", "string") for c in schema}
         # Fetch total row count for cardinality calculation
-        from app.services.analytics.query_utils import execute
-        total_rows = execute(conn, f'SELECT COUNT(*) FROM "{table}"').fetchone()[0] or 1
+        from app.services.analytics.query_utils import execute, safe_identifier
+        total_rows = execute(conn, f'SELECT COUNT(*) FROM {safe_identifier(table)}').fetchone()[0] or 1
 
         for col_info in schema:
             col = col_info["name"]
@@ -197,7 +197,7 @@ def _fetch_column_profiles_for_ui(
             mean_val = None
             if is_numeric:
                 try:
-                    raw_mean = execute(conn, f'SELECT AVG("{col}") FROM "{table}"').fetchone()[0]
+                    raw_mean = execute(conn, f'SELECT AVG({safe_identifier(col)}) FROM {safe_identifier(table)}').fetchone()[0]
                     mean_val = round(float(raw_mean), 4) if raw_mean is not None else None
                 except Exception:
                     pass

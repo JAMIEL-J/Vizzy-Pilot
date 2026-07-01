@@ -80,7 +80,7 @@ def coerce_column(
     """Analyze and coerce a single VARCHAR column to numeric if it matches dirty patterns."""
     try:
         # Check column type
-        schema_df = conn.execute(f'DESCRIBE "{table_name}"').df()
+        schema_df = conn.execute(f'DESCRIBE {safe_identifier(table_name)}').df()
         col_info = schema_df[schema_df['column_name'] == column].iloc[0]
         original_type = col_info['column_type']
 
@@ -91,9 +91,9 @@ def coerce_column(
         #  called by run_coercion_pipeline before the per-column loop.)
         # Step 1: Detect patterns from a sample — parameterized LIMIT
         sample_df = execute(conn, f"""
-            SELECT "{column}"
-            FROM "{table_name}"
-            WHERE "{column}" IS NOT NULL
+            SELECT {safe_identifier(column)}
+            FROM {safe_identifier(table_name)}
+            WHERE {safe_identifier(column)} IS NOT NULL
             LIMIT ?
         """, params=[sample_size]).df()
 
@@ -116,26 +116,27 @@ def coerce_column(
             return None
 
         # Step 3: Apply transformation
-        null_before = conn.execute(f'SELECT COUNT(*) FROM "{table_name}" WHERE "{column}" IS NULL').fetchone()[0]
+        null_before = conn.execute(f'SELECT COUNT(*) FROM {safe_identifier(table_name)} WHERE {safe_identifier(column)} IS NULL').fetchone()[0]
         
         clean_expr = build_clean_expression(column, detected_pattern)
+        tmp_col_name = f"{column}__coerced_tmp"
         
         # Create a temp column to test conversion
-        conn.execute(f'ALTER TABLE "{table_name}" ADD COLUMN "{column}__coerced_tmp" DOUBLE')
+        conn.execute(f'ALTER TABLE {safe_identifier(table_name)} ADD COLUMN {safe_identifier(tmp_col_name)} DOUBLE')
         
         try:
-            conn.execute(f'UPDATE "{table_name}" SET "{column}__coerced_tmp" = TRY_CAST({clean_expr} AS DOUBLE)')
+            conn.execute(f'UPDATE {safe_identifier(table_name)} SET {safe_identifier(tmp_col_name)} = TRY_CAST({clean_expr} AS DOUBLE)')
         except Exception as e:
             logger.error(f"Coercion update failed for {column}: {e}")
-            conn.execute(f'ALTER TABLE "{table_name}" DROP COLUMN "{column}__coerced_tmp"')
+            conn.execute(f'ALTER TABLE {safe_identifier(table_name)} DROP COLUMN {safe_identifier(tmp_col_name)}')
             return None
 
         # Check success rate
         stats = conn.execute(f"""
             SELECT 
-                COUNT(*) FILTER (WHERE "{column}" IS NOT NULL AND "{column}__coerced_tmp" IS NULL) as failed_count,
+                COUNT(*) FILTER (WHERE {safe_identifier(column)} IS NOT NULL AND {safe_identifier(tmp_col_name)} IS NULL) as failed_count,
                 COUNT(*) as total_rows
-            FROM "{table_name}"
+            FROM {safe_identifier(table_name)}
         """).fetchone()
         
         failed_count, total_rows = stats
@@ -143,10 +144,10 @@ def coerce_column(
 
         if success_rate >= 0.95:
             # Commit changes
-            conn.execute(f'ALTER TABLE "{table_name}" DROP COLUMN "{column}"')
-            conn.execute(f'ALTER TABLE "{table_name}" RENAME COLUMN "{column}__coerced_tmp" TO "{column}"')
+            conn.execute(f'ALTER TABLE {safe_identifier(table_name)} DROP COLUMN {safe_identifier(column)}')
+            conn.execute(f'ALTER TABLE {safe_identifier(table_name)} RENAME COLUMN {safe_identifier(tmp_col_name)} TO {safe_identifier(column)}')
             
-            null_after = conn.execute(f'SELECT COUNT(*) FROM "{table_name}" WHERE "{column}" IS NULL').fetchone()[0]
+            null_after = conn.execute(f'SELECT COUNT(*) FROM {safe_identifier(table_name)} WHERE {safe_identifier(column)} IS NULL').fetchone()[0]
             
             # Find sample problematic values if any
             problematic = []
@@ -168,7 +169,7 @@ def coerce_column(
             )
         else:
             # Rollback
-            conn.execute(f'ALTER TABLE "{table_name}" DROP COLUMN "{column}__coerced_tmp"')
+            conn.execute(f'ALTER TABLE {safe_identifier(table_name)} DROP COLUMN {safe_identifier(tmp_col_name)}')
             return None
 
     except Exception as e:
@@ -189,12 +190,12 @@ def _batch_nullify_strings(conn: duckdb.DuckDBPyConnection, table_name: str, var
 
     # Build CASE expressions for each column
     case_exprs = ", ".join(
-        f'"{col}" = CASE WHEN LOWER(TRIM("{col}")) {in_clause} THEN NULL ELSE "{col}" END'
+        f'{safe_identifier(col)} = CASE WHEN LOWER(TRIM({safe_identifier(col)})) {in_clause} THEN NULL ELSE {safe_identifier(col)} END'
         for col in varchar_cols
     )
 
-    sql = f'UPDATE "{table_name}" SET {case_exprs}'
-    execute(conn, sql, params=null_params + null_params * (len(varchar_cols) - 1))
+    sql = f'UPDATE {safe_identifier(table_name)} SET {case_exprs}'
+    execute(conn, sql, params=null_params * len(varchar_cols))
 
 
 def run_coercion_pipeline(conn: duckdb.DuckDBPyConnection, table_name: str) -> List[ColumnCoercionResult]:
@@ -203,7 +204,7 @@ def run_coercion_pipeline(conn: duckdb.DuckDBPyConnection, table_name: str) -> L
     _t0 = _time.perf_counter()
 
     results = []
-    schema_df = execute(conn, f'DESCRIBE "{table_name}"').df()
+    schema_df = execute(conn, f'DESCRIBE {safe_identifier(table_name)}').df()
     varchar_cols = schema_df[schema_df['column_type'] == 'VARCHAR']['column_name'].tolist()
     
     if varchar_cols:
