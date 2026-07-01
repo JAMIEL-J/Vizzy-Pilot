@@ -95,15 +95,14 @@ class DBEngine:
 
         async with _write_lock:
             effective_path = file_path
-            try:
-                self._write_con.execute(f'DROP TABLE IF EXISTS {safe_identifier(table_name)}')
-                self._write_con.execute(
-                    f"CREATE TABLE {safe_identifier(table_name)} AS SELECT * FROM read_csv_auto(?)",
-                    [effective_path]
-                    f"CREATE TABLE {safe_identifier(table_name)} AS SELECT * FROM read_csv_auto('{effective_path}')"
-                )
-                _phase_times["read_csv_auto"] = time.perf_counter() - _t0
-            except duckdb.Error as first_err:
+        try:
+            self._write_con.execute(f'DROP TABLE IF EXISTS {safe_identifier(table_name)}')
+            self._write_con.execute(
+                f"CREATE TABLE {safe_identifier(table_name)} AS SELECT * FROM read_csv_auto(?)",
+                [effective_path]
+            )
+            _phase_times["read_csv_auto"] = time.perf_counter() - _t0
+        except duckdb.Error as first_err:
                 err_msg = str(first_err).lower()
                 is_encoding_error = any(
                     tok in err_msg
@@ -122,31 +121,29 @@ class DBEngine:
                 _t_reencode = time.perf_counter()
                 effective_path = self._reencode_csv_to_utf8(file_path)
 
-                try:
-                    self._write_con.execute(f'DROP TABLE IF EXISTS {safe_identifier(table_name)}')
-                    self._write_con.execute(
-                        f"CREATE TABLE {safe_identifier(table_name)} AS SELECT * FROM read_csv_auto(?)",
-                        [effective_path]
-                        f"CREATE TABLE {safe_identifier(table_name)} AS SELECT * FROM read_csv_auto('{effective_path}')"
-                    )
-                    _phase_times["read_csv_auto_retry"] = time.perf_counter() - _t_reencode
-                except duckdb.Error:
-                    # Strategy 2: load with ignore_errors so only broken rows are skipped
-                    logger.warning(
-                        "Re-encoded file still failed. Retrying with ignore_errors=true for %s",
-                        file_path,
-                    )
-                    try:
-                        self._write_con.execute(f'DROP TABLE IF EXISTS {safe_identifier(table_name)}')
-                        self._write_con.execute(
-                            f"CREATE TABLE {safe_identifier(table_name)} AS SELECT * FROM "
-                            f"read_csv_auto(?, ignore_errors=true)",
-                            [effective_path]
-                            f"read_csv_auto('{effective_path}', ignore_errors=true)"
-                        )
-                    except duckdb.Error as final_err:
-                        logger.error(f"All CSV load strategies failed: {final_err}")
-                        raise ValueError(f"Direct CSV load failed: {final_err}")
+        try:
+            self._write_con.execute(f'DROP TABLE IF EXISTS {safe_identifier(table_name)}')
+            self._write_con.execute(
+                f"CREATE TABLE {safe_identifier(table_name)} AS SELECT * FROM read_csv_auto(?)",
+                [effective_path]
+            )
+            _phase_times["read_csv_auto_retry"] = time.perf_counter() - _t_reencode
+        except duckdb.Error:
+            # Strategy 2: load with ignore_errors so only broken rows are skipped
+            logger.warning(
+                "Re-encoded file still failed. Retrying with ignore_errors=true for %s",
+                file_path,
+            )
+            try:
+                self._write_con.execute(f'DROP TABLE IF EXISTS {safe_identifier(table_name)}')
+                self._write_con.execute(
+                    f"CREATE TABLE {safe_identifier(table_name)} AS SELECT * FROM "
+                    f"read_csv_auto(?, ignore_errors=true)",
+                    [effective_path]
+                )
+            except duckdb.Error as final_err:
+                logger.error(f"All CSV load strategies failed: {final_err}")
+                raise ValueError(f"Direct CSV load failed: {final_err}")
 
             _t_coerce = time.perf_counter()
             try:
