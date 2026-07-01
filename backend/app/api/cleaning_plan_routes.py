@@ -296,12 +296,17 @@ async def execute_cleaning_plan(
         from app.services.dataset_version_service import _get_next_version_number
         
         plan = cleaning_plan_service.get_plan_by_id(session, plan_id)
-        
+
+        # Re-check approval status immediately before execution to prevent race condition
+        # where plan gets approved between get_plan_by_id and execution
         if not plan.approved:
             raise InvalidOperation(
                 operation="execute_cleaning_plan",
                 reason="Cleaning plan must be approved before execution",
             )
+        
+        # Refresh the plan from database to ensure we have latest state
+        session.refresh(plan)
         
         # version is already validated by DatasetVersionOwner dependency
         raw_path = version.source_reference

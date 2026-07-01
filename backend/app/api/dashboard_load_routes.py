@@ -107,6 +107,21 @@ async def dashboard_event_generator(
     """
     SSE generator that streams dashboard components as they are executed.
     """
+    # Create disconnect event to track client disconnection
+    disconnect_event = asyncio.Event()
+    
+    async def check_disconnect():
+        """Background task to detect client disconnection."""
+        try:
+            # This will raise if client disconnects
+            await asyncio.sleep(3600)  # Long timeout, we'll check periodically
+        except asyncio.CancelledError:
+            pass
+        finally:
+            disconnect_event.set()
+    
+    disconnect_task = asyncio.create_task(check_disconnect())
+    
     try:
         version = session.get(DatasetVersion, version_id)
         if not version:
@@ -117,10 +132,15 @@ async def dashboard_event_generator(
             yield f"data: {_dumps({'error': 'No approved semantic map found for this version'})}\n\n"
             return
 
+        # Check for client disconnect before proceeding
+        if disconnect_event.is_set():
+            yield f"data: {_dumps({'event': 'client_disconnected'})}\n\n"
+            return
+
         # Get the persistent DuckDB path for this version
         from app.services.analytics.duckdb_builder import get_duckdb_path
         from app.services.analytics.db_engine import DBEngine
-        
+
         duckdb_path = get_duckdb_path(version.dataset_id, version.id)
         if not duckdb_path.exists():
             yield f"data: {_dumps({'error': 'DuckDB file not found for this version'})}\n\n"
@@ -133,14 +153,15 @@ async def dashboard_event_generator(
             # Force read connection initialization
             db_engine._lock_down_read_con()
             conn = db_engine._read_con
-            
+
             from app.services.analytics.table_resolver import resolve_table_name_from_version
             table_name = resolve_table_name_from_version(version)
 
             chart_configs = generate_chart_configs(version.semantic_map_json)
             filters = {}
-            kpi_configs = {} 
-            
+            kpi_configs = {}
+
+            # Check for disconnect before each yield
             async for result in execute_dashboard_load(
                 conn=conn,
                 chart_configs=chart_configs,
@@ -150,16 +171,25 @@ async def dashboard_event_generator(
                 version_id=version.id,
                 table_name=table_name
             ):
+                if disconnect_event.is_set():
+                    yield f"data: {_dumps({'event': 'client_disconnected'})}\n\n"
+                    return
                 yield f"data: {_dumps(result)}\n\n"
-                
+
             yield "data: {\"event\": \"done\"}\n\n"
+
         finally:
             if db_engine is not None:
                 try:
                     db_engine.close()
                 except Exception:
                     pass
-        
+            # Clean up the disconnect task
+            disconnect_task.cancel()
+            try:
+                await disconnect_task
+            except asyncio.CancelledError:
+                pass
     except Exception as e:
         logger.exception(f"Error streaming dashboard for version {version_id}: {e}")
         yield f"data: {_dumps({'error': 'Internal server error during dashboard load'})}\n\n"

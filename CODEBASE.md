@@ -5,7 +5,20 @@ This file contains the complete conceptual and structural map of the Vizzy Analy
 ---
 
 ## 📝 Recent Architectural Changes Log
-**2026-06-26: Analyst Team Routing & Dashboard Integration**
+
+### **Bug Fixes Applied (2026-07-01)**
+- **Bug #1 (Deep Dive Routing)**: Added validation for `datasetId` and `initialPrompt` parameters in `UserDashboard.tsx` `handleDeepDive` function
+- **Bug #2 (Chat State Initialization)**: Added error handling for undefined/malformed state from `useLocation` in `ChatInterface.tsx`
+- **Bug #3 ("Think" Mode Routing)**: Verified `force_deep_analysis` flag is properly passed through routing chain in `chat_routes.py`
+- **Bug #4 (Deep Analysis Prompting)**: Verified strict `**Key Insight:**` format enforcement in `executor.py` `_run_synthesis` method
+- **Bug #5 (Dashboard Stream Event Leak)**: Implemented SSE generator cleanup in `dashboard_load_routes.py` to prevent resource leaks
+- **Bug #6 (Semantic Mapping Drift)**: User corrections now prioritized over LLM proposals in `UserDashboard.tsx` semantic map saving
+- **Bug #7 (Join Builder State)**: Verified no race conditions in `JoinBuilder.tsx` component
+- **Bug #8 (Chart Renderer Race)**: Verified no race conditions in `ChartRenderer.tsx` components (chat and dashboard)
+- **Bug #9 (SQL Injection)**: Confirmed `sandbox.py` already protected with AST validation and row limiting
+- **Bug #10 (Cleaning Plan Race)**: Added double-check for plan approval status before execution in `cleaning_plan_routes.py`
+
+### **2026-06-26: Analyst Team Routing & Dashboard Integration**
 - **Dashboard Deep Dive**: `UserDashboard.tsx` (`handleDeepDive`) now uses React Router `useNavigate` to redirect to `/user/chat`, passing `datasetId` and `initialPrompt` in state.
 - **Chat State Initialization**: `ChatInterface.tsx` uses `useLocation` to read routing state, automatically setting the active dataset and pre-filling the chat box.
 - **"Think" Mode Routing**: `chat_routes.py` (`force_deep_analysis=True`) now correctly routes to the `Executor` (Multi-Agent flow) rather than bypassing it for the legacy diagnostic script.
