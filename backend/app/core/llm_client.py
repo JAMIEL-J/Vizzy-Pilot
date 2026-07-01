@@ -34,6 +34,8 @@ class LLMProvider(str, Enum):
     GROQ_CHAT = "groq_chat"
     GEMINI_NARRATIVE = "gemini_narrative"
     GEMINI_CHAT = "gemini_chat"
+    NVIDIA_NARRATIVE = "nvidia_narrative"
+    NVIDIA_CHAT = "nvidia_chat"
 
 
 @dataclass
@@ -222,16 +224,21 @@ class LLMClient:
 
         # Determine output token budget
         if purpose == "semantic_mapping":
-            # Semantic mapping requires a large JSON object.
-            # Gemini supports 50K, but Groq is capped at 32K.
-            if self.settings.primary_provider == "groq":
-                tokens = 4096 # Sufficient for mapping a few dozen columns
+            # Semantic mapping always routes to Groq which caps at 8192.
+            # Use caller-supplied value if provided and within Groq limits, else default to 4096.
+            groq_max = 8192
+            if max_tokens and max_tokens <= groq_max:
+                tokens = max_tokens
             else:
-                tokens = 50000
+                tokens = 4096
+        elif max_tokens:
+            # Respect caller-supplied max_tokens for all other purposes
+            tokens = max_tokens
         elif self.settings.primary_provider == "gemini":
-
-            # Default to 50k for other Gemini tasks if requested, but semantic_mapping is the priority
             tokens = 50000
+        else:
+            # NVIDIA and other providers: use a sensible default
+            tokens = max_tokens or self.settings.max_tokens
 
         effective_system_prompt = system_prompt
         effective_user_prompt = user_prompt
@@ -244,42 +251,64 @@ class LLMClient:
             self._estimate_tokens(effective_system_prompt + effective_user_prompt),
         )
 
-        if purpose == "semantic_mapping":
-            # Use the Groq Semantic Map provider for semantic mapping
-            providers = [
-                (LLMProvider.GROQ_SEMANTIC_MAP, self._call_groq_semantic_map),
-                (LLMProvider.GROQ_CHAT, self._call_groq_chat),
-            ]
-        elif self.settings.primary_provider == "gemini":
-            if purpose in ["sql", "chat"]:
-                providers = [
-                    (LLMProvider.GEMINI_CHAT, self._call_gemini_chat),
-                    (LLMProvider.GEMINI_NARRATIVE, self._call_gemini_narrative),
-                ]
+        # --- Per-Purpose Provider Routing ---
+        def _resolve_provider(purpose_type: str):
+            """Resolve provider config based on purpose."""
+            if purpose_type in ("semantic_mapping",):
+                provider_name = self.settings.semantic_provider
+                key = self.settings.semantic_key.get_secret_value()
+                model = self.settings.semantic_model
+            elif purpose_type in ("dashboard_narrative", "narrative", "chat_insight"):
+                provider_name = self.settings.insight_provider
+                key = self.settings.insight_key.get_secret_value()
+                model = self.settings.insight_model
+            elif purpose_type in ("sql", "chat"):
+                provider_name = self.settings.chat_provider
+                key = self.settings.chat_key.get_secret_value()
+                model = self.settings.chat_model
             else:
-                providers = [
+                provider_name = self.settings.primary_provider
+                key = ""
+                model = ""
+            return provider_name, key, model
+
+        provider_name, purpose_key, purpose_model = _resolve_provider(purpose)
+
+        def _build_provider_list(name: str):
+            """Build ordered provider+fallback list for a given provider name."""
+            if name == "nvidia":
+                return [
+                    (LLMProvider.NVIDIA_NARRATIVE, self._call_nvidia_narrative),
+                    (LLMProvider.NVIDIA_CHAT, self._call_nvidia_chat),
+                ]
+            elif name == "gemini":
+                return [
                     (LLMProvider.GEMINI_NARRATIVE, self._call_gemini_narrative),
                     (LLMProvider.GEMINI_CHAT, self._call_gemini_chat),
                 ]
-        else:
-            if purpose in ["sql", "chat"]:
-                # SQL/Chat Priority: groq_chat route first -> dashboard Llama fallback.
-                providers = [
-                    (LLMProvider.GROQ_CHAT, self._call_groq_chat),
-                    (LLMProvider.GROQ_DASHBOARD_NARRATIVE, self._call_groq_dashboard_narrative),
-                ]
-            elif purpose == "chat_insight":
-                # Chat insight priority: dedicated chat-insight Llama -> dashboard Llama (Fallback)
-                providers = [
-                    (LLMProvider.GROQ_CHAT_INSIGHT, self._call_groq_chat_insight),
-                    (LLMProvider.GROQ_DASHBOARD_NARRATIVE, self._call_groq_dashboard_narrative),
-                ]
-            else:
-                # Dashboard narrative priority: dashboard Llama -> chat-insight Llama (Fallback)
-                providers = [
-                    (LLMProvider.GROQ_DASHBOARD_NARRATIVE, self._call_groq_dashboard_narrative),
-                    (LLMProvider.GROQ_CHAT_INSIGHT, self._call_groq_chat_insight),
-                ]
+            else:  # groq
+                if purpose == "semantic_mapping":
+                    return [
+                        (LLMProvider.GROQ_SEMANTIC_MAP, self._call_groq_semantic_map),
+                        (LLMProvider.GROQ_CHAT, self._call_groq_chat),
+                    ]
+                elif purpose in ("sql", "chat"):
+                    return [
+                        (LLMProvider.GROQ_CHAT, self._call_groq_chat),
+                        (LLMProvider.GROQ_DASHBOARD_NARRATIVE, self._call_groq_dashboard_narrative),
+                    ]
+                elif purpose == "chat_insight":
+                    return [
+                        (LLMProvider.GROQ_CHAT_INSIGHT, self._call_groq_chat_insight),
+                        (LLMProvider.GROQ_DASHBOARD_NARRATIVE, self._call_groq_dashboard_narrative),
+                    ]
+                else:
+                    return [
+                        (LLMProvider.GROQ_DASHBOARD_NARRATIVE, self._call_groq_dashboard_narrative),
+                        (LLMProvider.GROQ_CHAT_INSIGHT, self._call_groq_chat_insight),
+                    ]
+
+        providers = _build_provider_list(provider_name)
 
         last_error: Optional[Exception] = None
 
@@ -410,7 +439,7 @@ class LLMClient:
         )
 
     async def _call_groq_dashboard_narrative(self, **kwargs) -> LLMResponse:
-        """Call the dashboard narrative Llama config."""
+        """Call the dashboard narrative Qwen config."""
         dashboard_key = self.settings.groq_dashboard_api_key.get_secret_value()
         final_key = dashboard_key if dashboard_key else self.settings.groq_api_key.get_secret_value()
 
@@ -434,7 +463,7 @@ class LLMClient:
         )
 
     async def _call_groq_chat_insight(self, **kwargs) -> LLMResponse:
-        """Call the chat insight Llama config."""
+        """Call the chat insight Qwen config."""
         insight_key = self.settings.groq_chat_insight_api_key.get_secret_value()
         final_key = insight_key if insight_key else self.settings.groq_api_key.get_secret_value()
 
@@ -485,13 +514,10 @@ class LLMClient:
         client = await self._get_client()
 
         payload = {
-            "system_instruction": {
-                "parts": [{"text": system_prompt}]
-            },
             "contents": [
                 {
                     "role": "user",
-                    "parts": [{"text": user_prompt}]
+                    "parts": [{"text": system_prompt + "\n\n" + user_prompt}]
                 }
             ],
             "generationConfig": {
@@ -519,22 +545,90 @@ class LLMClient:
         )
 
     async def _call_gemini_narrative(self, **kwargs) -> LLMResponse:
-        """Call Gemini for narrative tasks."""
-        api_key = self.settings.gemini_api_key.get_secret_value()
+        """Call Gemini API for narrative tasks."""
         return await self._call_gemini_internal(
-            api_key_str=api_key,
+            api_key_str=self.settings.gemini_api_key.get_secret_value(),
             model=self.settings.gemini_model,
             provider=LLMProvider.GEMINI_NARRATIVE,
             **kwargs,
         )
 
     async def _call_gemini_chat(self, **kwargs) -> LLMResponse:
-        """Call Gemini for chat/sql tasks."""
-        api_key = self.settings.gemini_api_key.get_secret_value()
+        """Call Gemini API for chat/sql tasks."""
         return await self._call_gemini_internal(
-            api_key_str=api_key,
+            api_key_str=self.settings.gemini_api_key.get_secret_value(),
             model=self.settings.gemini_chat_model or self.settings.gemini_model,
             provider=LLMProvider.GEMINI_CHAT,
+            **kwargs,
+        )
+
+    async def _call_nvidia_internal(
+        self,
+        api_key_str: str,
+        model: str,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float,
+        max_tokens: int,
+        provider: LLMProvider,
+        response_format: Optional[Dict[str, Any]] = None,
+    ) -> LLMResponse:
+        """Internal helper for NVIDIA NIM API calls."""
+        if not api_key_str:
+            raise ValueError(f"API key missing for {provider.value}")
+
+        url = "https://integrate.api.nvidia.com/v1/chat/completions"
+        client = await self._get_client()
+
+        json_payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        
+        if response_format:
+            json_payload["response_format"] = response_format
+
+        response = await client.post(
+            url,
+            headers={"Authorization": f"Bearer {api_key_str}"},
+            json=json_payload,
+        )
+        response.raise_for_status()
+        data = response.json()
+        
+        content = data["choices"][0]["message"]["content"]
+
+        return LLMResponse(
+            content=content,
+            provider=provider,
+            model=model,
+            usage=data.get("usage"),
+        )
+
+    async def _call_nvidia_narrative(self, **kwargs) -> LLMResponse:
+        """Call NVIDIA API for narrative tasks."""
+        nvidia_key = self.settings.insight_key.get_secret_value() or self.settings.nvidia_key.get_secret_value()
+        nvidia_model = self.settings.insight_model or self.settings.nvidia_model
+        return await self._call_nvidia_internal(
+            api_key_str=nvidia_key,
+            model=nvidia_model,
+            provider=LLMProvider.NVIDIA_NARRATIVE,
+            **kwargs,
+        )
+
+    async def _call_nvidia_chat(self, **kwargs) -> LLMResponse:
+        """Call NVIDIA API for chat/sql tasks."""
+        nvidia_key = self.settings.chat_key.get_secret_value() or self.settings.nvidia_key.get_secret_value()
+        nvidia_model = self.settings.chat_model or self.settings.nvidia_chat_model or self.settings.nvidia_model
+        return await self._call_nvidia_internal(
+            api_key_str=nvidia_key,
+            model=nvidia_model,
+            provider=LLMProvider.NVIDIA_CHAT,
             **kwargs,
         )
 
@@ -621,8 +715,11 @@ def parse_json_response(content: str) -> Dict[str, Any]:
     """
     Parse JSON from LLM response, handling markdown code blocks.
     """
+    import re
+    # Remove any <think> blocks that reasoning models like Qwen might output
+    content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+    
     # Remove markdown code blocks if present
-    content = content.strip()
     if content.startswith("```json"):
         content = content[7:]
     if content.startswith("```"):

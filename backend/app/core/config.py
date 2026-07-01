@@ -205,16 +205,16 @@ class LLMSettings(BaseSettings):
 
     # Account 1: Groq (Dashboard narrative / executive brief)
     groq_api_key: SecretStr = Field(default=SecretStr(""))
-    groq_model: str = Field(default="llama-3.3-70b-versatile")
+    groq_model: str = Field(default="gemma-4-26b-a4b-it")
     groq_fallback_model: str = Field(default="llama-3.1-70b-versatile")
 
     # Account 1B: Groq (Chat insight narration - why/explain)
     groq_chat_insight_api_key: SecretStr = Field(default=SecretStr(""))
-    groq_chat_insight_model: str = Field(default="llama-3.3-70b-versatile")
+    groq_chat_insight_model: str = Field(default="gemma-4-26b-a4b-it")
 
     # Dedicated dashboard narration override (optional, defaults to Account 1)
     groq_dashboard_api_key: SecretStr = Field(default=SecretStr(""))
-    groq_dashboard_model: str = Field(default="llama-3.3-70b-versatile")
+    groq_dashboard_model: str = Field(default="gemma-4-26b-a4b-it")
 
     # Dedicated semantic mapping override (optional, defaults to Account 1)
     groq_semantic_map: SecretStr = Field(default=SecretStr(""))
@@ -229,8 +229,26 @@ class LLMSettings(BaseSettings):
     gemini_model: str = Field(default="gemma-4-26b-a4b-it")
     gemini_chat_model: str = Field(default="gemma-4-26b-a4b-it")
 
-    # Provider Selection
-    primary_provider: Literal["groq", "gemini"] = Field(default="groq")
+    # NVIDIA configuration
+    nvidia_key: SecretStr = Field(default=SecretStr(""))
+    nvidia_model: str = Field(default="mistralai/mistral-small-4-119b-2603")
+    nvidia_chat_model: str = Field(default="mistralai/mistral-small-4-119b-2603")
+
+    # --- Per-Purpose Provider Routing ---
+    semantic_provider: Literal["groq", "gemini", "nvidia"] = Field(default="groq")
+    semantic_model: str = Field(default="meta-llama/llama-4-scout-17b-16e-instruct")
+    semantic_key: SecretStr = Field(default=SecretStr(""))
+
+    insight_provider: Literal["groq", "gemini", "nvidia"] = Field(default="nvidia")
+    insight_model: str = Field(default="mistralai/mistral-small-4-119b-2603")
+    insight_key: SecretStr = Field(default=SecretStr(""))
+
+    chat_provider: Literal["groq", "gemini", "nvidia"] = Field(default="nvidia")
+    chat_model: str = Field(default="mistralai/mistral-small-4-119b-2603")
+    chat_key: SecretStr = Field(default=SecretStr(""))
+
+    # Legacy fallback (used if per-purpose keys are empty)
+    primary_provider: Literal["groq", "gemini", "nvidia"] = Field(default="groq")
 
     # Token optimization settings (IMPORTANT for free tier)
     max_tokens: int = Field(default=512, ge=64, le=8192)  # Increased for Pro model

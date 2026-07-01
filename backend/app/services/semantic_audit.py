@@ -137,7 +137,9 @@ async def run_semantic_audit(
 
         for col in columns:
             if duckdb_available and conn:
-                samples = _fetch_column_samples(conn, table, col, limit=20)
+                raw_samples = _fetch_column_samples(conn, table, col, limit=10)
+                # Truncate string samples to prevent payload bloat on datasets like Superstore
+                samples = [str(s)[:50] + "..." if isinstance(s, str) and len(str(s)) > 50 else s for s in raw_samples]
                 stats = _fetch_column_stats(conn, table, col)
             else:
                 samples = []
@@ -158,8 +160,8 @@ async def run_semantic_audit(
             }
             column_payloads.append(payload)
 
-        # Batch into groups of 12
-        batch_size = 12
+        # Batch into smaller groups of 8 to avoid 413 Payload Too Large on Groq API
+        batch_size = 8
         batches = [column_payloads[i:i + batch_size] for i in range(0, len(column_payloads), batch_size)]
 
         async def classify_batch(batch: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -180,6 +182,8 @@ async def run_semantic_audit(
                 response = await llm_router.complete(
                     system_prompt="You are a data classification expert.",
                     user_prompt=prompt,
+                    temperature=0.1,
+                    max_tokens=2048,
                     purpose="semantic_mapping",
                 )
                 raw = response.content

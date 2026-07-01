@@ -1882,8 +1882,9 @@ class NarrativeRequest(BaseModel):
 NARRATIVE_SYSTEM_PROMPT = """You are a senior data analyst generating an executive insight brief for a BI dashboard.
 
 Your job is to analyze ALL the KPIs AND chart breakdowns provided and write clear, factual insights.
+CRITICAL INSTRUCTION: You MUST rank and order your insights by business importance. The most critical, high-impact insights (e.g., major revenue drops, large anomalies, significant trends) MUST be listed first. Normal or expected observations should follow at the end.
 
-Output format — write at least 10 numbered points, each on its own block with a blank line between points.
+Output format — write 10 to 15 numbered points, each on its own block with a blank line between points.
 Every point MUST follow this strict pattern:
 <number>. <Heading>: <Description>
 
@@ -1909,7 +1910,8 @@ Rules:
 - Use actual numbers and percentages from the data provided.
 - Do NOT use markdown formatting, bold, bullets, or special symbols.
 - Do NOT invent data. Only reference what is explicitly provided.
-- Write in third person."""
+- Write in third person.
+- STRICT RULE: DO NOT use <think> tags or output internal reasoning. Provide ONLY the final insights. Keep it highly concise to save tokens."""
 
 
 def _summarize_charts(charts: Dict[str, Any], max_charts: int = 8, currency_symbol: str = "$") -> str:
@@ -2067,10 +2069,12 @@ Chart Breakdowns:
                 system_prompt=NARRATIVE_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
                 temperature=0.3,
-                max_tokens=1024,
+                max_tokens=2048,
                 purpose="dashboard_narrative",
             )
-            return {"narrative": response.content.strip()}
+            import re
+            content = re.sub(r'<think>.*?</think>', '', response.content, flags=re.DOTALL).strip()
+            return {"narrative": content}
         except Exception as llm_err:
             logger.warning(f"LLM narrative generation failed: {llm_err}. Falling back to rule-based summary.")
             
