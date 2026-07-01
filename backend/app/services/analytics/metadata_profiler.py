@@ -2,11 +2,14 @@
 Metadata Profiler - Analyzes dataset columns to generate physical, logical, and semantic metadata.
 """
 
+import logging
 import re
 from typing import Any, Dict, List
 import pandas as pd
 
 from app.services.analytics.domain_detector import DomainType
+
+logger = logging.getLogger(__name__)
 
 # Regex for common semantic tagging
 SEMANTIC_PATTERNS = {
@@ -133,16 +136,17 @@ def _get_duckdb_physical_type_map(
     Uses DuckDB's catalog-level type information (deterministic, not row-sampled)
     instead of ANY_VALUE(TYPEOF(...)) which is non-deterministic on mixed-type columns.
     """
-    from .query_utils import execute_df
     try:
-        describe_df = execute_df(conn, f"DESCRIBE {table_ref}")
+        # Execute directly to avoid duplicate logging in query_utils.execute()
+        describe_df = conn.execute(f"DESCRIBE SELECT * FROM {table_ref}").df()
         type_map: Dict[str, str] = {}
         for _, row in describe_df.iterrows():
             colname = str(row.iloc[0])
             coltype = str(row.iloc[1])
             type_map[colname] = coltype
         return type_map
-    except Exception:
+    except Exception as e:
+        logger.error(f"Failed to get physical type map for {table_ref}: {e}")
         return {}
 
 

@@ -567,17 +567,6 @@ class Executor:
                         },
                     }
 
-        # Strategist Phase
-        t_llm_start = time.perf_counter()
-        if progress_callback:
-            await progress_callback({"step": 1, "total": 4, "phase": "planning", "detail": "Strategist: Deconstructing query and planning layout..."})
-        
-        try:
-            plan = await self._run_strategist(user_query, schema, hints)
-        except Exception as e:
-            logger.error(f"Strategist failed: {e}")
-            plan = {"analysis_intent": "general", "steps": []}
-
         llm_time_ms = 0
         validation_time_ms = 0
         execution_time_ms = 0
@@ -586,67 +575,149 @@ class Executor:
         final_coder_meta = {}
         result_data = []
         result_columns = []
+        attempt = 0
+        used_fast_track = False
 
-        # Self-healing loop with Coder and Critic
-        for attempt in range(self.MAX_RETRIES):
+        # Check if query qualifies for Fast-Track (Single-Agent) route
+        # Simple queries don't request explanatory analysis and don't force deep analysis
+        is_simple_query = not force_deep_analysis and not any(
+            re.search(pat, query_for_resolution.lower()) for pat in [
+                r"\bwhy\b",
+                r"\bwhat\s+drives?\b",
+                r"\bwhat\s+is\s+driving\b",
+                r"\b(what|which)\s+(are\s+)?(the\s+)?(main|key|top)\s+drivers?\b",
+                r"\bdrivers?\s+of\b",
+                r"\b(revenue|sales|profit|margin|cost|churn|attrition|retention|conversion|growth)\s+drivers?\b",
+                r"\bwhat\s+causes?\b",
+                r"\bexplain\b",
+                r"\breason\s+for\b",
+                r"\broot\s+cause\b",
+                r"\bwhat\s+is\s+behind\b",
+                r"\bfactors?\s+behind\b",
+            ]
+        )
+
+        if is_simple_query:
+            logger.info("Using Fast-Track (Single-Agent SQL generation) for simple query")
             if progress_callback:
-                await progress_callback({"step": 2, "total": 4, "phase": "coding", "detail": f"Coder: Generating DuckDB query (attempt {attempt + 1})..."})
-
-            # LLM Coder generation
+                await progress_callback({"step": 1, "total": 2, "phase": "coding", "detail": "Direct Coder: Generating SQL query directly..."})
+            
+            dummy_plan = {
+                "analysis_intent": "direct_query",
+                "steps": [{"step_number": 1, "description": "Generate directly matching SQL for the user query", "columns_involved": []}]
+            }
+            
             t_coder_start = time.perf_counter()
             try:
-                coder_result = await self._run_coder(user_query, schema, plan, hints, current_error)
-            except Exception as e:
-                current_error = f"Coder generation failed: {str(e)}"
+                coder_result = await self._run_coder(user_query, schema, dummy_plan, hints, None)
                 llm_time_ms += round((time.perf_counter() - t_coder_start) * 1000)
-                continue
-            
-            llm_time_ms += round((time.perf_counter() - t_coder_start) * 1000)
-            raw_sql = coder_result.get("sql", "").strip()
-            last_sql = raw_sql
-            final_coder_meta = coder_result
-
-            # Validate + Execute
-            t_val_start = time.perf_counter()
-            try:
-                # Early syntactical validate
+                
+                raw_sql = coder_result.get("sql", "").strip()
+                last_sql = raw_sql
+                final_coder_meta = coder_result
+                
+                t_val_start = time.perf_counter()
                 from ..llm.sql_validator import SQLValidator
                 SQLValidator.validate(raw_sql)
                 validation_time_ms += round((time.perf_counter() - t_val_start) * 1000)
-
-                # Execute
+                
                 t_exec_start = time.perf_counter()
                 raw_sql_upper = raw_sql.upper()
                 is_aggregative = any(kw in raw_sql_upper for kw in ["GROUP BY", "SUM(", "AVG(", "COUNT(", "MIN(", "MAX(", "WINDOW"])
                 timeout_sec = 20 if is_aggregative else 10
-
+                
                 result_df = await db.execute_query(raw_sql, table_name=table_name, timeout_seconds=timeout_sec)
                 execution_time_ms += round((time.perf_counter() - t_exec_start) * 1000)
-
+                
                 result_json = result_df.to_json(orient="records", date_format="iso")
                 result_data = json.loads(result_json)
                 result_columns = list(result_df.columns)
-
-                # Critic Phase
-                if progress_callback:
-                    await progress_callback({"step": 3, "total": 4, "phase": "critiquing", "detail": f"Critic: Reviewing query validity & results (attempt {attempt + 1})..."})
-
-                t_critic_start = time.perf_counter()
-                critic_result = await self._run_critic(raw_sql, result_data, result_columns, schema)
-                llm_time_ms += round((time.perf_counter() - t_critic_start) * 1000)
-
-                if critic_result.get("approved"):
-                    # Critic approved! Exit loop.
-                    current_error = None
-                    break
-                else:
-                    current_error = critic_result.get("correction_hint") or "Critic rejected result."
-                    logger.warning(f"Critic rejected attempt {attempt + 1}: {current_error}")
+                
+                used_fast_track = True
+                logger.info("Fast-Track query succeeded. Bypassing strategist and critic.")
             except Exception as e:
-                # Catch syntax error or database execution exception as failure feedback
-                current_error = str(e)
-                validation_time_ms += round((time.perf_counter() - t_val_start) * 1000)
-                logger.warning(f"Execution failed on attempt {attempt + 1}: {current_error}")
+                logger.warning(f"Fast-Track query failed: {e}. Falling back to full Multi-Agent flow.")
+                # Reset state variables to retry in multi-agent flow
+                llm_time_ms = 0
+                validation_time_ms = 0
+                execution_time_ms = 0
+                last_sql = None
+                final_coder_meta = {}
+                result_data = []
+                result_columns = []
+
+        if not used_fast_track:
+            # Strategist Phase
+            t_llm_start = time.perf_counter()
+            if progress_callback:
+                await progress_callback({"step": 1, "total": 4, "phase": "planning", "detail": "Strategist: Deconstructing query and planning layout..."})
+            
+            try:
+                plan = await self._run_strategist(user_query, schema, hints)
+            except Exception as e:
+                logger.error(f"Strategist failed: {e}")
+                plan = {"analysis_intent": "general", "steps": []}
+
+            # Self-healing loop with Coder and Critic
+            for attempt in range(self.MAX_RETRIES):
+                if progress_callback:
+                    await progress_callback({"step": 2, "total": 4, "phase": "coding", "detail": f"Coder: Generating DuckDB query (attempt {attempt + 1})..."})
+
+                # LLM Coder generation
+                t_coder_start = time.perf_counter()
+                try:
+                    coder_result = await self._run_coder(user_query, schema, plan, hints, current_error)
+                except Exception as e:
+                    current_error = f"Coder generation failed: {str(e)}"
+                    llm_time_ms += round((time.perf_counter() - t_coder_start) * 1000)
+                    continue
+                
+                llm_time_ms += round((time.perf_counter() - t_coder_start) * 1000)
+                raw_sql = coder_result.get("sql", "").strip()
+                last_sql = raw_sql
+                final_coder_meta = coder_result
+
+                # Validate + Execute
+                t_val_start = time.perf_counter()
+                try:
+                    # Early syntactical validate
+                    from ..llm.sql_validator import SQLValidator
+                    SQLValidator.validate(raw_sql)
+                    validation_time_ms += round((time.perf_counter() - t_val_start) * 1000)
+
+                    # Execute
+                    t_exec_start = time.perf_counter()
+                    raw_sql_upper = raw_sql.upper()
+                    is_aggregative = any(kw in raw_sql_upper for kw in ["GROUP BY", "SUM(", "AVG(", "COUNT(", "MIN(", "MAX(", "WINDOW"])
+                    timeout_sec = 20 if is_aggregative else 10
+
+                    result_df = await db.execute_query(raw_sql, table_name=table_name, timeout_seconds=timeout_sec)
+                    execution_time_ms += round((time.perf_counter() - t_exec_start) * 1000)
+
+                    result_json = result_df.to_json(orient="records", date_format="iso")
+                    result_data = json.loads(result_json)
+                    result_columns = list(result_df.columns)
+
+                    # Critic Phase
+                    if progress_callback:
+                        await progress_callback({"step": 3, "total": 4, "phase": "critiquing", "detail": f"Critic: Reviewing query validity & results (attempt {attempt + 1})..."})
+
+                    t_critic_start = time.perf_counter()
+                    critic_result = await self._run_critic(raw_sql, result_data, result_columns, schema)
+                    llm_time_ms += round((time.perf_counter() - t_critic_start) * 1000)
+
+                    if critic_result.get("approved"):
+                        # Critic approved! Exit loop.
+                        current_error = None
+                        break
+                    else:
+                        current_error = critic_result.get("correction_hint") or "Critic rejected result."
+                        logger.warning(f"Critic rejected attempt {attempt + 1}: {current_error}")
+                except Exception as e:
+                    # Catch syntax error or database execution exception as failure feedback
+                    current_error = str(e)
+                    validation_time_ms += round((time.perf_counter() - t_val_start) * 1000)
+                    logger.warning(f"Execution failed on attempt {attempt + 1}: {current_error}")
 
         total_time_ms = round((time.perf_counter() - t_total_start) * 1000)
 

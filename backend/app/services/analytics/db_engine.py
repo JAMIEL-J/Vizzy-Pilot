@@ -100,6 +100,7 @@ class DBEngine:
                 self._write_con.execute(
                     f"CREATE TABLE {safe_identifier(table_name)} AS SELECT * FROM read_csv_auto(?)",
                     [effective_path]
+                    f"CREATE TABLE {safe_identifier(table_name)} AS SELECT * FROM read_csv_auto('{effective_path}')"
                 )
                 _phase_times["read_csv_auto"] = time.perf_counter() - _t0
             except duckdb.Error as first_err:
@@ -126,6 +127,7 @@ class DBEngine:
                     self._write_con.execute(
                         f"CREATE TABLE {safe_identifier(table_name)} AS SELECT * FROM read_csv_auto(?)",
                         [effective_path]
+                        f"CREATE TABLE {safe_identifier(table_name)} AS SELECT * FROM read_csv_auto('{effective_path}')"
                     )
                     _phase_times["read_csv_auto_retry"] = time.perf_counter() - _t_reencode
                 except duckdb.Error:
@@ -140,6 +142,7 @@ class DBEngine:
                             f"CREATE TABLE {safe_identifier(table_name)} AS SELECT * FROM "
                             f"read_csv_auto(?, ignore_errors=true)",
                             [effective_path]
+                            f"read_csv_auto('{effective_path}', ignore_errors=true)"
                         )
                     except duckdb.Error as final_err:
                         logger.error(f"All CSV load strategies failed: {final_err}")

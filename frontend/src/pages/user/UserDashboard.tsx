@@ -2,7 +2,7 @@
 import React from "react";
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useTheme } from '../../context/ThemeContext';
-import { datasetService, semanticMappingService, type DatasetVersionSummary } from '../../lib/api/dataset';
+import { datasetService, type DatasetVersionSummary } from '../../lib/api/dataset';
 import { apiClient } from '../../lib/api/client';
 import { analyticsService, correlationService, narrativeService, type DashboardAnalytics, type CorrelationMatrix } from '../../lib/api/dashboard';
 import { useDashboardStream } from '../../hooks/useDashboardStream';
@@ -618,6 +618,7 @@ export default function UserDashboard() {
         }
     }, [selectedDatasetId]);
 
+    // Load saved semantic mapping from version metadata (NO LLM call)
     useEffect(() => {
         if (!selectedDatasetId || !versionId) {
             setProposals([]);
@@ -628,15 +629,26 @@ export default function UserDashboard() {
             setProposals([]);
             return;
         }
-        semanticMappingService.proposeMapping(selectedDatasetId, versionId)
-            .then(data => {
-                const proposedList = data?.proposal?.metadata?.proposals || [];
+        // Read saved mapping from version list instead of calling LLM
+        const currentVersion = versions.find(v => v.id === versionId);
+        if (currentVersion?.semantic_map_json) {
+            try {
+                const savedMap = typeof currentVersion.semantic_map_json === 'string'
+                    ? JSON.parse(currentVersion.semantic_map_json)
+                    : currentVersion.semantic_map_json;
+                const proposedList = Object.entries(savedMap).map(([column, role]) => ({
+                    column,
+                    role: role as string,
+                    confidence: 1.0,
+                    reasoning: 'Previously confirmed mapping',
+                }));
                 setProposals(proposedList);
-            })
-            .catch(err => {
-                console.error("Failed to load mapping proposals on dashboard:", err);
+            } catch {
                 setProposals([]);
-            });
+            }
+        } else {
+            setProposals([]);
+        }
     }, [selectedDatasetId, versionId, versions]);
 
     useEffect(() => {
@@ -1054,6 +1066,7 @@ export default function UserDashboard() {
     // Fetch narrative when KPIs and charts are loaded
     useEffect(() => {
         if (!analytics?.kpis || !selectedDatasetId) return;
+        
         const narrativeKey = stableSerialize({
             datasetId: selectedDatasetId,
             domain: analytics.domain,
@@ -1061,13 +1074,19 @@ export default function UserDashboard() {
             kpis: analytics.kpis,
             charts: analytics.charts,
         });
+        
         const cached = cacheRef.current.narrative.get(narrativeKey);
         if (cached && isFresh(cached.createdAt)) {
             setNarrative(cached.value);
             setNarrativeLoading(false);
             return;
         }
+
+        let isCancelled = false;
+        
+        setNarrative(null); // Clear old insight while fetching
         setNarrativeLoading(true);
+        
         narrativeService.generate(
             selectedDatasetId,
             analytics.kpis,
@@ -1076,11 +1095,21 @@ export default function UserDashboard() {
             analytics.charts,
         )
             .then(text => {
-                cacheRef.current.narrative.set(narrativeKey, text);
-                setNarrative(text);
+                if (!isCancelled) {
+                    cacheRef.current.narrative.set(narrativeKey, text);
+                    setNarrative(text);
+                }
             })
-            .catch(() => setNarrative(null))
-            .finally(() => setNarrativeLoading(false));
+            .catch(() => {
+                if (!isCancelled) setNarrative(null);
+            })
+            .finally(() => {
+                if (!isCancelled) setNarrativeLoading(false);
+            });
+            
+        return () => {
+            isCancelled = true;
+        };
     }, [analytics?.kpis, analytics?.charts, selectedDatasetId]);
 
     const formatValue = (value: any, format = 'number') => {
