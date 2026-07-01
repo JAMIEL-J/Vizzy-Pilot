@@ -145,8 +145,8 @@ def _get_duckdb_physical_type_map(
             coltype = str(row.iloc[1])
             type_map[colname] = coltype
         return type_map
-    except Exception as e:
-        logger.error(f"Failed to get physical type map for {table_ref}: {e}")
+    except Exception:
+        logger.exception("Failed to get physical type map for %s", table_ref)
         return {}
 
 
