@@ -42,12 +42,13 @@ def _binary_bucket(value: Any) -> Optional[str]:
 
 def _binary_sql_condition(column: str, bucket: str) -> str:
     """Build SQL condition for semantic binary bucket, tolerant to numeric/text encodings."""
-    col_text = f'LOWER(TRIM(CAST({safe_identifier(column)} AS VARCHAR)))'
+    safe_col = safe_identifier(column)
+    col_text = f'LOWER(TRIM(CAST({safe_col} AS VARCHAR)))'
     if bucket == '__pos__':
         pos_list = ', '.join([f"'{v}'" for v in sorted(_POSITIVE_KEYWORDS)])
-        return f'({col_text} IN ({pos_list}) OR TRY_CAST({safe_identifier(column)} AS DOUBLE) = 1)'
+        return f'({col_text} IN ({pos_list}) OR TRY_CAST({safe_col} AS DOUBLE) = 1)'
     neg_list = ', '.join([f"'{v}'" for v in sorted(_NEGATIVE_KEYWORDS)])
-    return f'({col_text} IN ({neg_list}) OR TRY_CAST({safe_identifier(column)} AS DOUBLE) = 0)'
+    return f'({col_text} IN ({neg_list}) OR TRY_CAST({safe_col} AS DOUBLE) = 0)'
 
 
 def _normalize_aggregation(aggregation: Optional[str], default: str = 'COUNT') -> str:
@@ -264,18 +265,21 @@ def build_chart_query(
         y_col = metric or _get_chart_config_value(chart_config, 'y_column', 'metric', 'y_col')
 
         if x_col and y_col:
+            safe_x_col = safe_identifier(x_col)
+            safe_y_col = safe_identifier(y_col)
+            safe_table = safe_identifier(table_name)
             x_label = str(x_col).replace("'", "''")
             y_label = str(y_col).replace("'", "''")
             return f'''
                 SELECT
-                    {safe_identifier(x_col)} as x,
-                    {safe_identifier(y_col)} as y,
+                    {safe_x_col} as x,
+                    {safe_y_col} as y,
                     '{x_label}' as xLabel,
                     '{y_label}' as yLabel
-                FROM {safe_identifier(table_name)}
+                FROM {safe_table}
                 WHERE {where_clause}
-                    AND {safe_identifier(x_col)} IS NOT NULL
-                    AND {safe_identifier(y_col)} IS NOT NULL
+                    AND {safe_x_col} IS NOT NULL
+                    AND {safe_y_col} IS NOT NULL
                 LIMIT 1000
             ''', params
         else:
