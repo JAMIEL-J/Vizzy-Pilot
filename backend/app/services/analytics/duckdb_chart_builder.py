@@ -7,6 +7,7 @@ Replaces pandas aggregations with columnar SQL queries (PowerBI approach).
 import logging
 from typing import Dict, Any, List, Optional, Tuple
 import duckdb
+from app.services.analytics.query_utils import safe_identifier
 
 logger = logging.getLogger(__name__)
 
@@ -41,12 +42,12 @@ def _binary_bucket(value: Any) -> Optional[str]:
 
 def _binary_sql_condition(column: str, bucket: str) -> str:
     """Build SQL condition for semantic binary bucket, tolerant to numeric/text encodings."""
-    col_text = f'LOWER(TRIM(CAST("{column}" AS VARCHAR)))'
+    col_text = f'LOWER(TRIM(CAST({safe_identifier(column)} AS VARCHAR)))'
     if bucket == '__pos__':
         pos_list = ', '.join([f"'{v}'" for v in sorted(_POSITIVE_KEYWORDS)])
-        return f'({col_text} IN ({pos_list}) OR TRY_CAST("{column}" AS DOUBLE) = 1)'
+        return f'({col_text} IN ({pos_list}) OR TRY_CAST({safe_identifier(column)} AS DOUBLE) = 1)'
     neg_list = ', '.join([f"'{v}'" for v in sorted(_NEGATIVE_KEYWORDS)])
-    return f'({col_text} IN ({neg_list}) OR TRY_CAST("{column}" AS DOUBLE) = 0)'
+    return f'({col_text} IN ({neg_list}) OR TRY_CAST({safe_identifier(column)} AS DOUBLE) = 0)'
 
 
 def _normalize_aggregation(aggregation: Optional[str], default: str = 'COUNT') -> str:
@@ -93,7 +94,7 @@ def build_filter_where_clause(
         if target_bucket:
             conditions.append(_binary_sql_condition(target_column, target_bucket))
         else:
-            conditions.append(f'LOWER(TRIM(CAST("{target_column}" AS VARCHAR))) = ?')
+            conditions.append(f'LOWER(TRIM(CAST({safe_identifier(target_column)} AS VARCHAR))) = ?')
             params.append(target_norm)
 
     # Column filters
@@ -115,7 +116,7 @@ def build_filter_where_clause(
                     try:
                         min_val = float(parts[0].strip())
                         max_val = float(parts[1].strip())
-                        range_conditions.append(f'(TRY_CAST("{column}" AS DOUBLE) BETWEEN ? AND ?)')
+                        range_conditions.append(f'(TRY_CAST({safe_identifier(column)} AS DOUBLE) BETWEEN ? AND ?)')
                         params.extend([min_val, max_val])
                         continue
                     except ValueError:
@@ -123,7 +124,7 @@ def build_filter_where_clause(
             elif val_str.startswith('>='):
                 try:
                     min_val = float(val_str[2:].strip())
-                    range_conditions.append(f'TRY_CAST("{column}" AS DOUBLE) >= ?')
+                    range_conditions.append(f'TRY_CAST({safe_identifier(column)} AS DOUBLE) >= ?')
                     params.append(min_val)
                     continue
                 except ValueError:
@@ -131,7 +132,7 @@ def build_filter_where_clause(
             elif val_str.startswith('<='):
                 try:
                     max_val = float(val_str[2:].strip())
-                    range_conditions.append(f'TRY_CAST("{column}" AS DOUBLE) <= ?')
+                    range_conditions.append(f'TRY_CAST({safe_identifier(column)} AS DOUBLE) <= ?')
                     params.append(max_val)
                     continue
                 except ValueError:
@@ -139,7 +140,7 @@ def build_filter_where_clause(
             elif val_str.startswith('>') and not val_str.startswith('>='):
                 try:
                     min_val = float(val_str[1:].strip())
-                    range_conditions.append(f'TRY_CAST("{column}" AS DOUBLE) > ?')
+                    range_conditions.append(f'TRY_CAST({safe_identifier(column)} AS DOUBLE) > ?')
                     params.append(min_val)
                     continue
                 except ValueError:
@@ -147,7 +148,7 @@ def build_filter_where_clause(
             elif val_str.startswith('<') and not val_str.startswith('<='):
                 try:
                     max_val = float(val_str[1:].strip())
-                    range_conditions.append(f'TRY_CAST("{column}" AS DOUBLE) < ?')
+                    range_conditions.append(f'TRY_CAST({safe_identifier(column)} AS DOUBLE) < ?')
                     params.append(max_val)
                     continue
                 except ValueError:
@@ -175,13 +176,13 @@ def build_filter_where_clause(
                 if exact_scalar_values:
                     placeholders = ','.join(['?'] * len(exact_scalar_values))
                     col_conditions.append(
-                        f'LOWER(TRIM(CAST("{column}" AS VARCHAR))) IN ({placeholders})'
+                        f'LOWER(TRIM(CAST({safe_identifier(column)} AS VARCHAR))) IN ({placeholders})'
                     )
                     params.extend(exact_scalar_values)
             else:
                 placeholders = ','.join(['?'] * len(scalar_values))
                 col_conditions.append(
-                    f'LOWER(TRIM(CAST("{column}" AS VARCHAR))) IN ({placeholders})'
+                    f'LOWER(TRIM(CAST({safe_identifier(column)} AS VARCHAR))) IN ({placeholders})'
                 )
                 params.extend(scalar_values)
 
@@ -199,28 +200,29 @@ def get_parsed_date_expr(dimension: str) -> str:
     Returns a DuckDB SQL expression that attempts to parse a column into a DATE/TIMESTAMP.
     Supports a wide variety of date formats.
     """
+    dim_safe = safe_identifier(dimension)
     return (
         f'COALESCE('
-        f'TRY_CAST("{dimension}" AS DATE), '
-        f'TRY_CAST("{dimension}" AS TIMESTAMP), '
-        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%Y-%m-%d\')), '
-        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%Y-%m-%d %H:%M:%S\')), '
-        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%Y-%m-%d %H:%M:%S.%f\')), '
-        f'TRY(strptime(substring(CAST("{dimension}" AS VARCHAR), 1, 19), \'%Y-%m-%dT%H:%M:%S\')), '
-        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%m/%d/%Y\')), '
-        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%d/%m/%Y\')), '
-        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%Y/%m/%d\')), '
-        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%d-%m-%Y\')), '
-        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%Y-%m\')), '
-        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%Y/%m\')), '
-        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%m/%d/%y\')), '
-        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%d/%m/%y\')), '
-        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%b %Y\')), '
-        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%B %Y\')), '
-        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%d-%b-%Y\')), '
-        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%d-%B-%Y\')), '
-        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%Y%m%d\')), '
-        f'TRY(strptime(CAST("{dimension}" AS VARCHAR), \'%Y%m\'))'
+        f'TRY_CAST({dim_safe} AS DATE), '
+        f'TRY_CAST({dim_safe} AS TIMESTAMP), '
+        f'TRY(strptime(CAST({dim_safe} AS VARCHAR), \'%Y-%m-%d\')), '
+        f'TRY(strptime(CAST({dim_safe} AS VARCHAR), \'%Y-%m-%d %H:%M:%S\')), '
+        f'TRY(strptime(CAST({dim_safe} AS VARCHAR), \'%Y-%m-%d %H:%M:%S.%f\')), '
+        f'TRY(strptime(substring(CAST({dim_safe} AS VARCHAR), 1, 19), \'%Y-%m-%dT%H:%M:%S\')), '
+        f'TRY(strptime(CAST({dim_safe} AS VARCHAR), \'%m/%d/%Y\')), '
+        f'TRY(strptime(CAST({dim_safe} AS VARCHAR), \'%d/%m/%Y\')), '
+        f'TRY(strptime(CAST({dim_safe} AS VARCHAR), \'%Y/%m/%d\')), '
+        f'TRY(strptime(CAST({dim_safe} AS VARCHAR), \'%d-%m-%Y\')), '
+        f'TRY(strptime(CAST({dim_safe} AS VARCHAR), \'%Y-%m\')), '
+        f'TRY(strptime(CAST({dim_safe} AS VARCHAR), \'%Y/%m\')), '
+        f'TRY(strptime(CAST({dim_safe} AS VARCHAR), \'%m/%d/%y\')), '
+        f'TRY(strptime(CAST({dim_safe} AS VARCHAR), \'%d/%m/%y\')), '
+        f'TRY(strptime(CAST({dim_safe} AS VARCHAR), \'%b %Y\')), '
+        f'TRY(strptime(CAST({dim_safe} AS VARCHAR), \'%B %Y\')), '
+        f'TRY(strptime(CAST({dim_safe} AS VARCHAR), \'%d-%b-%Y\')), '
+        f'TRY(strptime(CAST({dim_safe} AS VARCHAR), \'%d-%B-%Y\')), '
+        f'TRY(strptime(CAST({dim_safe} AS VARCHAR), \'%Y%m%d\')), '
+        f'TRY(strptime(CAST({dim_safe} AS VARCHAR), \'%Y%m\'))'
         f')'
     )
 
@@ -262,16 +264,18 @@ def build_chart_query(
         y_col = metric or _get_chart_config_value(chart_config, 'y_column', 'metric', 'y_col')
 
         if x_col and y_col:
+            x_label = str(x_col).replace("'", "''")
+            y_label = str(y_col).replace("'", "''")
             return f'''
                 SELECT
-                    "{x_col}" as x,
-                    "{y_col}" as y,
-                    '{x_col}' as xLabel,
-                    '{y_col}' as yLabel
-                FROM "{table_name}"
+                    {safe_identifier(x_col)} as x,
+                    {safe_identifier(y_col)} as y,
+                    '{x_label}' as xLabel,
+                    '{y_label}' as yLabel
+                FROM {safe_identifier(table_name)}
                 WHERE {where_clause}
-                    AND "{x_col}" IS NOT NULL
-                    AND "{y_col}" IS NOT NULL
+                    AND {safe_identifier(x_col)} IS NOT NULL
+                    AND {safe_identifier(y_col)} IS NOT NULL
                 LIMIT 1000
             ''', params
         else:
@@ -285,12 +289,12 @@ def build_chart_query(
             # Truncate to month for trends and format to YYYY-MM
             # If parsing fails, fallback to casting the raw dimension
             select_parts.append(f"DATE_TRUNC('month', {parsed_date_expr}) as date")
-            select_parts.append(f"COALESCE(STRFTIME(DATE_TRUNC('month', {parsed_date_expr}), '%Y-%m'), CAST(\"{dimension}\" AS VARCHAR)) as name")
+            select_parts.append(f"COALESCE(STRFTIME(DATE_TRUNC('month', {parsed_date_expr}), '%Y-%m'), CAST({safe_identifier(dimension)} AS VARCHAR)) as name")
             group_by_parts.extend(['1', '2'])
             order_by = 'ORDER BY date ASC NULLS LAST'
             limit_clause = ''
         else:
-            select_parts.append(f'CAST("{dimension}" AS VARCHAR) as name')
+            select_parts.append(f'CAST({safe_identifier(dimension)} AS VARCHAR) as name')
             group_by_parts.append('1')
             order_by = 'ORDER BY value DESC'
             limit_clause = 'LIMIT 10'  # Top 10 categories
@@ -298,11 +302,11 @@ def build_chart_query(
     # Aggregation
     if metric:
         if aggregation == 'COUNT':
-            select_parts.append(f'COUNT("{metric}") as value')
+            select_parts.append(f'COUNT({safe_identifier(metric)}) as value')
         elif aggregation in ['SUM', 'AVG', 'MIN', 'MAX']:
-            select_parts.append(f'{aggregation}(TRY_CAST("{metric}" AS DOUBLE)) as value')
+            select_parts.append(f'{aggregation}(TRY_CAST({safe_identifier(metric)} AS DOUBLE)) as value')
         else:
-            select_parts.append(f'SUM(TRY_CAST("{metric}" AS DOUBLE)) as value')
+            select_parts.append(f'SUM(TRY_CAST({safe_identifier(metric)} AS DOUBLE)) as value')
     else:
         # Count rows
         select_parts.append('COUNT(*) as value')
@@ -314,7 +318,7 @@ def build_chart_query(
 
     query = f'''
         SELECT {', '.join(select_parts)}
-        FROM "{table_name}"
+        FROM {safe_identifier(table_name)}
         WHERE {where_clause}
         {group_clause}
         {order_by}
@@ -388,17 +392,17 @@ def build_kpi_query(
 
     if aggregation == 'COUNT':
         if column:
-            agg_expr = f'COUNT("{column}")'
+            agg_expr = f'COUNT({safe_identifier(column)})'
         else:
             agg_expr = 'COUNT(*)'
     elif aggregation in ['SUM', 'AVG', 'MIN', 'MAX']:
-        agg_expr = f'{aggregation}(TRY_CAST("{column}" AS DOUBLE))'
+        agg_expr = f'{aggregation}(TRY_CAST({safe_identifier(column)} AS DOUBLE))'
     else:
-        agg_expr = f'SUM(TRY_CAST("{column}" AS DOUBLE))'
+        agg_expr = f'SUM(TRY_CAST({safe_identifier(column)} AS DOUBLE))'
 
     return f'''
         SELECT {agg_expr} as value
-        FROM "{table_name}"
+        FROM {safe_identifier(table_name)}
         WHERE {where_clause}
     ''', params
 
