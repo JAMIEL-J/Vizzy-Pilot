@@ -9,7 +9,8 @@ import {
     PanelRightClose, Download, Copy, Maximize2, 
     Sparkles, Database, Code2, Check, ArrowUp,
     BarChart3, AlertCircle, X, Plus, MessageSquare,
-    PanelLeft, PanelLeftClose, Table as TableIcon, FileText, Wand2, BrainCog, Globe
+    PanelLeft, PanelLeftClose, Table as TableIcon, FileText, Wand2, BrainCog, Globe,
+    ChevronDown, ChevronRight
 } from 'lucide-react';
 import { Panel, PanelHeader, Pill, BtnGhost, BtnSecondary, BtnAccent } from '@/components/ui/primitive';
 import RuixenMoonChat from '../../components/ui/ruixen-moon-chat';
@@ -205,6 +206,9 @@ export default function ChatInterface() {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [isTyping, setIsTyping] = useState(false);
     const [thinkProgress, setThinkProgress] = useState<{ step: number; total: number; phase: string; detail: string; query_index?: number; query_total?: number } | null>(null);
+    const [thoughtSteps, setThoughtSteps] = useState<{ id: number; content: string; timestamp: string; duration_ms?: number }[]>([]);
+    const currentThoughtStepsRef = useRef<{ id: number; content: string; timestamp: string; duration_ms?: number }[]>([]);
+    const [expandedThoughts, setExpandedThoughts] = useState<Record<string, boolean>>({});
     const [initialSuggestions, setInitialSuggestions] = useState<string[]>([]);
     const [datasets, setDatasets] = useState<Dataset[]>([]);
     const [selectedDatasetId, setSelectedDatasetId] = useState<string>('');
@@ -493,6 +497,10 @@ export default function ChatInterface() {
 
         try {
             let response;
+            // Reset thought tracking
+            setThoughtSteps([]);
+            currentThoughtStepsRef.current = [];
+
             if (options?.forceDeepAnalysis) {
                 setThinkProgress({
                     step: 1,
@@ -500,21 +508,31 @@ export default function ChatInterface() {
                     phase: 'classifying',
                     detail: 'Analyzing your question...'
                 });
-                response = await chatService.sendMessageStream(
-                    sessionId,
-                    text,
-                    (progress) => {
-                        setThinkProgress(progress);
-                    },
-                    abortControllerRef.current.signal,
-                    options
-                );
-            } else {
-                response = await chatService.sendMessage(sessionId, text, abortControllerRef.current.signal, options);
             }
+
+            response = await chatService.sendMessageStream(
+                sessionId,
+                text,
+                (progress) => {
+                    setThinkProgress(progress);
+                },
+                (thought) => {
+                    currentThoughtStepsRef.current = [...currentThoughtStepsRef.current, thought];
+                    setThoughtSteps(prev => [...prev, thought]);
+                },
+                abortControllerRef.current.signal,
+                options
+            );
             setMessages(prev => {
                 const filtered = prev.filter(m => m.id !== tempId);
-                return [...filtered, response.user_message, response.assistant_message];
+                const assistantMsg = { ...response.assistant_message };
+                if (currentThoughtStepsRef.current.length > 0) {
+                    assistantMsg.output_data = {
+                        ...(assistantMsg.output_data || {}),
+                        thought_process: currentThoughtStepsRef.current,
+                    };
+                }
+                return [...filtered, response.user_message, assistantMsg];
             });
             setInitialSuggestions([]);
 
@@ -1066,53 +1084,86 @@ export default function ChatInterface() {
                                                     ))}
                                                 </div>
                                             )}
+                                            {msg.role === 'assistant' && msg.output_data?.thought_process && msg.output_data.thought_process.length > 0 && (
+                                                <div className="mt-3 border-l-2 border-border/40 pl-3.5 ml-1 bg-transparent">
+                                                    <button
+                                                        onClick={() => setExpandedThoughts(prev => ({ ...prev, [msg.id]: !prev[msg.id] }))}
+                                                        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer select-none py-1"
+                                                    >
+                                                        {expandedThoughts[msg.id] ? (
+                                                            <ChevronDown className="h-3 w-3 text-muted-foreground/60" />
+                                                        ) : (
+                                                            <ChevronRight className="h-3 w-3 text-muted-foreground/60" />
+                                                        )}
+                                                        <Sparkles className="h-3 w-3 text-muted-foreground/45" />
+                                                        <span className="font-medium">Thought process</span>
+                                                        <span className="text-[10px] text-muted-foreground/50 font-mono">({msg.output_data.thought_process.length} steps)</span>
+                                                    </button>
+                                                    {expandedThoughts[msg.id] && (
+                                                        <div className="mt-2 space-y-2 pl-2 border-l border-border/20 ml-1.5 py-0.5 animate-fade-in">
+                                                            {msg.output_data.thought_process.map((step: any) => (
+                                                                <div key={step.id} className="flex items-start gap-2.5 text-xs text-muted-foreground/75">
+                                                                    <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/35 mt-1.5 shrink-0" />
+                                                                    <span className="leading-relaxed font-sans">{step.content}</span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
                                 ))}
                             {isTyping && (
-                                <div className="flex gap-3">
+                                <div className="flex gap-3 animate-fade-in">
                                     <div className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md bg-surface-3 border border-border text-foreground">
-                                        {thinkProgress ? <BrainCog className="h-3.5 w-3.5 text-primary animate-pulse" /> : <Sparkles className="h-3.5 w-3.5" />}
+                                        <Sparkles className="h-3.5 w-3.5 animate-pulse text-muted-foreground/70" />
                                     </div>
-                                    {thinkProgress ? (
-                                        <div className="flex-1 max-w-md bg-surface-2 border border-border/60 rounded-xl p-4 shadow-sm animate-fade-in space-y-3">
-                                            <div className="flex items-center justify-between text-xs font-semibold">
-                                                <span className="flex items-center gap-1.5 text-primary">
-                                                    <BrainCog className="h-4 w-4 animate-spin [animation-duration:3s]" />
-                                                    Deep Analysis
+                                    <div className="flex-1 max-w-lg mt-1">
+                                        {/* Active Thinking Component */}
+                                        <div className="border-l-2 border-primary/50 pl-3.5 ml-1 bg-transparent space-y-3">
+                                            <div className="flex items-center gap-2 text-xs text-muted-foreground/90 font-medium select-none">
+                                                <BrainCog className="h-3.5 w-3.5 text-primary/70 animate-spin [animation-duration:4s]" />
+                                                <span>Thinking...</span>
+                                                <span className="text-[10px] text-muted-foreground/50 font-mono ml-auto">
+                                                    {thoughtSteps.length > 0 ? `${thoughtSteps.length} steps` : ''}
                                                 </span>
-                                                <span className="text-muted-foreground font-mono">
-                                                    {thinkProgress.step}/{thinkProgress.total}
-                                                </span>
                                             </div>
-                                            
-                                            <div className="h-1.5 w-full bg-surface-3 rounded-full overflow-hidden border border-border/30">
-                                                <div 
-                                                    className="h-full bg-gradient-to-r from-primary to-[#8B5CF6] transition-all duration-500 ease-out rounded-full"
-                                                    style={{ width: `${(thinkProgress.step / thinkProgress.total) * 100}%` }}
-                                                />
-                                            </div>
-
-                                            <div className="text-xs text-foreground/90 font-medium">
-                                                {thinkProgress.detail}
-                                            </div>
-                                            
-                                            {thinkProgress.query_index !== undefined && thinkProgress.query_total !== undefined && (
-                                                <div className="text-[10px] text-muted-foreground font-mono flex items-center justify-between">
-                                                    <span>Query {thinkProgress.query_index} of {thinkProgress.query_total}</span>
-                                                    <span>{Math.round((thinkProgress.query_index / thinkProgress.query_total) * 100)}%</span>
+                                            {thoughtSteps.length > 0 && (
+                                                <div className="space-y-2 max-h-[220px] overflow-y-auto pl-2 border-l border-border/20 ml-1.5 py-0.5">
+                                                    {thoughtSteps.map((step) => (
+                                                        <div
+                                                            key={step.id}
+                                                            className="flex items-start gap-2.5 text-xs text-muted-foreground/75 animate-fade-in"
+                                                        >
+                                                            <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/35 mt-1.5 shrink-0" />
+                                                            <span className="leading-relaxed font-sans">{step.content}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                            {thinkProgress && (
+                                                <div className="pt-1.5 space-y-2 max-w-md">
+                                                    <div className="flex items-center justify-between text-[11px] font-semibold text-muted-foreground/80 pl-2">
+                                                        <span className="flex items-center gap-1">
+                                                            <BrainCog className="h-3 w-3 animate-spin [animation-duration:3s] text-primary/70" />
+                                                            {thinkProgress.detail}
+                                                        </span>
+                                                        <span className="font-mono">
+                                                            {thinkProgress.step}/{thinkProgress.total}
+                                                        </span>
+                                                    </div>
+                                                    <div className="h-1 w-full bg-surface-3 rounded-full overflow-hidden">
+                                                        <div
+                                                            className="h-full bg-gradient-to-r from-primary to-[#1EAEDB] transition-all duration-500 ease-out rounded-full"
+                                                            style={{ width: `${(thinkProgress.step / thinkProgress.total) * 100}%` }}
+                                                        />
+                                                    </div>
                                                 </div>
                                             )}
                                         </div>
-                                    ) : (
-                                        <div className="flex items-center gap-1.5 pt-2">
-                                            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-muted-foreground" />
-                                            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-muted-foreground [animation-delay:120ms]" />
-                                            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-muted-foreground [animation-delay:240ms]" />
-                                            <span className="ml-1 text-[11px] text-muted-foreground">Vizzy Pilot is thinking...</span>
-                                        </div>
-                                    )}
+                                    </div>
                                 </div>
                             )}
                             <div ref={messagesEndRef} />

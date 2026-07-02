@@ -90,6 +90,7 @@ export const chatService = {
         sessionId: string,
         content: string,
         onProgress: (progress: { step: number; total: number; phase: string; detail: string; query_index?: number; query_total?: number }) => void,
+        onThought?: (thought: { id: number; content: string; timestamp: string; duration_ms?: number }) => void,
         signal?: AbortSignal,
         options?: { forceDeepAnalysis?: boolean; enableSuggestions?: boolean }
     ): Promise<{ user_message: ChatMessage; assistant_message: ChatMessage }> => {
@@ -156,6 +157,13 @@ export const chatService = {
                             onProgress(data);
                         } catch (e) {
                             console.error('Failed to parse progress event data:', e);
+                        }
+                    } else if (eventType === 'thought' && eventData) {
+                        try {
+                            const data = JSON.parse(eventData);
+                            if (onThought) onThought(data);
+                        } catch (e) {
+                            console.error('Failed to parse thought event:', e);
                         }
                     } else if (eventType === 'complete' && eventData) {
                         try {

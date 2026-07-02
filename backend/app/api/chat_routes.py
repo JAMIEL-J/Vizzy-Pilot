@@ -197,7 +197,10 @@ def _format_compact_value(value: object, is_currency: bool = False, currency_sym
         return f"{currency_symbol}{base}" if is_currency else base
 
     decimals = 2 if num < 10 else (1 if num < 100 else 0)
-    compact = f"{sign}{num:.{decimals}f}".rstrip("0").rstrip(".") + suffix
+    formatted = f"{sign}{num:.{decimals}f}"
+    if "." in formatted:
+        formatted = formatted.rstrip("0").rstrip(".")
+    compact = formatted + suffix
     return f"{currency_symbol}{compact}" if is_currency else compact
 
 
@@ -1405,6 +1408,17 @@ async def send_message_stream(
     async def event_generator():
         queue = asyncio.Queue()
 
+        from datetime import timezone as _tz
+        thought_counter = [0]
+
+        async def emit_thought(content: str):
+            thought_counter[0] += 1
+            await queue.put(("thought", {
+                "id": thought_counter[0],
+                "content": content,
+                "timestamp": datetime.now(_tz.utc).isoformat(),
+            }))
+
         async def progress_callback(progress_data: dict):
             await queue.put(("progress", progress_data))
 
@@ -1439,11 +1453,14 @@ async def send_message_stream(
                         # click is also handled consistently.
                         query_text = _rewrite_clarification_query(request.content)
                         detected_intent, intent_confidence, intent_label = classify_intent_fast(query_text)
+                        clean_label = intent_label.replace('🎯 ', '').replace('📊 ', '').replace('📈 ', '').replace('🔍 ', '').strip()
+                        await emit_thought(f"Classifying query intent: identified as {clean_label.lower()} ({intent_confidence:.0%} confidence)")
                         is_dashboard = detected_intent == 'dashboard'
                         interpretive_text_mode = (_looks_interpretive_query(query_text) and not _explicitly_requests_visual(query_text))
                         is_schema_columns_query = _is_schema_columns_query(query_text) and not _explicitly_requests_visual(query_text)
 
                         if is_schema_columns_query:
+                            await emit_thought("Detected schema/column discovery query \u2014 returning column listing")
                             from app.models.dataset_version import DatasetVersion
                             version = session.get(DatasetVersion, chat_session.dataset_version_id)
                             data_path = (version.cleaned_reference or version.source_reference) if version else None
@@ -1453,6 +1470,7 @@ async def send_message_stream(
                             output_data = None
 
                         elif is_dashboard or interpretive_text_mode:
+                            await emit_thought(f"Routing to analysis orchestrator" + (" (deep analysis)" if request.force_deep_analysis else ""))
                             result = await run_analysis_orchestration(
                                 session=session,
                                 dataset_version_id=chat_session.dataset_version_id,
@@ -1499,6 +1517,7 @@ async def send_message_stream(
                             # ══════════════════════════════════════════════════
                             # CHART / TEXT / KPI → NL2SQL Engine (Primary)
                             # ══════════════════════════════════════════════════
+                            await emit_thought("Routing to NL2SQL engine for direct query execution")
                             nl2sql_result = None
                             db_engine = None
                             try:
@@ -1520,6 +1539,7 @@ async def send_message_stream(
                                     if duckdb_path.exists():
                                         db_engine = DBEngine(db_path=str(duckdb_path), read_only=True)
                                         db_engine._lock_down_read_con()
+                                        await emit_thought(f"Loaded dataset table: {table_name}")
                                     else:
                                         data_path = version.cleaned_reference or version.source_reference
                                         db_engine = DBEngine()
@@ -1566,8 +1586,10 @@ async def send_message_stream(
                                     db_engine.close()
 
                             if nl2sql_result and nl2sql_result.get("success"):
+                                await emit_thought("SQL query executed successfully")
                                 logger.info(f"NL2SQL Engine Success in stream: Generated SQL '{nl2sql_result.get('sql')}'")
                                 chart_type = nl2sql_result.get("chart_type", "table")
+                                await emit_thought(f"Visualization type: {chart_type}")
                                 timing = nl2sql_result.get("timing", {})
 
                                 chart_output = build_chart_from_nl2sql(nl2sql_result)
@@ -1647,6 +1669,7 @@ async def send_message_stream(
                                 diagnostics = nl2sql_result.get("diagnostics") if nl2sql_result else None
                                 failed_timing = nl2sql_result.get("timing") if nl2sql_result else None
                                 reason = nl2sql_result.get("error") if nl2sql_result else "Unknown crash"
+                                await emit_thought("Primary engine failed \u2014 falling back to legacy orchestrator")
                                 logger.warning(f"NL2SQL Engine failed ({reason}). Falling back to Legacy Orchestrator in Stream.")
 
                                 result = await run_analysis_orchestration(
@@ -1666,6 +1689,7 @@ async def send_message_stream(
                                     output_data["nl2sql_timing"] = failed_timing
                                     output_data["detected_intent"] = intent_label
                     else:
+                        await emit_thought("No dataset attached \u2014 returning guidance message")
                         if _is_simple_chat_query(request.content):
                             assistant_content = _build_simple_chat_response(request.content, has_dataset=False)
                         else:
@@ -1675,6 +1699,7 @@ async def send_message_stream(
 
                     # Suggestions for Search mode
                     if request.enable_suggestions and has_dataset_attached:
+                        await emit_thought("Generating contextual follow-up suggestions")
                         try:
                             contract = session.exec(
                                 select(AnalysisContract).where(
@@ -1735,6 +1760,8 @@ async def send_message_stream(
                     break
                 elif event_type == "progress":
                     yield f"event: progress\ndata: {json.dumps(payload)}\n\n"
+                elif event_type == "thought":
+                    yield f"event: thought\ndata: {json.dumps(payload)}\n\n"
                 elif event_type == "complete":
                     yield f"event: complete\ndata: {json.dumps(payload)}\n\n"
                     break

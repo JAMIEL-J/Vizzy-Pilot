@@ -6,6 +6,9 @@ This file contains the complete conceptual and structural map of the Vizzy Analy
 
 ## 📝 Recent Architectural Changes Log
 
+### **Thought SSE Events (2026-07-02)**
+- **Feature (Chat Streaming Pipeline)**: Added `thought` SSE events to `send_message_stream` in `chat_routes.py`. An `emit_thought` helper inside `event_generator()` pushes timestamped, sequentially-numbered thought objects to the async queue at 10 decision points (intent classification, schema query detection, orchestrator routing, NL2SQL routing, dataset table load, SQL execution success, chart type detection, legacy fallback, no-dataset guidance, suggestion generation). A new `thought` handler in the SSE loop yields these as `event: thought` without breaking the stream. No other endpoints modified.
+
 ### **Bug Fixes Applied (2026-07-01)**
 - **Bug #1 (Deep Dive Routing)**: Added validation for `datasetId` and `initialPrompt` parameters in `UserDashboard.tsx` `handleDeepDive` function
 - **Bug #2 (Chat State Initialization)**: Added error handling for undefined/malformed state from `useLocation` in `ChatInterface.tsx`

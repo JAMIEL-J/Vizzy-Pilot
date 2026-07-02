@@ -173,7 +173,10 @@ def _format_compact_number(value: Any, is_currency: bool = False, symbol: str = 
         return f"{symbol}{base}" if is_currency else base
 
     decimals = 2 if num < 10 else (1 if num < 100 else 0)
-    compact = f"{sign}{num:.{decimals}f}".rstrip("0").rstrip(".") + suffix
+    formatted = f"{sign}{num:.{decimals}f}"
+    if "." in formatted:
+        formatted = formatted.rstrip("0").rstrip(".")
+    compact = formatted + suffix
     return f"{symbol}{compact}" if is_currency else compact
 
 
