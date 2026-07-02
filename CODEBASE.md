@@ -6,10 +6,23 @@ This file contains the complete conceptual and structural map of the Vizzy Analy
 
 ## 📝 Recent Architectural Changes Log
 
+### **Pivoted Grouped Charts & SQL Partition Rules (2026-07-02)**
+- **Feature (Dynamic Pivot Bar Charts)**: Enhanced `renderStackedBarChart` in `ChartRenderer.tsx` to detect queries with multiple dimensions and a single metric (e.g. Segment, Sub-Category, sales) and dynamically pivot them, rendering the first dimension as X-axis tick labels and stacking by the second dimension (legend).
+- **Feature (Composite Dimension Labels)**: Updated `renderBarChart` in `ChartRenderer.tsx` to concatenate all non-numeric columns (e.g., `Consumer - Chairs`) for multi-dimensional single-metric datasets.
+- **Feature (Bypass Frontend Slicing)**: Refined `renderBarChart` to skip `topN` frontend slicing if the query contains composite/grouped dimensions, preserving all groups returned by SQL.
+- **SQL Rule (DuckDB Partition Limit)**: Added Rule 19 in `sql_generator.py` system prompt to prevent ClickHouse syntax (`LIMIT N BY`) leakage and enforce correct DuckDB `QUALIFY ROW_NUMBER() OVER (...) <= N` placement BEFORE the `ORDER BY` clause.
+
+### **Minimalist Thought UI, Formatting Fixes & Context Bleed (2026-07-02)**
+- **UI Redesign (Claude-style Thought Logs)**: Relocated the persistent thought process accordion from the bottom of assistant message cards to the top in `ChatInterface.tsx`. Removed raw list numbering, replacing it with timeline dots and vertical accent borders. Added a dynamic analyst transition line (e.g., *“Based on the query execution and data retrieval, here is the trend analysis:”*) that adapts to the query's intent (KPI, trend, comparative, general).
+- **Bug Fix (Compact Formatting Zero-Strip)**: Resolved a bug in `chat_routes.py` and `nl2sql_chart_builder.py` where formatting integer values (e.g. `720K`) stripped trailing zeros via `rstrip("0")` when decimal count was `0` (rendering them as `72K`). Now, stripping only occurs if a decimal point `.` is present in the formatted string.
+- **Bug Fix (Conversation Context Bleed)**: Refined SQL generator system prompt (Rule 14) in `sql_generator.py` to command the model to ignore and discard metrics/dimensions from previous conversation context when the current query asks for a completely different metric.
+- **Bug Fix (Babel JSX Syntax)**: Balanced brackets at the end of the map statement (`})}` and `);`) in `ChatInterface.tsx` to resolve Vite compiler syntax errors.
+
 ### **Thought SSE Events (2026-07-02)**
-- **Feature (Chat Streaming Pipeline)**: Added `thought` SSE events to `send_message_stream` in `chat_routes.py`. An `emit_thought` helper inside `event_generator()` pushes timestamped, sequentially-numbered thought objects to the async queue at 10 decision points (intent classification, schema query detection, orchestrator routing, NL2SQL routing, dataset table load, SQL execution success, chart type detection, legacy fallback, no-dataset guidance, suggestion generation). A new `thought` handler in the SSE loop yields these as `event: thought` without breaking the stream. No other endpoints modified.
+- **Feature (Chat Streaming Pipeline)**: Added `thought` SSE events to `send_message_stream` in `chat_routes.py`. An `emit_thought` helper inside `event_generator()` pushes timestamped, sequentially-numbered thought objects to the async queue at 10 decision points (intent classification, schema query detection, orchestrator routing, NL2SQL routing, dataset table load, SQL execution success, chart type detection, legacy fallback, no-dataset guidance, suggestion generation). A new `thought` handler in the SSE loop yields these as `event: thought` without breaking the stream. No other endpoints modified. Emojis cleaned up in the output string.
 
 ### **Bug Fixes Applied (2026-07-01)**
+- **Bug (JWT Auth / Pydantic Settings)**: Resolved a nested Pydantic settings loading issue where JWT configuration secrets were not loaded correctly from the `.env` file. Fix: explicitly configured `model_config = SettingsConfigDict(env_file=".env", extra="ignore")` for all nested configuration sub-classes in `backend/app/core/config.py`.
 - **Bug #1 (Deep Dive Routing)**: Added validation for `datasetId` and `initialPrompt` parameters in `UserDashboard.tsx` `handleDeepDive` function
 - **Bug #2 (Chat State Initialization)**: Added error handling for undefined/malformed state from `useLocation` in `ChatInterface.tsx`
 - **Bug #3 ("Think" Mode Routing)**: Verified `force_deep_analysis` flag is properly passed through routing chain in `chat_routes.py`

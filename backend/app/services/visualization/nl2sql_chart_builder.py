@@ -715,7 +715,10 @@ def _extract_key_insight(
         _, value_col = _detect_category_value_cols(columns, data)
         # Pick the best category column among non-value columns — prefer the one
         # with the most non-numeric, non-time, short-string values.
-        category_candidates = [c for c in columns if c != value_col]
+        category_candidates = [c for c in columns if c != value_col and _score_value_col(c, data) < 9.0]
+        if not category_candidates:
+            category_candidates = [c for c in columns if c != value_col]
+        
         if len(category_candidates) > 1:
             cat_scores = {}
             for col in category_candidates:

@@ -299,7 +299,16 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
     };
 
     const fullLabel = (value: any) => {
-        return String(value ?? '').trim() || '';
+        const nameStr = String(value ?? '').trim() || '';
+        if (/^\d{4}-\d{2}-\d{2}/.test(nameStr)) {
+            try {
+                const d = new Date(nameStr);
+                if (!isNaN(d.getTime())) {
+                    return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric', day: nameStr.length > 10 ? 'numeric' : undefined });
+                }
+            } catch (e) {}
+        }
+        return nameStr;
     };
 
     const parseTopNFromTitle = () => {
@@ -401,13 +410,31 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
     const renderBarChart = () => {
         let chartData = [];
         let valueKey = 'value';
+        let isComposite = false;
+
         if (data.data?.rows) {
-            chartData = data.data.rows.map((row: any) => {
-                const keys = Object.keys(row);
-                valueKey = keys[1] || valueKey;
+            const rows = data.data.rows;
+            const firstRow = rows[0] || {};
+            const keys = Object.keys(firstRow);
+            
+            // Find the numeric value column
+            const valueCol = keys.find(k => {
+                const val = firstRow[k];
+                return typeof val === 'number' || (typeof val === 'string' && !isNaN(Number(val)) && val.trim() !== '');
+            }) || keys[1] || valueKey;
+            
+            valueKey = valueCol;
+            
+            // Non-numeric columns represent dimensions
+            const nonNumericKeys = keys.filter(k => k !== valueKey);
+            isComposite = nonNumericKeys.length > 1;
+            
+            chartData = rows.map((row: any) => {
+                // Form a composite label using all non-numeric dimensions
+                const name = nonNumericKeys.map(k => fullLabel(row[k])).filter(Boolean).join(' - ') || 'Total';
                 return {
-                    name: fullLabel(row[keys[0]]),
-                    value: row[keys[1]]
+                    name,
+                    value: row[valueKey]
                 };
             });
         } else if (data.x && data.y) {
@@ -422,7 +449,8 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
             .map((row: any) => ({ ...row, value: Number(row.value || 0) }))
             .filter((row: any) => Number.isFinite(row.value));
 
-        if (topN && chartData.length > topN) {
+        // Skip frontend slicing if the data contains composite dimensions (e.g. segmented subsets)
+        if (topN && chartData.length > topN && !isComposite) {
             chartData = [...chartData].sort((a: any, b: any) => b.value - a.value).slice(0, topN);
         }
 
@@ -645,8 +673,67 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
 
         const firstRow = rows[0] || {};
         const rowKeys = Object.keys(firstRow);
-        const metricKeys = (data.data?.categories || data.categories || rowKeys.filter((k: string) => typeof firstRow[k] === 'number')) as string[];
-        const dimensionKey = (data.dimension as string) || rowKeys.find((k: string) => !metricKeys.includes(k)) || rowKeys[0] || 'name';
+        
+        // Find all numeric columns
+        const metricKeys = (data.data?.categories || data.categories || rowKeys.filter((k: string) => {
+            const val = firstRow[k];
+            return typeof val === 'number' || (typeof val === 'string' && !isNaN(Number(val)) && val.trim() !== '');
+        })) as string[];
+        
+        // Find all non-numeric dimension columns
+        const dimensionKeys = rowKeys.filter((k: string) => !metricKeys.includes(k));
+
+        // Case A: Multiple dimensions, Single metric (e.g. Segment, Sub-Category, total_sales)
+        // Pivot the data: X-axis = dimX, Datasets/Legend = dimLegend, Stack = metric
+        if (dimensionKeys.length >= 2 && metricKeys.length === 1) {
+            const dimX = dimensionKeys[0]; // X axis (e.g. Segment)
+            const dimLegend = dimensionKeys[1]; // Legend/Stack (e.g. Sub-Category)
+            const metric = metricKeys[0]; // Value (e.g. total_sales)
+
+            // Get unique X values and Legend values
+            const xLabels = Array.from(new Set(rows.map(r => fullLabel(r[dimX])))).filter(Boolean);
+            const legendValues = Array.from(new Set(rows.map(r => fullLabel(r[dimLegend])))).filter(Boolean);
+
+            // Build datasets for each legend value
+            const datasets = legendValues.map((legendVal, idx) => {
+                const datasetData = xLabels.map(xVal => {
+                    // Find the row matching both xVal and legendVal
+                    const matchingRow = rows.find(r => fullLabel(r[dimX]) === xVal && fullLabel(r[dimLegend]) === legendVal);
+                    return matchingRow ? Number(matchingRow[metric] || 0) : 0;
+                });
+
+                return {
+                    label: legendVal,
+                    data: datasetData,
+                    metricKey: metric,
+                    backgroundColor: CHART_COLORS[idx % CHART_COLORS.length]
+                };
+            });
+
+            const chartJsData = {
+                labels: xLabels,
+                datasets
+            };
+
+            const stackedOptions = getCommonOptions(metric);
+            stackedOptions.scales!.x = { ...stackedOptions.scales!.x, stacked: true } as any;
+            stackedOptions.scales!.y = { ...stackedOptions.scales!.y, stacked: true } as any;
+            (stackedOptions.plugins.legend as any).display = true;
+            (stackedOptions.plugins.legend as any).position = 'top';
+            (stackedOptions.plugins.legend as any).labels = { color: isDark ? '#9ca3af' : '#4b5563', usePointStyle: true, boxWidth: 8 };
+
+            return (
+                <div className="w-full mt-4">
+                    <div className="h-96">
+                        <Bar key={`chat-stacked-pivot-${theme}`} data={chartJsData} options={stackedOptions as any} />
+                    </div>
+                    {renderNullWarning()}
+                </div>
+            );
+        }
+
+        // Case B: Standard Stacked Bar Chart (One dimension, Multiple metrics - e.g. Month, Sales, Profit)
+        const dimensionKey = (data.dimension as string) || dimensionKeys[0] || 'name';
 
         let chartData = rows.map((row: any) => {
             const shaped: any = { name: fullLabel(row[dimensionKey]) };

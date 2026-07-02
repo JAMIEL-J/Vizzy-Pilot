@@ -950,21 +950,71 @@ export default function ChatInterface() {
                                     </div>
                                 </div>
                             )}
-                            {messages.map((msg) => (
-                                <div key={msg.id} id={`msg-${msg.id}`} className={`flex w-full mb-8 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                    <div className={`max-w-7xl w-full flex items-start space-x-3 ${msg.role === 'user' ? 'justify-end' : ''}`}>
-                                        {msg.role === 'assistant' && (
-                                            <div className="w-10 h-10 rounded-sm bg-surface-3 border-b-2 border-border-strong flex items-center justify-center flex-shrink-0 font-mono text-xs font-bold text-foreground font-display font-light shadow-elev-1">VX</div>
-                                        )}
-                                        <div className={`px-5 py-4 rounded-xl border ${msg.role === 'user' ? 'bg-surface-3 text-foreground border-border shadow-sm' : 'bg-surface-2 text-foreground border-border'} ${['analysis', 'visualization', 'dashboard', 'comparative', 'aggregative', 'trend', 'interpretive'].includes(msg.intent_type || '') && msg.output_data?.type !== 'kpi' && msg.output_data?.chart?.type !== 'kpi' ? 'w-full' : ''} ${(msg.output_data?.type === 'kpi' || msg.output_data?.chart?.type === 'kpi') ? 'w-full max-w-md' : ''}`}>
-                                            {msg.role === 'assistant' && (msg.output_data?.type === 'interpretive_text' || msg.output_data?.source === 'orchestrator_interpretive') && (
-                                                <div className="mb-2 flex items-center">
-                                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold tracking-wider uppercase bg-[#8B5CF6]/15 text-[#8B5CF6] border border-[#8B5CF6]/30">
-                                                        <BrainCog className="h-3 w-3" /> Deep Analysis
-                                                    </span>
-                                                </div>
+                            {messages.map((msg) => {
+                                const isKpi = msg.output_data?.type === 'kpi' || msg.output_data?.chart?.type === 'kpi';
+                                const chartType = msg.output_data?.chart?.type;
+                                const intent = (msg.intent_type || '').toLowerCase();
+                                
+                                let transitionText = "Based on the query execution and data retrieval, here is the analysis:";
+                                if (isKpi) {
+                                    transitionText = "Based on the query execution and data retrieval, here is the metric you requested:";
+                                } else if (intent === 'trend' || chartType === 'line') {
+                                    transitionText = "Based on the query execution and data retrieval, here is the trend analysis:";
+                                } else if (intent === 'comparative' || chartType === 'bar' || chartType === 'pie' || chartType === 'stacked_bar') {
+                                    transitionText = "Based on the query execution and data retrieval, here is the comparative analysis:";
+                                }
+
+                                return (
+                                    <div key={msg.id} id={`msg-${msg.id}`} className={`flex w-full mb-8 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                        <div className={`max-w-7xl w-full flex items-start space-x-3 ${msg.role === 'user' ? 'justify-end' : ''}`}>
+                                            {msg.role === 'assistant' && (
+                                                <div className="w-10 h-10 rounded-sm bg-surface-3 border-b-2 border-border-strong flex items-center justify-center flex-shrink-0 font-mono text-xs font-bold text-foreground font-display font-light shadow-elev-1">VX</div>
                                             )}
-                                            <div className="chat-insight-container text-sm leading-relaxed">
+                                            <div className={`px-5 py-4 rounded-xl border ${msg.role === 'user' ? 'bg-surface-3 text-foreground border-border shadow-sm' : 'bg-surface-2 text-foreground border-border'} ${['analysis', 'visualization', 'dashboard', 'comparative', 'aggregative', 'trend', 'interpretive'].includes(msg.intent_type || '') && msg.output_data?.type !== 'kpi' && msg.output_data?.chart?.type !== 'kpi' ? 'w-full' : ''} ${(msg.output_data?.type === 'kpi' || msg.output_data?.chart?.type === 'kpi') ? 'w-full max-w-md' : ''}`}>
+                                                {msg.role === 'assistant' && (msg.output_data?.type === 'interpretive_text' || msg.output_data?.source === 'orchestrator_interpretive') && (
+                                                    <div className="mb-2 flex items-center">
+                                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold tracking-wider uppercase bg-[#8B5CF6]/15 text-[#8B5CF6] border border-[#8B5CF6]/30">
+                                                            <BrainCog className="h-3 w-3" /> Deep Analysis
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                <div className="chat-insight-container text-sm leading-relaxed">
+                                                    {/* Persistent Thought Process Toggle - Rendered at the TOP of the reply */}
+                                                    {msg.role === 'assistant' && msg.output_data?.thought_process && msg.output_data.thought_process.length > 0 && (
+                                                        <div className="mb-3.5 border-l-2 border-border/40 pl-3.5 ml-1 bg-transparent">
+                                                            <button
+                                                                onClick={() => setExpandedThoughts(prev => ({ ...prev, [msg.id]: !prev[msg.id] }))}
+                                                                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer select-none py-1"
+                                                            >
+                                                                {expandedThoughts[msg.id] ? (
+                                                                    <ChevronDown className="h-3 w-3 text-muted-foreground/60" />
+                                                                ) : (
+                                                                    <ChevronRight className="h-3 w-3 text-muted-foreground/60" />
+                                                                )}
+                                                                <Sparkles className="h-3 w-3 text-muted-foreground/45" />
+                                                                <span className="font-medium">Thought process</span>
+                                                                <span className="text-[10px] text-muted-foreground/50 font-mono">({msg.output_data.thought_process.length} steps)</span>
+                                                            </button>
+                                                            {expandedThoughts[msg.id] && (
+                                                                <div className="mt-2 space-y-2 pl-2 border-l border-border/20 ml-1.5 py-0.5 animate-fade-in">
+                                                                    {msg.output_data.thought_process.map((step: any) => (
+                                                                        <div key={step.id} className="flex items-start gap-2.5 text-xs text-muted-foreground/75">
+                                                                            <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/35 mt-1.5 shrink-0" />
+                                                                            <span className="leading-relaxed font-sans">{step.content}</span>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    )}
+
+                                                    {/* Professional Analyst Transition Line */}
+                                                    {msg.role === 'assistant' && msg.output_data?.thought_process && msg.output_data.thought_process.length > 0 && (
+                                                        <div className="text-xs font-semibold text-muted-foreground/80 pl-1 mb-3.5 tracking-wide select-none">
+                                                            {transitionText}
+                                                        </div>
+                                                    )}
+
                                                 {isInsightMessage(msg) ? (
                                                     (() => {
                                                         const insightSqlQueries = getInsightSqlQueries(msg);
@@ -1084,37 +1134,11 @@ export default function ChatInterface() {
                                                     ))}
                                                 </div>
                                             )}
-                                            {msg.role === 'assistant' && msg.output_data?.thought_process && msg.output_data.thought_process.length > 0 && (
-                                                <div className="mt-3 border-l-2 border-border/40 pl-3.5 ml-1 bg-transparent">
-                                                    <button
-                                                        onClick={() => setExpandedThoughts(prev => ({ ...prev, [msg.id]: !prev[msg.id] }))}
-                                                        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer select-none py-1"
-                                                    >
-                                                        {expandedThoughts[msg.id] ? (
-                                                            <ChevronDown className="h-3 w-3 text-muted-foreground/60" />
-                                                        ) : (
-                                                            <ChevronRight className="h-3 w-3 text-muted-foreground/60" />
-                                                        )}
-                                                        <Sparkles className="h-3 w-3 text-muted-foreground/45" />
-                                                        <span className="font-medium">Thought process</span>
-                                                        <span className="text-[10px] text-muted-foreground/50 font-mono">({msg.output_data.thought_process.length} steps)</span>
-                                                    </button>
-                                                    {expandedThoughts[msg.id] && (
-                                                        <div className="mt-2 space-y-2 pl-2 border-l border-border/20 ml-1.5 py-0.5 animate-fade-in">
-                                                            {msg.output_data.thought_process.map((step: any) => (
-                                                                <div key={step.id} className="flex items-start gap-2.5 text-xs text-muted-foreground/75">
-                                                                    <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/35 mt-1.5 shrink-0" />
-                                                                    <span className="leading-relaxed font-sans">{step.content}</span>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            )}
                                         </div>
                                     </div>
                                 </div>
-                                ))}
+                            );
+                        })}
                             {isTyping && (
                                 <div className="flex gap-3 animate-fade-in">
                                     <div className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md bg-surface-3 border border-border text-foreground">

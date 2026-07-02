@@ -1539,7 +1539,7 @@ async def send_message_stream(
                                     if duckdb_path.exists():
                                         db_engine = DBEngine(db_path=str(duckdb_path), read_only=True)
                                         db_engine._lock_down_read_con()
-                                        await emit_thought(f"Loaded dataset table: {table_name}")
+                                        await emit_thought("Loaded dataset")
                                     else:
                                         data_path = version.cleaned_reference or version.source_reference
                                         db_engine = DBEngine()
