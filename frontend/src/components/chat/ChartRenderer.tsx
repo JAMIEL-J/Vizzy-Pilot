@@ -428,6 +428,61 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
             // Non-numeric columns represent dimensions
             const nonNumericKeys = keys.filter(k => k !== valueKey);
             isComposite = nonNumericKeys.length > 1;
+
+            if (isComposite) {
+                const dimX = nonNumericKeys[0]; // Grouping dimension (e.g. Segment)
+                const dimY = nonNumericKeys[1]; // Bar labels (e.g. Sub-Category)
+                const groups = Array.from(new Set(rows.map((r: any) => fullLabel(r[dimX])))).filter(Boolean);
+
+                return (
+                    <div className="w-full mt-4">
+                        <div className="grid grid-cols-1 gap-6">
+                            {groups.map((groupName: any, gIdx: number) => {
+                                // Filter rows for this group
+                                const groupRows = rows.filter((r: any) => fullLabel(r[dimX]) === groupName);
+                                
+                                // Map to labels and values
+                                const labels = groupRows.map((r: any) => fullLabel(r[dimY]));
+                                const dataValues = groupRows.map((r: any) => Number(r[valueKey] || 0));
+
+                                const chartJsData = {
+                                    labels,
+                                    datasets: [{
+                                        label: toHumanLabel(valueKey),
+                                        data: dataValues,
+                                        metricKey: valueKey,
+                                        backgroundColor: CHART_COLORS[gIdx % CHART_COLORS.length],
+                                        borderRadius: { topRight: 4, bottomRight: 4, topLeft: 0, bottomLeft: 0 },
+                                        borderSkipped: false
+                                    }]
+                                };
+
+                                const barOptions = getCommonOptions(valueKey, 'y') as any;
+                                barOptions.plugins = barOptions.plugins || {};
+                                barOptions.plugins.legend = { display: false }; // Hide legend since card title identifies the segment
+                                barOptions.plugins.tooltip = {
+                                    ...(barOptions.plugins.tooltip || {}),
+                                    callbacks: {
+                                        label: (context: any) => ` ${toHumanLabel(valueKey)}: ${formatValue(context.raw, valueKey)}`
+                                    }
+                                };
+
+                                return (
+                                    <div key={groupName} className="border border-border/40 rounded-xl p-3.5 bg-surface-2/60 shadow-sm flex flex-col">
+                                        <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider mb-3 select-none pb-1.5 border-b border-border/20">
+                                            {groupName}
+                                        </div>
+                                        <div className="h-44">
+                                            <Bar key={`chat-bar-row-${groupName}-${theme}`} data={chartJsData} options={barOptions} />
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                        {renderNullWarning()}
+                    </div>
+                );
+            }
             
             chartData = rows.map((row: any) => {
                 // Form a composite label using all non-numeric dimensions
@@ -684,48 +739,59 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
         const dimensionKeys = rowKeys.filter((k: string) => !metricKeys.includes(k));
 
         // Case A: Multiple dimensions, Single metric (e.g. Segment, Sub-Category, total_sales)
-        // Pivot the data: X-axis = dimX, Datasets/Legend = dimLegend, Stack = metric
+        // Group the data by the first dimension (dimX) and render a row/grid of mini HBAR charts
         if (dimensionKeys.length >= 2 && metricKeys.length === 1) {
-            const dimX = dimensionKeys[0]; // X axis (e.g. Segment)
-            const dimLegend = dimensionKeys[1]; // Legend/Stack (e.g. Sub-Category)
+            const dimX = dimensionKeys[0]; // Grouping dimension (e.g. Segment)
+            const dimY = dimensionKeys[1]; // Bar labels (e.g. Sub-Category)
             const metric = metricKeys[0]; // Value (e.g. total_sales)
 
-            // Get unique X values and Legend values
-            const xLabels = Array.from(new Set(rows.map(r => fullLabel(r[dimX])))).filter(Boolean);
-            const legendValues = Array.from(new Set(rows.map(r => fullLabel(r[dimLegend])))).filter(Boolean);
-
-            // Build datasets for each legend value
-            const datasets = legendValues.map((legendVal, idx) => {
-                const datasetData = xLabels.map(xVal => {
-                    // Find the row matching both xVal and legendVal
-                    const matchingRow = rows.find(r => fullLabel(r[dimX]) === xVal && fullLabel(r[dimLegend]) === legendVal);
-                    return matchingRow ? Number(matchingRow[metric] || 0) : 0;
-                });
-
-                return {
-                    label: legendVal,
-                    data: datasetData,
-                    metricKey: metric,
-                    backgroundColor: CHART_COLORS[idx % CHART_COLORS.length]
-                };
-            });
-
-            const chartJsData = {
-                labels: xLabels,
-                datasets
-            };
-
-            const stackedOptions = getCommonOptions(metric);
-            stackedOptions.scales!.x = { ...stackedOptions.scales!.x, stacked: true } as any;
-            stackedOptions.scales!.y = { ...stackedOptions.scales!.y, stacked: true } as any;
-            (stackedOptions.plugins.legend as any).display = true;
-            (stackedOptions.plugins.legend as any).position = 'top';
-            (stackedOptions.plugins.legend as any).labels = { color: isDark ? '#9ca3af' : '#4b5563', usePointStyle: true, boxWidth: 8 };
+            // Get unique group values (e.g. Consumer, Corporate, Home Office)
+            const groups = Array.from(new Set(rows.map(r => fullLabel(r[dimX])))).filter(Boolean);
 
             return (
                 <div className="w-full mt-4">
-                    <div className="h-96">
-                        <Bar key={`chat-stacked-pivot-${theme}`} data={chartJsData} options={stackedOptions as any} />
+                    <div className="grid grid-cols-1 gap-6">
+                        {groups.map((groupName, gIdx) => {
+                            // Filter rows for this group
+                            const groupRows = rows.filter(r => fullLabel(r[dimX]) === groupName);
+                            
+                            // Map to labels and values
+                            const labels = groupRows.map(r => fullLabel(r[dimY]));
+                            const dataValues = groupRows.map(r => Number(r[metric] || 0));
+
+                            const chartJsData = {
+                                labels,
+                                datasets: [{
+                                    label: toHumanLabel(metric),
+                                    data: dataValues,
+                                    metricKey: metric,
+                                    backgroundColor: CHART_COLORS[gIdx % CHART_COLORS.length],
+                                    borderRadius: { topRight: 4, bottomRight: 4, topLeft: 0, bottomLeft: 0 },
+                                    borderSkipped: false
+                                }]
+                            };
+
+                            const barOptions = getCommonOptions(metric, 'y') as any;
+                            barOptions.plugins = barOptions.plugins || {};
+                            barOptions.plugins.legend = { display: false }; // Hide legend since card title identifies the segment
+                            barOptions.plugins.tooltip = {
+                                ...(barOptions.plugins.tooltip || {}),
+                                callbacks: {
+                                    label: (context: any) => ` ${toHumanLabel(metric)}: ${formatValue(context.raw, metric)}`
+                                }
+                            };
+
+                            return (
+                                <div key={groupName} className="border border-border/40 rounded-xl p-3.5 bg-surface-2/60 shadow-sm flex flex-col">
+                                    <div className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider mb-3 select-none pb-1.5 border-b border-border/20">
+                                        {groupName}
+                                    </div>
+                                    <div className="h-44">
+                                        <Bar key={`chat-stacked-row-${groupName}-${theme}`} data={chartJsData} options={barOptions} />
+                                    </div>
+                                </div>
+                            );
+                        })}
                     </div>
                     {renderNullWarning()}
                 </div>

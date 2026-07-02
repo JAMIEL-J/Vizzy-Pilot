@@ -389,14 +389,31 @@ def _build_bar(data: list, columns: list, title: str, x_axis: str, y_axis: str, 
         elif isinstance(val, (int, float)):
             val = _normalize_metric_value(val, use_whole_number)
             
-        rows.append({
-            category_col: str(row.get(category_col, "")),
-            value_col: val,
-        })
+        new_row = {k: v for k, v in row.items()}
+        new_row[value_col] = val
+        rows.append(new_row)
+
+    # Determine if query contains composite dimensions (multiple non-numeric columns)
+    first_row = data[0] if data else {}
+    non_numeric_cols = [c for c in columns if not isinstance(first_row.get(c), (int, float))]
+    is_composite = len(non_numeric_cols) > 1
 
     top_n = _extract_top_n(title)
     if top_n and len(rows) > top_n:
-        rows = sorted(rows, key=lambda r: r.get(value_col, 0) if isinstance(r.get(value_col), (int, float)) else 0, reverse=True)[:top_n]
+        if is_composite:
+            dim_x = non_numeric_cols[0]
+            from collections import defaultdict
+            grouped_rows = defaultdict(list)
+            for r in rows:
+                grouped_rows[r.get(dim_x)].append(r)
+            
+            sliced_rows = []
+            for g_val, g_rows in grouped_rows.items():
+                sorted_g = sorted(g_rows, key=lambda r: r.get(value_col, 0) if isinstance(r.get(value_col), (int, float)) else 0, reverse=True)
+                sliced_rows.extend(sorted_g[:top_n])
+            rows = sliced_rows
+        else:
+            rows = sorted(rows, key=lambda r: r.get(value_col, 0) if isinstance(r.get(value_col), (int, float)) else 0, reverse=True)[:top_n]
 
     format_type = "percentage" if is_percentage else ("currency" if _is_currency_metric(title, value_col, column_metadata) else "number")
 
@@ -714,8 +731,9 @@ def _extract_key_insight(
     if chart_type in ("bar", "pie", "table", "stacked_bar", "stacked") and len(data) >= 2:
         _, value_col = _detect_category_value_cols(columns, data)
         # Pick the best category column among non-value columns — prefer the one
-        # with the most non-numeric, non-time, short-string values.
-        category_candidates = [c for c in columns if c != value_col and _score_value_col(c, data) < 9.0]
+        # that is not numeric (int/float).
+        first_row = data[0] if data else {}
+        category_candidates = [c for c in columns if c != value_col and not isinstance(first_row.get(c), (int, float))]
         if not category_candidates:
             category_candidates = [c for c in columns if c != value_col]
         
