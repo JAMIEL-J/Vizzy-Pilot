@@ -88,7 +88,12 @@ def _validate_sqlite_path(path: str, data_dir: str = "data") -> str:
 class DatabaseSettings(BaseSettings):
     """Database connection configuration."""
 
-    model_config = SettingsConfigDict(env_prefix="DB_")
+    model_config = SettingsConfigDict(
+        env_prefix="DB_",
+        env_file=(".env", "backend/.env", "../.env"),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     # Use SQLite by default for easy testing
     # Set DB_TYPE=postgresql and other DB_ vars for production
@@ -145,7 +150,12 @@ class DatabaseSettings(BaseSettings):
 class AuthSettings(BaseSettings):
     """Authentication configuration."""
 
-    model_config = SettingsConfigDict(env_prefix="AUTH_")
+    model_config = SettingsConfigDict(
+        env_prefix="AUTH_",
+        env_file=(".env", "backend/.env", "../.env"),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     secret_key: Optional[SecretStr] = Field(default=None)
     algorithm: str = Field(default="HS256")
@@ -177,7 +187,12 @@ class AuthSettings(BaseSettings):
 class RateLimitSettings(BaseSettings):
     """Rate limiting configuration."""
 
-    model_config = SettingsConfigDict(env_prefix="RATE_LIMIT_")
+    model_config = SettingsConfigDict(
+        env_prefix="RATE_LIMIT_",
+        env_file=(".env", "backend/.env", "../.env"),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     enabled: bool = Field(default=True)
     requests_per_minute: int = Field(default=300, ge=1, le=1000)
@@ -186,7 +201,12 @@ class RateLimitSettings(BaseSettings):
 class StorageSettings(BaseSettings):
     """File storage configuration."""
 
-    model_config = SettingsConfigDict(env_prefix="STORAGE_")
+    model_config = SettingsConfigDict(
+        env_prefix="STORAGE_",
+        env_file=(".env", "backend/.env", "../.env"),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     data_dir: str = Field(default="data/uploads")
     duckdb_path: str = Field(default="data/vizzy_analytics.duckdb")
@@ -198,7 +218,7 @@ class LLMSettings(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="LLM_",
-        env_file=".env",
+        env_file=(".env", "backend/.env", "../.env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -276,7 +296,7 @@ class Settings(BaseSettings):
     """Main application settings."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(".env", "backend/.env", "../.env"),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
