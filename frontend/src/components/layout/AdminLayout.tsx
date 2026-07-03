@@ -50,8 +50,14 @@ export default function AdminLayout() {
     const location = useLocation();
     const navigate = useNavigate();
     const [isCollapsed, setIsCollapsed] = useState(false);
+    const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
     const handleLogout = () => {
+        setShowLogoutConfirm(true);
+    };
+
+    const confirmLogout = () => {
+        setShowLogoutConfirm(false);
         localStorage.removeItem('access_token');
         localStorage.removeItem('refresh_token');
         navigate('/admin/login');
@@ -192,6 +198,32 @@ export default function AdminLayout() {
                     </div>
                 </main>
             </div>
+
+            {showLogoutConfirm && (
+                <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-[fadeIn_0.15s_ease-out]">
+                    <div className="bg-surface border border-border rounded-2xl max-w-sm w-full p-6 shadow-2xl" style={{ background: 'var(--surface)', color: 'var(--text-main)', borderColor: 'var(--border)' }}>
+                        <h3 className="text-sm font-bold text-foreground">Log Out of Admin Console?</h3>
+                        <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
+                            Are you sure you want to end your administrator session?
+                        </p>
+                        <div className="flex justify-end space-x-3 mt-6">
+                            <button
+                                onClick={() => setShowLogoutConfirm(false)}
+                                className="px-4 py-2 border border-border rounded-xl text-xs hover:bg-surface-3 transition-colors cursor-pointer bg-transparent"
+                                style={{ borderColor: 'var(--border)', color: 'var(--text-main)' }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={confirmLogout}
+                                className="px-4 py-2 bg-destructive text-white rounded-xl text-xs font-semibold hover:bg-destructive/90 transition-colors cursor-pointer border-none"
+                            >
+                                Log out
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

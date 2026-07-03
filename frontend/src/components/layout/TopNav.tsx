@@ -36,6 +36,7 @@ export function TopNav() {
   const [ollamaUrlInput, setOllamaUrlInput] = useState("http://localhost:11434");
   const [ollamaModelInput, setOllamaModelInput] = useState("llama3");
   const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -110,7 +111,12 @@ export function TopNav() {
     return "US";
   };
 
-  const handleLogout = async () => {
+  const handleLogout = () => {
+    setShowLogoutConfirm(true);
+  };
+
+  const confirmLogout = async () => {
+    setShowLogoutConfirm(false);
     try {
       await logout();
       navigate("/login");
@@ -120,7 +126,8 @@ export function TopNav() {
   };
 
   return (
-    <header className="sticky top-0 left-0 right-0 z-50 border-b border-border-main bg-bg-card/80 backdrop-blur-xl select-none">
+    <>
+      <header className="sticky top-0 left-0 right-0 z-50 border-b border-border-main bg-bg-card/80 backdrop-blur-xl select-none">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6 sm:px-8">
         
         {/* Left Brand Area */}
@@ -340,6 +347,32 @@ export function TopNav() {
         })}
       </div>
     </header>
+
+    {showLogoutConfirm && (
+      <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-[fadeIn_0.15s_ease-out]">
+        <div className="bg-bg-card border border-border-main rounded-2xl max-w-sm w-full p-6 shadow-2xl">
+          <h3 className="text-sm font-bold text-themed-main">Log Out of Vizzy Pilot?</h3>
+          <p className="text-xs text-themed-muted mt-2 leading-relaxed">
+            Are you sure you want to end your current session? You will need to sign back in to access your analytics workspace.
+          </p>
+          <div className="flex justify-end space-x-3 mt-6">
+            <button
+              onClick={() => setShowLogoutConfirm(false)}
+              className="px-4 py-2 border border-border-main rounded-xl text-xs text-themed-main hover:bg-bg-hover transition-colors cursor-pointer bg-transparent"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={confirmLogout}
+              className="px-4 py-2 bg-[#EF4444] text-white rounded-xl text-xs font-semibold hover:bg-[#EF4444]/90 transition-colors cursor-pointer border-none"
+            >
+              Log out
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+  </>
   );
 }
 
