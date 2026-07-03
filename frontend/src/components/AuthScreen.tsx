@@ -5,6 +5,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { authApi } from '../lib/api/auth';
 import { useNavigate } from 'react-router-dom';
+import { VizzyPilotVerticalLogo } from './layout/VizzyLogo';
 
 interface AuthScreenProps {
   initialMode: 'signin' | 'signup';
@@ -29,6 +30,7 @@ export default function AuthScreen({ initialMode, isDark, onToggleTheme, onClose
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [isLoginSuccess, setIsLoginSuccess] = useState(false);
 
   // Social action loaders
   const [socialLoading, setSocialLoading] = useState<string | null>(null);
@@ -116,11 +118,12 @@ export default function AuthScreen({ initialMode, isDark, onToggleTheme, onClose
         localStorage.setItem("access_token", response.access_token);
         localStorage.setItem("refresh_token", response.refresh_token);
 
+        setIsLoginSuccess(true);
         setTimeout(() => {
           setIsLoading(false);
           onSuccess(email, name);
           navigate('/user/dashboard');
-        }, 1200);
+        }, 2000);
 
       } else {
         // Call real backend login
@@ -133,18 +136,53 @@ export default function AuthScreen({ initialMode, isDark, onToggleTheme, onClose
         localStorage.setItem("refresh_token", response.refresh_token);
 
         setSuccessMsg('Signed in successfully! Loading console telemetry...');
+        setIsLoginSuccess(true);
         
         setTimeout(() => {
           setIsLoading(false);
           onSuccess(email, name || email.split('@')[0]);
           navigate('/user/dashboard');
-        }, 1200);
+        }, 2000);
       }
     } catch (err: any) {
       setErrorMsg(err.response?.data?.detail || 'Authentication failure. Please check credentials.');
       setIsLoading(false);
     }
   };
+
+  if (isLoginSuccess) {
+    return (
+      <div className="min-h-screen bg-bg flex flex-col items-center justify-center relative overflow-hidden select-none">
+        <style>{`
+          @keyframes loadingBar {
+            0% { left: -40%; width: 40%; }
+            50% { left: 30%; width: 50%; }
+            100% { left: 100%; width: 30%; }
+          }
+        `}</style>
+        {/* Ambient background patterns */}
+        <div className="absolute inset-x-0 top-0 h-96 bg-gradient-to-b from-border-custom/30 to-transparent pointer-events-none" />
+        <div className="absolute -top-40 -left-40 w-96 h-96 rounded-full bg-teal-500/[0.04] blur-[120px] pointer-events-none" />
+        <div className="absolute -bottom-40 -right-40 w-96 h-96 rounded-full bg-teal-500/[0.04] blur-[120px] pointer-events-none" />
+
+        <div className="relative z-10 flex flex-col items-center space-y-8">
+          <VizzyPilotVerticalLogo size={160} />
+          
+          <div className="flex flex-col items-center space-y-3 w-64 text-center">
+            <div className="h-1 w-full bg-surface-2 rounded-full overflow-hidden relative border border-border-custom shadow-inner">
+              <div 
+                className="h-full bg-gradient-to-r from-accent-custom to-teal-400 rounded-full absolute left-0 top-0" 
+                style={{ animation: 'loadingBar 1.5s ease-in-out infinite' }} 
+              />
+            </div>
+            <span className="text-[10px] font-mono font-bold tracking-widest text-muted-custom uppercase animate-pulse">
+              Synchronizing telemetry console...
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div 

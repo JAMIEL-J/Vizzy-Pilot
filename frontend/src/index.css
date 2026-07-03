@@ -737,9 +737,15 @@ body {
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 }
 
-/* Enforce Instrument Serif for display/serif utility usage across the app by default. */
+/* Enforce Host Grotesk/Inter for display/serif utility usage across the app by default. */
 .font-display,
 .font-serif {
+    font-family: "Host Grotesk", "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Scoped Instrument Serif specifically for the Figma-style Landing page */
+.landing-page-root .font-display,
+.landing-page-root .font-serif {
     font-family: "Instrument Serif", Georgia, serif;
 }
 

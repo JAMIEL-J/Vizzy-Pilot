@@ -118,7 +118,7 @@ export default function Landing() {
   }
 
   return (
-    <div className="min-h-screen bg-bg text-text-custom font-sans transition-colors duration-300 relative text-left">
+    <div className="min-h-screen bg-bg text-text-custom font-sans transition-colors duration-300 relative text-left landing-page-root">
       
       {/* 1. FLOATING NAVIGATION BAR */}
       <div className="fixed top-5 left-0 right-0 z-50 px-4 flex justify-center pointer-events-none">
