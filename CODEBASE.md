@@ -1,10 +1,12 @@
-# ⚡ Vizzy Analytics — Master Codebase Context (Memory Map)
-
-This file contains the complete conceptual and structural map of the Vizzy Analytics codebase, serving as a persistent memory interface for planning, implementation, dependency analysis, and impact tracking.
-
----
+# CODEBASE.md - System Map & Project Context
 
 ## 📝 Recent Architectural Changes Log
+
+### **Brand Assets & Premium Login Splash (2026-07-03)**
+- **Feature (Vizzy Logo Components)**: Created [`VizzyLogo.tsx`](file:///D:/Vizzy%20Redesign/Vizzy%20Redesign/frontend/src/components/layout/VizzyLogo.tsx) containing custom vector SVG definitions for `VizzyPilotLogoIcon` and `VizzyPilotFullLogo` derived from the designer's high-fidelity vector paths (extracted from `designarena_image_5rcf3fwk (1).svg` with the bounding background layer removed). Updated the `viewBox` coordinates to `455 265 340 272` to crop out the empty canvas margins and ensure high visibility and size matching inside layout containers. Added `VizzyPilotVerticalLogo` component to stack the logo and text vertically, removed the secondary sub-title, and increased the dimensions for high visibility on the login screens.
+- **Feature (Assistant Avatar Upgrade)**: Replaced the legacy `"VX"` text placeholder in [`ChatInterface.tsx`](file:///D:/Vizzy%20Redesign/Vizzy%20Redesign/frontend/src/pages/user/ChatInterface.tsx#L971) with the custom `<VizzyPilotLogoIcon />` wrapper container using theme-aware background settings (`bg-white dark:bg-black`).
+- **Optimization (Dataset Selection & Session switching)**: Updated [`ChatInterface.tsx`](file:///D:/Vizzy%20Redesign/Vizzy%20Redesign/frontend/src/pages/user/ChatInterface.tsx#L215) to cache and load the last active dataset ID and version ID in `localStorage`. Optimized session dropdown toggling by automatically deleting any previous empty session in the backend (`chatService.deleteSession`) before instantiating a new one, completely eliminating sidebar history list spam.
+- **Feature (Premium Authentication Load Splash)**: Implemented an animated full-screen workspace preparation splash screen with custom `VizzyPilotFullLogo` branding, custom `@keyframes loadingBar` keyframe, and loading progress bar inside [`Login.tsx`](file:///D:/Vizzy%20Redesign/Vizzy%20Redesign/frontend/src/pages/public/Login.tsx#L48) and [`AdminLogin.tsx`](file:///D:/Vizzy%20Redesign/Vizzy%20Redesign/frontend/src/pages/public/AdminLogin.tsx#L33) upon successful credentials validation.
 
 ### **Pivoted Grouped Charts & SQL Partition Rules (2026-07-02)**
 - **Feature (Dynamic Row HBAR Charts)**: Enhanced `renderStackedBarChart` and `renderBarChart` in `ChartRenderer.tsx` to detect queries with multiple dimensions and a single metric (e.g. Segment, Sub-Category, sales) and render them as a vertically stacked list of cards (one by one) for better visibility, with each card displaying a full-width compact horizontal bar chart (HBAR) for its respective segment (e.g. Consumer, Corporate, Home Office).

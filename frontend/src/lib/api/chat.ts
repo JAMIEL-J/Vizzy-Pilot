@@ -191,6 +191,14 @@ export const chatService = {
         return response.data.suggestions;
     },
 
+    // Get suggestions directly by version ID without active session
+    getInitialSuggestionsByVersion: async (versionId: string) => {
+        const response = await apiClient.get<{ suggestions: string[] }>('/chat/suggestions', {
+            params: { dataset_version_id: versionId }
+        });
+        return response.data.suggestions;
+    },
+
     // Execute custom SQL query against a dataset
     executeSql: async (datasetId: string, sql: string, maxRows = 1000) => {
         const response = await apiClient.post<any>(`/datasets/${datasetId}/sql/execute`, {

@@ -1778,6 +1778,47 @@ async def send_message_stream(
 
 
 @router.get(
+    "/suggestions",
+    summary="Get initial dataset-aware suggestions for a dataset version",
+)
+async def get_initial_suggestions_by_version(
+    dataset_version_id: UUID,
+    session: DBSession,
+    current_user: RateLimitedUser,
+):
+    """
+    Get initial suggestions directly using the dataset version ID.
+    """
+    try:
+        contract = session.exec(
+            select(AnalysisContract).where(
+                AnalysisContract.dataset_version_id == dataset_version_id,
+                AnalysisContract.is_active == True,
+            )
+        ).first()
+        
+        schema_dict = {}
+        if contract:
+            schema_dict = {
+                "allowed_metrics": contract.allowed_metrics,
+                "allowed_dimensions": contract.allowed_dimensions,
+                "target_column": getattr(contract, 'target_column', None)
+            }
+        
+        from app.services.llm.suggestion_generator import generate_contextual_suggestions
+        suggestions = await generate_contextual_suggestions(
+            schema=schema_dict,
+            conversation_history=[],
+            latest_result=None,
+        )
+        return {"suggestions": suggestions}
+    except Exception as e:
+        import logging
+        logging.getLogger("uvicorn").error(f"Failed to generate initial suggestions by version: {e}")
+        return {"suggestions": ["What is total revenue?", "Compare metrics by category"]}
+
+
+@router.get(
     "/sessions/{session_id}/suggestions",
     summary="Get initial dataset-aware suggestions for a session",
 )

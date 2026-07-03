@@ -16,6 +16,7 @@ import { Panel, PanelHeader, Pill, BtnGhost, BtnSecondary, BtnAccent } from '@/c
 import RuixenMoonChat from '../../components/ui/ruixen-moon-chat';
 import { PromptInputBox } from '@/components/ui/ai-prompt-box';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { VizzyPilotLogoIcon } from '../../components/layout/VizzyLogo';
 
 // --- Helpers ---
 const isInsightMessage = (msg: ChatMessage) => {
@@ -211,9 +212,9 @@ export default function ChatInterface() {
     const [expandedThoughts, setExpandedThoughts] = useState<Record<string, boolean>>({});
     const [initialSuggestions, setInitialSuggestions] = useState<string[]>([]);
     const [datasets, setDatasets] = useState<Dataset[]>([]);
-    const [selectedDatasetId, setSelectedDatasetId] = useState<string>('');
+    const [selectedDatasetId, setSelectedDatasetId] = useState<string>(() => localStorage.getItem('vizzy_last_dataset_id') || '');
     const [versions, setVersions] = useState<DatasetVersionSummary[]>([]);
-    const [selectedVersionId, setSelectedVersionId] = useState<string>('');
+    const [selectedVersionId, setSelectedVersionId] = useState<string>(() => localStorage.getItem('vizzy_last_version_id') || '');
     const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
     const [chartModes, setChartModes] = useState<Record<string, 'chart' | 'table'>>({});
     const [copiedSqlMsgId, setCopiedSqlMsgId] = useState<string | null>(null);
@@ -321,8 +322,14 @@ export default function ChatInterface() {
             datasetService.listVersionsForDataset(selectedDatasetId)
                 .then(v => {
                     setVersions(v || []);
-                    if (v && v.length > 0 && !selectedVersionId) {
-                        setSelectedVersionId(v[v.length - 1].id); // Pick a default or latest
+                    if (v && v.length > 0) {
+                        const savedVerId = localStorage.getItem('vizzy_last_version_id');
+                        const exists = v.some(ver => ver.id === savedVerId);
+                        if (exists && savedVerId) {
+                            setSelectedVersionId(savedVerId);
+                        } else {
+                            setSelectedVersionId(v[v.length - 1].id);
+                        }
                     }
                 })
                 .catch(err => console.error("Failed to load versions:", err));
@@ -333,6 +340,18 @@ export default function ChatInterface() {
     }, [selectedDatasetId]);
 
     useEffect(() => {
+        if (selectedDatasetId) {
+            localStorage.setItem('vizzy_last_dataset_id', selectedDatasetId);
+        }
+    }, [selectedDatasetId]);
+
+    useEffect(() => {
+        if (selectedVersionId) {
+            localStorage.setItem('vizzy_last_version_id', selectedVersionId);
+        }
+    }, [selectedVersionId]);
+
+    useEffect(() => {
         const timer = window.setInterval(() => setHistoryClock(Date.now()), 60_000);
         return () => window.clearInterval(timer);
     }, []);
@@ -341,6 +360,15 @@ export default function ChatInterface() {
         try {
             const data = await datasetService.listDatasets();
             setDatasets(data);
+            if (data && data.length > 0) {
+                const savedId = localStorage.getItem('vizzy_last_dataset_id');
+                const exists = data.some(d => d.id === savedId);
+                if (exists && savedId) {
+                    setSelectedDatasetId(savedId);
+                } else if (!savedId || !exists) {
+                    setSelectedDatasetId(data[0].id);
+                }
+            }
         } catch (error) {
             console.error('Failed to load datasets:', error);
         }
@@ -403,21 +431,23 @@ export default function ChatInterface() {
     };
 
     useEffect(() => {
-        const initSession = async () => {
-            if (selectedDatasetId && !currentSessionId && messages.length === 0) {
-                try {
-                    const newSession = await chatService.createSession(selectedDatasetId, selectedVersionId || undefined, 'New Analysis');
-                    setCurrentSessionId(newSession.id);
-                    loadSessions();
-                    loadSuggestions(newSession.id);
-                } catch (error) {
-                    console.error('Failed to create session on dataset selection:', error);
+        const loadSuggestionsForSelected = async () => {
+            if (selectedVersionId) {
+                if (currentSessionId) {
+                    loadSuggestions(currentSessionId);
+                } else {
+                    try {
+                        const sug = await chatService.getInitialSuggestionsByVersion(selectedVersionId);
+                        setInitialSuggestions(sug || []);
+                    } catch (error) {
+                        console.error('Failed to load suggestions by version:', error);
+                        setInitialSuggestions([]);
+                    }
                 }
             }
         };
-        const timer = setTimeout(initSession, 200);
-        return () => clearTimeout(timer);
-    }, [selectedDatasetId, selectedVersionId, currentSessionId, messages.length]);
+        loadSuggestionsForSelected();
+    }, [selectedVersionId, currentSessionId]);
 
     const handleDownloadCSV = (data: any, title: string) => {
         const rows = Array.isArray(data?.data?.rows) ? data.data.rows : (Array.isArray(data?.rows) ? data.rows : (Array.isArray(data?.data) ? data.data : []));
@@ -968,7 +998,9 @@ export default function ChatInterface() {
                                     <div key={msg.id} id={`msg-${msg.id}`} className={`flex w-full mb-8 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                                         <div className={`max-w-7xl w-full flex items-start space-x-3 ${msg.role === 'user' ? 'justify-end' : ''}`}>
                                             {msg.role === 'assistant' && (
-                                                <div className="w-10 h-10 rounded-sm bg-surface-3 border-b-2 border-border-strong flex items-center justify-center flex-shrink-0 font-mono text-xs font-bold text-foreground font-display font-light shadow-elev-1">VX</div>
+                                                <div className="w-10 h-10 rounded-xl bg-white dark:bg-black border border-border flex items-center justify-center flex-shrink-0 shadow-sm overflow-hidden">
+                                                    <VizzyPilotLogoIcon size={34} />
+                                                </div>
                                             )}
                                             <div className={`px-5 py-4 rounded-xl border ${msg.role === 'user' ? 'bg-surface-3 text-foreground border-border shadow-sm' : 'bg-surface-2 text-foreground border-border'} ${['analysis', 'visualization', 'dashboard', 'comparative', 'aggregative', 'trend', 'interpretive'].includes(msg.intent_type || '') && msg.output_data?.type !== 'kpi' && msg.output_data?.chart?.type !== 'kpi' ? 'w-full' : ''} ${(msg.output_data?.type === 'kpi' || msg.output_data?.chart?.type === 'kpi') ? 'w-full max-w-md' : ''}`}>
                                                 {msg.role === 'assistant' && (msg.output_data?.type === 'interpretive_text' || msg.output_data?.source === 'orchestrator_interpretive') && (

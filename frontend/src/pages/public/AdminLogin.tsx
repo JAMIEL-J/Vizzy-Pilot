@@ -7,6 +7,7 @@ import {
   ArrowRight, Sparkles, Terminal, Activity, Server, Cpu,
   Eye, EyeOff
 } from "lucide-react";
+import { VizzyPilotFullLogo, VizzyPilotVerticalLogo } from "../../components/layout/VizzyLogo";
 
 export default function AdminLogin() {
   const navigate = useNavigate();
@@ -15,6 +16,7 @@ export default function AdminLogin() {
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [isLoginSuccess, setIsLoginSuccess] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,13 +27,49 @@ export default function AdminLogin() {
       const response = await authApi.loginAdmin({ email, password });
       localStorage.setItem("access_token", response.access_token);
       localStorage.setItem("refresh_token", response.refresh_token);
-      navigate("/admin");
+      setIsLoginSuccess(true);
+      setTimeout(() => {
+        navigate("/admin");
+      }, 2000);
     } catch (err: any) {
       setError(err.response?.data?.detail || "Login failed. Please try again.");
-    } finally {
       setIsLoading(false);
     }
   };
+
+  if (isLoginSuccess) {
+    return (
+      <div className="min-h-screen bg-[#F5F2EB] flex flex-col items-center justify-center relative overflow-hidden select-none">
+        <style>{`
+          @keyframes loadingBar {
+            0% { left: -40%; width: 40%; }
+            50% { left: 30%; width: 50%; }
+            100% { left: 100%; width: 30%; }
+          }
+        `}</style>
+        {/* Ambient background patterns */}
+        <div className="absolute inset-0 bg-gradient-to-b from-[#E4DED4]/40 to-transparent pointer-events-none" />
+        <div className="absolute -top-40 -left-40 w-96 h-96 rounded-full bg-blue-500/[0.04] blur-[120px] pointer-events-none" />
+        <div className="absolute -bottom-40 -right-40 w-96 h-96 rounded-full bg-indigo-500/[0.04] blur-[120px] pointer-events-none" />
+
+        <div className="relative z-10 flex flex-col items-center space-y-8">
+          <VizzyPilotVerticalLogo size={160} />
+          
+          <div className="flex flex-col items-center space-y-3 w-64">
+            <div className="h-1 w-full bg-[#E4DED4] rounded-full overflow-hidden relative shadow-inner">
+              <div 
+                className="h-full bg-gradient-to-r from-[#1D70B8] to-[#02C39A] rounded-full absolute left-0 top-0" 
+                style={{ animation: 'loadingBar 1.5s ease-in-out infinite' }} 
+              />
+            </div>
+            <span className="text-[10px] font-mono font-bold tracking-widest text-[#7C725D] uppercase animate-pulse">
+              Synchronizing system console...
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div id="auth-root" className="min-h-screen bg-[#F5F2EB] flex flex-col justify-between relative overflow-hidden select-none py-12 px-4 sm:px-6 lg:px-8">
