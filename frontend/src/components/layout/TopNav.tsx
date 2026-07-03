@@ -13,6 +13,7 @@ import { useAuthStore } from "@/lib/store/authStore";
 import { userApi, type LLMSettings } from "../../lib/api/user";
 import { toast } from "react-hot-toast";
 import ThemeToggle from "../ui/ThemeToggle";
+import { VizzyPilotLogoIcon } from "./VizzyLogo";
 
 const NAV = [
   { to: "/user/dashboard", label: "Dashboard" },
@@ -125,9 +126,7 @@ export function TopNav() {
         {/* Left Brand Area */}
         <div className="flex items-center space-x-3 text-left">
           <Link to="/user/dashboard" className="flex items-center space-x-3 text-decoration-none">
-            <div className="h-7 w-7 rounded-sm flex items-center justify-center text-primary-foreground font-mono font-bold text-sm bg-themed-main shadow-md">
-              V
-            </div>
+            <VizzyPilotLogoIcon size={30} className="text-themed-main shrink-0" />
             <div>
               <span className="font-sans text-xs font-bold text-themed-main tracking-[0.15em] uppercase leading-none block">
                 VIZZY PILOT AI

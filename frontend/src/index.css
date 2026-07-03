@@ -386,17 +386,17 @@
     text-rendering: optimizeLegibility;
 }
 .dark .helix-scope {
-    --background: #0B0D0E;
+    --background: #000000;
     --foreground: #FCFAF5;
 
-    --surface: #141719;
-    --surface-2: #1D2124;
-    --surface-3: #262B2F;
-    --elevated: #1D2124;
+    --surface: #0A0A0A;
+    --surface-2: #121212;
+    --surface-3: #1A1A1A;
+    --elevated: #121212;
 
-    --card: #141719;
+    --card: #0A0A0A;
     --card-foreground: #FCFAF5;
-    --popover: #141719;
+    --popover: #0A0A0A;
     --popover-foreground: #FCFAF5;
 
     --primary: #FCFAF5;
@@ -414,10 +414,10 @@
     --warning: #D97706;
     --info: #2563EB;
 
-    --border: #23282B;
+    --border: #1F1F1F;
     --border-strong: rgba(252, 250, 245, 0.15);
-    --input: #141719;
-    --ring: #23282B;
+    --input: #0A0A0A;
+    --ring: #1F1F1F;
 
     --grid-line: rgba(252, 250, 245, 0.04);
     --shadow-elev-1: 0 1px 0 rgba(252, 250, 245, 0.04) inset, 0 1px 2px rgba(0, 0, 0, 0.4);

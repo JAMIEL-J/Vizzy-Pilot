@@ -1002,7 +1002,7 @@ export default function ChatInterface() {
                                                     <VizzyPilotLogoIcon size={34} />
                                                 </div>
                                             )}
-                                            <div className={`px-5 py-4 rounded-xl border ${msg.role === 'user' ? 'bg-surface-3 text-foreground border-border shadow-sm' : 'bg-surface-2 text-foreground border-border'} ${['analysis', 'visualization', 'dashboard', 'comparative', 'aggregative', 'trend', 'interpretive'].includes(msg.intent_type || '') && msg.output_data?.type !== 'kpi' && msg.output_data?.chart?.type !== 'kpi' ? 'w-full' : ''} ${(msg.output_data?.type === 'kpi' || msg.output_data?.chart?.type === 'kpi') ? 'w-full max-w-md' : ''}`}>
+                                            <div className={`px-5 py-4 rounded-xl border ${msg.role === 'user' ? 'bg-surface-3 text-foreground border-border shadow-sm max-w-xl ml-auto' : 'bg-surface-2 text-foreground border-border w-full'} ${(msg.role === 'assistant' && (msg.output_data?.type === 'kpi' || msg.output_data?.chart?.type === 'kpi')) ? 'max-w-md mr-auto' : ''}`}>
                                                 {msg.role === 'assistant' && (msg.output_data?.type === 'interpretive_text' || msg.output_data?.source === 'orchestrator_interpretive') && (
                                                     <div className="mb-2 flex items-center">
                                                         <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold tracking-wider uppercase bg-[#8B5CF6]/15 text-[#8B5CF6] border border-[#8B5CF6]/30">
