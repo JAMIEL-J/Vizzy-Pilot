@@ -2,6 +2,20 @@
 
 ## 📝 Recent Architectural Changes Log
 
+### **Figma-Inspired Landing Page Redesign (2026-07-03)**
+- **Full Landing Page Rebuild**: Replaced all existing `src/components/landing/` section components usage in `Landing.tsx` with a completely new set under `src/components/landing2/`. The new landing page is inspired by Figma/Linear/Vercel minimal aesthetic — centered serif typography (Instrument Serif), surgical whitespace, single Sky-500 accent color (`#0EA5E9`), no purple, no gradient cards.
+- **New Components**: Created 7 new landing section components in `src/components/landing2/`:
+  - [`LandingNav.tsx`](file:///D:/Vizzy%20Redesign/Vizzy%20Redesign/frontend/src/components/landing2/LandingNav.tsx): Frosted-glass floating navbar with scroll-reactive border, animated mobile menu.
+  - [`HeroSection.tsx`](file:///D:/Vizzy%20Redesign/Vizzy%20Redesign/frontend/src/components/landing2/HeroSection.tsx): Centered Instrument Serif h1 + static dashboard mockup with mouse-tracking 3D tilt (framer-motion useSpring).
+  - [`TrustStrip.tsx`](file:///D:/Vizzy%20Redesign/Vizzy%20Redesign/frontend/src/components/landing2/TrustStrip.tsx): 5 benchmark stat pills from `run_benchmarks.py`.
+  - [`HowItWorks.tsx`](file:///D:/Vizzy%20Redesign/Vizzy%20Redesign/frontend/src/components/landing2/HowItWorks.tsx): 3-phase vertical timeline (Ingest → Route/Execute → Stream/Version) with scroll-triggered animations.
+  - [`FeaturesGrid.tsx`](file:///D:/Vizzy%20Redesign/Vizzy%20Redesign/frontend/src/components/landing2/FeaturesGrid.tsx): 6-card features grid with hover lift animation.
+  - [`ApplicationsShowcase.tsx`](file:///D:/Vizzy%20Redesign/Vizzy%20Redesign/frontend/src/components/landing2/ApplicationsShowcase.tsx): Tabbed 3-app showcase (Dashboard, Cleaning Studio, Chat) with static pixel-accurate mockups built from actual `UserDashboard.tsx` and `DataCleaning.tsx` source structure.
+  - [`PerformanceTable.tsx`](file:///D:/Vizzy%20Redesign/Vizzy%20Redesign/frontend/src/components/landing2/PerformanceTable.tsx): Clean benchmark data table with hover accent line.
+  - [`LandingFooter.tsx`](file:///D:/Vizzy%20Redesign/Vizzy%20Redesign/frontend/src/components/landing2/LandingFooter.tsx): 4-column link footer + staggered letter-by-letter `VIZZY` outline-stroke typography reveal animation triggered by IntersectionObserver.
+- **Landing.tsx Updated**: [`Landing.tsx`](file:///D:/Vizzy%20Redesign/Vizzy%20Redesign/frontend/src/pages/public/Landing.tsx) now imports all new components from `landing2/` and has no dependencies on old `landing/` components (those files remain untouched).
+- **Design Constraints Applied**: Purple ban respected (no `#7B1FA2`, `#6C63FF`, `indigo`, `violet`). Single accent: Sky-500 `#0EA5E9`. `Instrument Serif` already in index.html. `framer-motion@12.38.0` already installed.
+
 ### **Brand Assets & Premium Login Splash (2026-07-03)**
 - **Feature (Vizzy Logo Components)**: Created [`VizzyLogo.tsx`](file:///D:/Vizzy%20Redesign/Vizzy%20Redesign/frontend/src/components/layout/VizzyLogo.tsx) containing custom vector SVG definitions for `VizzyPilotLogoIcon` and `VizzyPilotFullLogo` derived from the designer's high-fidelity vector paths (extracted from `designarena_image_5rcf3fwk (1).svg` with the bounding background layer removed). Updated the `viewBox` coordinates to `455 265 340 272` to crop out the empty canvas margins and ensure high visibility and size matching inside layout containers. Added `VizzyPilotVerticalLogo` component to stack the logo and text vertically, removed the secondary sub-title, and increased the dimensions for high visibility on the login screens.
 - **Feature (Assistant Avatar Upgrade)**: Replaced the legacy `"VX"` text placeholder in [`ChatInterface.tsx`](file:///D:/Vizzy%20Redesign/Vizzy%20Redesign/frontend/src/pages/user/ChatInterface.tsx#L971) with the custom `<VizzyPilotLogoIcon />` wrapper container using theme-aware background settings (`bg-white dark:bg-black`).

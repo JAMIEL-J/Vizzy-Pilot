@@ -1,4 +1,4 @@
-/* Import Tailwind first */
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital,wght@0,400;1,400&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400&display=swap');
 @import 'tailwindcss';
 
 /* Import custom animations (must come before any other statements) */
@@ -79,10 +79,11 @@
     --color-chart-6: var(--chart-6);
 
     --font-headline: "Host Grotesk", "Plus Jakarta Sans", "Space Grotesk", sans-serif;
-    --font-body: "Host Grotesk", "Inter", sans-serif;
+    --font-body: "Aptos", "Plus Jakarta Sans", "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
     --font-label: "Inter", sans-serif;
-    --font-display: "Host Grotesk", "Inter", system-ui, sans-serif;
-    --font-mono: "DM Mono", "JetBrains Mono", ui-monospace, monospace;
+    --font-display: "Instrument Serif", serif;
+    --font-sans: "Aptos", "Plus Jakarta Sans", "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    --font-mono: "Aptos", "Plus Jakarta Sans", "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
     --font-serif: "Instrument Serif", Georgia, serif;
 
     /* Landing Page specific - Themes */
@@ -90,6 +91,18 @@
     --color-slate-custom: var(--landing-page-text);
     --color-indigo-accent: var(--landing-accent);
     --color-emerald-accent-custom: #10B981;
+
+    --color-bg: var(--bg);
+    --color-surface: var(--surface);
+    --color-surface-2: var(--surface-2);
+    --color-border-custom: var(--border);
+    --color-text-custom: var(--text);
+    --color-muted-custom: var(--muted);
+    --color-accent-custom: var(--accent);
+    --color-success-custom: var(--success);
+    --color-warning-custom: var(--warning);
+    --color-glass-bg: var(--glass-bg);
+    --color-glass-border: var(--glass-border);
 }
 
 .glass-card {
@@ -105,24 +118,6 @@
     -webkit-text-fill-color: transparent;
 }
 
-/* Keep Newsreader only on selected public pages (landing/login/register). */
-.newsreader-page {
-    --font-display: "Newsreader", serif;
-    font-family: "Newsreader", serif;
-}
-
-.newsreader-page.font-display,
-.newsreader-page.font-serif,
-.newsreader-page.font-mono,
-.newsreader-page .font-display,
-.newsreader-page .font-serif {
-    font-family: "Newsreader", serif;
-}
-
-.newsreader-page.font-mono,
-.newsreader-page .font-mono {
-    font-family: "JetBrains Mono", monospace;
-}
 
 /* Custom gradient utilities to match prototype */
 .gradient-bg {
@@ -152,7 +147,7 @@
    ============================================================ */
 
 :root {
-    font-family: "Host Grotesk", "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+    font-family: "Aptos", "Plus Jakarta Sans", "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
     font-weight: 400;
     font-synthesis: none;
     text-rendering: optimizeLegibility;
@@ -243,9 +238,33 @@
     --chart-4: #BA1A1A;
     --chart-5: #14b8a6;
     --chart-6: #7C725D;
+
+    --bg: #FAFAF9;
+    --surface: #FFFFFF;
+    --surface-2: #F5F5F4;
+    --border: rgba(0, 0, 0, 0.08);
+    --text: #0A0A0A;
+    --muted: #6B7280;
+    --accent: #0D9488;
+    --success: #10B981;
+    --warning: #F59E0B;
+    --glass-bg: rgba(255, 255, 255, 0.72);
+    --glass-border: rgba(0, 0, 0, 0.06);
 }
 
-/* Dark theme removed — VizzyPilot is a light-only editorial design system */
+.dark, :root.dark, html.dark {
+    --bg: #0A0A0A;
+    --surface: #111111;
+    --surface-2: #1A1A1A;
+    --border: rgba(255, 255, 255, 0.07);
+    --text: #FAFAFA;
+    --muted: #71717A;
+    --accent: #2DD4BF;
+    --success: #34D399;
+    --warning: #FB923C;
+    --glass-bg: rgba(10, 10, 10, 0.72);
+    --glass-border: rgba(255, 255, 255, 0.07);
+}
 
 /* Helix user scope - applies only to user pages */
 /* Helix user scope - applies only to user pages */
@@ -718,10 +737,10 @@ body {
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 }
 
-/* Enforce Aptos for display/serif utility usage across the app by default. */
+/* Enforce Instrument Serif for display/serif utility usage across the app by default. */
 .font-display,
 .font-serif {
-    font-family: "Host Grotesk", "Inter", system-ui, sans-serif;
+    font-family: "Instrument Serif", Georgia, serif;
 }
 
 .font-mono {
@@ -771,4 +790,23 @@ body {
     font-size: 13px;
     letter-spacing: 0.01em;
 }
+
+/* Premium Grid Background Lines */
+.hero-grid-lines {
+    background-image: 
+      linear-gradient(to right, rgba(0, 0, 0, 0.08) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(0, 0, 0, 0.08) 1px, transparent 1px);
+    background-size: 3rem 3rem;
+}
+.dark .hero-grid-lines, :root.dark .hero-grid-lines, html.dark .hero-grid-lines {
+    background-image: 
+      linear-gradient(to right, rgba(255, 255, 255, 0.06) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+}
+
+/* SVG stroke styling */
+.text-stroke-custom {
+    -webkit-text-stroke: 1px var(--border);
+}
+
 
