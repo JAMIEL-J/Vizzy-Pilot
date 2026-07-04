@@ -5,7 +5,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { authApi } from '../lib/api/auth';
 import { useNavigate } from 'react-router-dom';
-import { VizzyPilotVerticalLogo } from './layout/VizzyLogo';
+import { VizzyPilotVerticalLogo, VizzyPilotLogoIcon } from './layout/VizzyLogo';
 
 interface AuthScreenProps {
   initialMode: 'signin' | 'signup';
@@ -224,9 +224,7 @@ export default function AuthScreen({ initialMode, isDark, onToggleTheme, onClose
           </button>
 
           <div className="flex items-center space-x-2">
-            <div className="w-6 h-6 rounded-lg bg-text-custom flex items-center justify-center">
-              <span className="text-bg font-sans font-bold text-xs select-none">V</span>
-            </div>
+            <VizzyPilotLogoIcon size={24} className="shrink-0 text-text-custom" />
             <span className="font-sans font-semibold tracking-tight text-text-custom text-sm select-none">Vizzy Pilot</span>
           </div>
 
@@ -256,9 +254,7 @@ export default function AuthScreen({ initialMode, isDark, onToggleTheme, onClose
             
             <div className="space-y-6 relative z-10 text-left">
               <div className="flex items-center space-x-2">
-                <div className="w-8 h-8 rounded-xl bg-text-custom flex items-center justify-center shadow-xs">
-                  <span className="text-bg font-sans font-bold text-sm">V</span>
-                </div>
+                <VizzyPilotLogoIcon size={32} className="shrink-0 text-text-custom" />
                 <span className="font-sans font-semibold text-text-custom tracking-tight text-base">Vizzy Pilot Playroom</span>
               </div>
               

@@ -8,6 +8,7 @@ import {
   Save,
   Loader2,
   Settings,
+  Github,
 } from "lucide-react";
 import { useAuthStore } from "@/lib/store/authStore";
 import { userApi, type LLMSettings } from "../../lib/api/user";
@@ -187,6 +188,8 @@ export function TopNav() {
           </button>
 
           <ThemeToggle size="sm" />
+
+
 
           <button
             onClick={handleLogout}

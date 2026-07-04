@@ -994,6 +994,9 @@ export default function ChatInterface() {
                                     transitionText = "Based on the query execution and data retrieval, here is the comparative analysis:";
                                 }
 
+                                const isDetailed = (msg.content || '').includes('\n') || (msg.content || '').includes('•') || (msg.content || '').includes('-') || (msg.content || '').length > 150;
+                                const shouldRestrictWidth = msg.role === 'assistant' && isKpi && !isDetailed;
+
                                 return (
                                     <div key={msg.id} id={`msg-${msg.id}`} className={`flex w-full mb-8 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                                         <div className={`max-w-7xl w-full flex items-start space-x-3 ${msg.role === 'user' ? 'justify-end' : ''}`}>
@@ -1002,7 +1005,7 @@ export default function ChatInterface() {
                                                     <VizzyPilotLogoIcon size={34} />
                                                 </div>
                                             )}
-                                            <div className={`px-5 py-4 rounded-xl border ${msg.role === 'user' ? 'bg-surface-3 text-foreground border-border shadow-sm max-w-xl ml-auto' : 'bg-surface-2 text-foreground border-border w-full'} ${(msg.role === 'assistant' && (msg.output_data?.type === 'kpi' || msg.output_data?.chart?.type === 'kpi')) ? 'max-w-md mr-auto' : ''}`}>
+                                            <div className={`px-5 py-4 rounded-xl border ${msg.role === 'user' ? 'bg-surface-3 text-foreground border-border shadow-sm max-w-xl ml-auto' : 'bg-surface-2 text-foreground border-border w-full'} ${shouldRestrictWidth ? 'max-w-md mr-auto' : ''}`}>
                                                 {msg.role === 'assistant' && (msg.output_data?.type === 'interpretive_text' || msg.output_data?.source === 'orchestrator_interpretive') && (
                                                     <div className="mb-2 flex items-center">
                                                         <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold tracking-wider uppercase bg-[#8B5CF6]/15 text-[#8B5CF6] border border-[#8B5CF6]/30">
@@ -1012,33 +1015,36 @@ export default function ChatInterface() {
                                                 )}
                                                 <div className="chat-insight-container text-sm leading-relaxed">
                                                     {/* Persistent Thought Process Toggle - Rendered at the TOP of the reply */}
-                                                    {msg.role === 'assistant' && msg.output_data?.thought_process && msg.output_data.thought_process.length > 0 && (
-                                                        <div className="mb-3.5 border-l-2 border-border/40 pl-3.5 ml-1 bg-transparent">
-                                                            <button
-                                                                onClick={() => setExpandedThoughts(prev => ({ ...prev, [msg.id]: !prev[msg.id] }))}
-                                                                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer select-none py-1"
-                                                            >
-                                                                {expandedThoughts[msg.id] ? (
-                                                                    <ChevronDown className="h-3 w-3 text-muted-foreground/60" />
-                                                                ) : (
-                                                                    <ChevronRight className="h-3 w-3 text-muted-foreground/60" />
+                                                    {msg.role === 'assistant' && msg.output_data?.thought_process && msg.output_data.thought_process.length > 0 && (() => {
+                                                        const isExpanded = expandedThoughts[msg.id] !== false;
+                                                        return (
+                                                            <div className="mb-3.5 border-l-2 border-border/40 pl-3.5 ml-1 bg-transparent">
+                                                                <button
+                                                                    onClick={() => setExpandedThoughts(prev => ({ ...prev, [msg.id]: isExpanded ? false : true }))}
+                                                                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer select-none py-1"
+                                                                >
+                                                                    {isExpanded ? (
+                                                                        <ChevronDown className="h-3 w-3 text-muted-foreground/60" />
+                                                                    ) : (
+                                                                        <ChevronRight className="h-3 w-3 text-muted-foreground/60" />
+                                                                    )}
+                                                                    <Sparkles className="h-3 w-3 text-muted-foreground/45" />
+                                                                    <span className="font-medium">Thought process</span>
+                                                                    <span className="text-[10px] text-muted-foreground/50 font-mono">({msg.output_data.thought_process.length} steps)</span>
+                                                                </button>
+                                                                {isExpanded && (
+                                                                    <div className="mt-2 space-y-2 pl-2 border-l border-border/20 ml-1.5 py-0.5 animate-fade-in">
+                                                                        {msg.output_data.thought_process.map((step: any) => (
+                                                                            <div key={step.id} className="flex items-start gap-2.5 text-xs text-muted-foreground/75">
+                                                                                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/35 mt-1.5 shrink-0" />
+                                                                                <span className="leading-relaxed font-sans">{step.content}</span>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
                                                                 )}
-                                                                <Sparkles className="h-3 w-3 text-muted-foreground/45" />
-                                                                <span className="font-medium">Thought process</span>
-                                                                <span className="text-[10px] text-muted-foreground/50 font-mono">({msg.output_data.thought_process.length} steps)</span>
-                                                            </button>
-                                                            {expandedThoughts[msg.id] && (
-                                                                <div className="mt-2 space-y-2 pl-2 border-l border-border/20 ml-1.5 py-0.5 animate-fade-in">
-                                                                    {msg.output_data.thought_process.map((step: any) => (
-                                                                        <div key={step.id} className="flex items-start gap-2.5 text-xs text-muted-foreground/75">
-                                                                            <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/35 mt-1.5 shrink-0" />
-                                                                            <span className="leading-relaxed font-sans">{step.content}</span>
-                                                                        </div>
-                                                                    ))}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    )}
+                                                            </div>
+                                                        );
+                                                    })()}
 
                                                     {/* Professional Analyst Transition Line */}
                                                     {msg.role === 'assistant' && msg.output_data?.thought_process && msg.output_data.thought_process.length > 0 && (

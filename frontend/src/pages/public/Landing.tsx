@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, type MouseEvent } from 'react';
 import { 
   Sparkles, Database, Zap, GitBranch, MessageSquare, Lock, 
   HeartPulse, RefreshCw, ChevronRight, Moon, Sun, Table, FileText, ArrowRight, PieChart,
-  LogOut, User as UserIcon, Sliders, Activity, Filter, Layers, Edit3, ClipboardCheck, AlertTriangle, Settings, Grid, Clock, TrendingUp, Terminal
+  LogOut, User as UserIcon, Sliders, Activity, Filter, Layers, Edit3, ClipboardCheck, AlertTriangle, Settings, Grid, Clock, TrendingUp, Terminal, Github
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTheme } from '../../context/ThemeContext';
@@ -11,6 +11,8 @@ import CleaningStudioPage from '../../components/playground/CleaningStudioPage';
 import ChatPage from '../../components/playground/ChatPage';
 import AuthScreen from '../../components/AuthScreen';
 import { AnimatedGridPattern } from "@/components/ui/animated-grid-pattern";
+import { VizzyPilotLogoIcon } from '../../components/layout/VizzyLogo';
+import DocsModal from '../../components/DocsModal';
 import { cn } from "@/lib/utils";
 
 const bentoContainerVariants = {
@@ -44,6 +46,7 @@ export default function Landing() {
   const [userSession, setUserSession] = useState<{ email: string; name: string } | null>(null);
   const [activeAuthScreen, setActiveAuthScreen] = useState<'signin' | 'signup' | null>(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [activeDocsTab, setActiveDocsTab] = useState<'docs' | 'api' | 'changelog' | null>(null);
   
   // Mouse tilt state for Hero visual card
   const [heroTilt, setHeroTilt] = useState({ x: 0, y: 0 });
@@ -126,9 +129,7 @@ export default function Landing() {
           
           {/* Left Side Wordmark */}
           <div className="flex items-center space-x-2.5 cursor-pointer" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
-            <div className="w-6 h-6 rounded-lg bg-text-custom flex items-center justify-center transition-transform hover:rotate-6">
-              <span className="text-bg font-sans font-bold text-xs select-none">V</span>
-            </div>
+            <VizzyPilotLogoIcon size={24} className="shrink-0 text-text-custom" />
             <span className="text-sm font-semibold tracking-tight select-none">Vizzy Pilot</span>
           </div>
 
@@ -143,7 +144,7 @@ export default function Landing() {
           {/* Right Controls */}
           <div className="flex items-center space-x-3">
             
-            {/* Dark/Light mode toggle */}
+             {/* Dark/Light mode toggle */}
             <button 
               onClick={toggleTheme}
               className="p-1.5 hover:bg-border-custom/20 border border-border-custom/30 rounded-full text-muted-custom hover:text-text-custom transition-all cursor-pointer bg-transparent"
@@ -151,6 +152,8 @@ export default function Landing() {
             >
               {isDark ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
             </button>
+
+
 
             {/* CTA action buttons */}
             {userSession ? (
@@ -1097,9 +1100,7 @@ export default function Landing() {
             {/* Col 1: Brand */}
             <div className="space-y-3 col-span-2 md:col-span-1 text-left">
               <div className="flex items-center space-x-2">
-                <div className="w-5 h-5 rounded-md bg-text-custom flex items-center justify-center">
-                  <span className="text-bg font-sans font-bold text-[10px]">V</span>
-                </div>
+                <VizzyPilotLogoIcon size={20} className="shrink-0 text-text-custom" />
                 <span className="font-semibold text-sm">Vizzy Pilot</span>
               </div>
               <p className="text-xs text-muted-custom leading-relaxed">
@@ -1155,10 +1156,10 @@ export default function Landing() {
             <div className="space-y-3 text-left">
               <h4 className="text-xs font-semibold font-sans text-text-custom uppercase tracking-wider">Resources</h4>
               <ul className="text-xs text-muted-custom space-y-2 font-sans list-none p-0">
-                <li><a href="https://github.com" className="hover:text-text-custom">GitHub</a></li>
-                <li><a href="#" className="hover:text-text-custom">Documentation</a></li>
-                <li><a href="#" className="hover:text-text-custom">API Docs</a></li>
-                <li><a href="#" className="hover:text-text-custom">Changelog</a></li>
+                <li><a href="https://github.com/JAMIEL-J/Vizzy-Analytics" target="_blank" rel="noopener noreferrer" className="hover:text-text-custom text-decoration-none">GitHub</a></li>
+                <li><button onClick={() => setActiveDocsTab("docs")} className="hover:text-text-custom transition-colors border-none bg-transparent cursor-pointer p-0 text-xs text-muted-custom block font-sans">Documentation</button></li>
+                <li><button onClick={() => setActiveDocsTab("api")} className="hover:text-text-custom transition-colors border-none bg-transparent cursor-pointer p-0 text-xs text-muted-custom block font-sans">API Docs</button></li>
+                <li><button onClick={() => setActiveDocsTab("changelog")} className="hover:text-text-custom transition-colors border-none bg-transparent cursor-pointer p-0 text-xs text-muted-custom block font-sans">Changelog</button></li>
               </ul>
             </div>
 
@@ -1212,6 +1213,16 @@ export default function Landing() {
 
         </div>
       </footer>
+
+      <AnimatePresence>
+        {activeDocsTab && (
+          <DocsModal
+            initialTab={activeDocsTab}
+            onClose={() => setActiveDocsTab(null)}
+            isDark={isDark}
+          />
+        )}
+      </AnimatePresence>
 
     </div>
   );
