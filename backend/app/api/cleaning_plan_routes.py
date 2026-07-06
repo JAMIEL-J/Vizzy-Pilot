@@ -210,6 +210,14 @@ def _convert_actions_to_steps(proposed_actions: Dict[str, Any]) -> Dict[str, Any
             "params": {"columns": cap_cols},
         })
 
+    # Remove outliers
+    remove_cols = proposed_actions.get("remove_outliers", [])
+    if remove_cols:
+        steps.append({
+            "rule": "remove_outliers",
+            "params": {"columns": remove_cols},
+        })
+
     # Trim strings (always run if present)
     trim_cols = proposed_actions.get("trim_strings", [])
     if trim_cols:

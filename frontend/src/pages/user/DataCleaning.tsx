@@ -47,6 +47,8 @@ export default function DataCleaning() {
     // Already Cleaned Gate States
     const [activeVersion, setActiveVersion] = useState<DatasetVersionSummary | null>(null);
     const [showCleanedGate, setShowCleanedGate] = useState(false);
+    const [isBlockedModalOpen, setIsBlockedModalOpen] = useState(false);
+    const [blockedModalMessage, setBlockedModalMessage] = useState("");
 
     // Custom dropdown states
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -204,6 +206,7 @@ export default function DataCleaning() {
                 drop_rows: [],
                 remove_duplicates: false,
                 cap_outliers: [],
+                remove_outliers: [],
             };
 
             const allRecs = inspection?.issues_detected?.recommendations || [];
@@ -227,6 +230,8 @@ export default function DataCleaning() {
                 } else if (rec.issue_type === "outliers") {
                     if (effectiveStrategy === "cap_outliers") {
                         if (rec.column) actions.cap_outliers.push(rec.column);
+                    } else if (effectiveStrategy === "remove_outliers") {
+                        if (rec.column) actions.remove_outliers.push(rec.column);
                     }
                 }
             }
@@ -288,6 +293,7 @@ export default function DataCleaning() {
                 drop_rows: [],
                 remove_duplicates: false,
                 cap_outliers: [],
+                remove_outliers: [],
             };
 
             const allRecs = inspection.issues_detected.recommendations || [];
@@ -311,6 +317,8 @@ export default function DataCleaning() {
                 } else if (rec.issue_type === "outliers") {
                     if (effectiveStrategy === "cap_outliers") {
                         if (rec.column) actions.cap_outliers.push(rec.column);
+                    } else if (effectiveStrategy === "remove_outliers") {
+                        if (rec.column) actions.remove_outliers.push(rec.column);
                     }
                 }
             }
@@ -338,9 +346,21 @@ export default function DataCleaning() {
 
             setLastCleanedVersionId(result.version_id || versionId);
             setExecutionReport(result);
-        } catch (error) {
+        } catch (error: any) {
             console.error("Failed to execute cleaning:", error);
-            toast.error("Failed to execute cleaning plan");
+            const detail = error?.response?.data?.detail;
+            let errMsg = typeof detail === "string" ? detail : "";
+            if (errMsg.includes("': ")) {
+                errMsg = errMsg.split("': ")[1];
+            }
+            if (error?.response?.status === 409) {
+                const finalMsg = errMsg || "A cleaned version of this dataset already exists.";
+                setBlockedModalMessage(finalMsg);
+                setIsBlockedModalOpen(true);
+            } else {
+                const finalMsg = errMsg || "Failed to execute cleaning plan";
+                toast.error(finalMsg);
+            }
         } finally {
             setIsProcessing(false);
         }
@@ -1146,7 +1166,8 @@ export default function DataCleaning() {
                                                         "fill_median": "fill_missing_median",
                                                         "drop_rows": "drop_rows_with_nulls",
                                                         "remove_duplicates": "remove_duplicates",
-                                                        "cap_outliers": "cap_outliers"
+                                                        "cap_outliers": "cap_outliers",
+                                                        "remove_outliers": "remove_outliers"
                                                     };
                                                     const selectedStrategy = selectedStrategies[rec.id] || rec.strategy;
                                                     const finalRule = ruleMap[selectedStrategy] || selectedStrategy;
@@ -1175,6 +1196,33 @@ export default function DataCleaning() {
                     </>
                 ) : null}
             </div>
+
+            {/* Action Blocked Modal */}
+            {isBlockedModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+                    <div className="bg-surface border border-border rounded-xl w-full max-w-sm p-6 shadow-2xl animate-in fade-in zoom-in duration-200 text-center">
+                        <div className="flex justify-center mb-4">
+                            <div className="grid h-12 w-12 place-items-center rounded-full bg-rose-500/10 text-rose-500 ring-1 ring-rose-500/20">
+                                <AlertTriangle className="h-6 w-6" />
+                            </div>
+                        </div>
+                        <h3 className="text-sm font-bold text-foreground mb-2 font-sans uppercase tracking-wider">
+                            Action Blocked
+                        </h3>
+                        <p className="text-xs text-muted-foreground mb-6 leading-relaxed font-sans px-2">
+                            {blockedModalMessage || "A cleaned version of this dataset already exists. To run a new cleaning flow, please delete the existing cleaned version first."}
+                        </p>
+                        <div className="flex justify-center">
+                            <button
+                                onClick={() => setIsBlockedModalOpen(false)}
+                                className="px-5 py-2 rounded-none text-xs font-semibold bg-foreground text-background hover:bg-foreground/90 transition-colors cursor-pointer border-none"
+                            >
+                                Dismiss
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

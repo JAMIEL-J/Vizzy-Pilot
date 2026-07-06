@@ -212,3 +212,67 @@ class CapOutlierOperator(CleanOperator):
                 result[col] = capped.copy()
 
         return result
+
+
+class RemoveOutlierOperator(CleanOperator):
+    """Removes (drops) rows containing outliers in numeric columns using the IQR method."""
+    def validate_params(self) -> None:
+        columns = self.params.get("columns")
+        if not columns:
+            raise ValueError("columns parameter cannot be empty")
+        if not isinstance(columns, list):
+            raise ValueError("columns must be a list of strings")
+        for col in columns:
+            if not isinstance(col, str):
+                raise ValueError("column name must be a string")
+
+        multiplier = self.params.get("multiplier", 1.5)
+        if not isinstance(multiplier, (int, float)) or multiplier <= 0:
+            raise ValueError("multiplier must be a positive number")
+
+    def execute(self, df: pd.DataFrame) -> pd.DataFrame:
+        result = df.copy(deep=False)
+        columns = self.params.get("columns")
+        multiplier = self.params.get("multiplier", 1.5)
+
+        # Validate columns exist
+        missing = set(columns) - set(result.columns)
+        if missing:
+            raise ValueError(f"Columns not found in DataFrame: {', '.join(sorted(missing))}")
+
+        # Validate numeric
+        non_numeric = [
+            col for col in columns
+            if not pd.api.types.is_numeric_dtype(result[col])
+        ]
+        if non_numeric:
+            raise ValueError(f"Non-numeric columns: {', '.join(non_numeric)}")
+
+        self.columns_affected = []
+        self.cells_modified = 0
+        self.rows_dropped = 0
+
+        # Find rows with outliers
+        outlier_mask = pd.Series(False, index=result.index)
+        for col in columns:
+            q1 = result[col].quantile(0.25)
+            q3 = result[col].quantile(0.75)
+            iqr = q3 - q1
+
+            if iqr == 0:
+                continue
+
+            lower_bound = q1 - multiplier * iqr
+            upper_bound = q3 + multiplier * iqr
+
+            col_outliers = (result[col] < lower_bound) | (result[col] > upper_bound)
+            if col_outliers.any():
+                outlier_mask = outlier_mask | col_outliers
+                self.columns_affected.append(col)
+
+        rows_to_drop = int(outlier_mask.sum())
+        if rows_to_drop > 0:
+            self.rows_dropped = rows_to_drop
+            result = result[~outlier_mask]
+
+        return result

@@ -158,6 +158,7 @@ def build_cleaning_actions_from_recommendations(
         "drop_rows": [],
         "remove_duplicates": False,
         "cap_outliers": [],
+        "remove_outliers": [],
     }
 
     selected_recs = [r for r in recommendations if r["id"] in selected_ids]
@@ -182,5 +183,7 @@ def build_cleaning_actions_from_recommendations(
         elif issue_type == "outliers":
             if strategy == "cap_outliers":
                 actions["cap_outliers"].append(column)
+            elif strategy == "remove_outliers":
+                actions["remove_outliers"].append(column)
 
     return actions

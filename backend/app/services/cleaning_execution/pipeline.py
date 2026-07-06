@@ -5,7 +5,8 @@ from app.services.cleaning_execution.operators import (
     TrimOperator,
     DuplicateOperator,
     ImputeOperator,
-    CapOutlierOperator
+    CapOutlierOperator,
+    RemoveOutlierOperator
 )
 from app.services.cleaning_execution.base import LineageEvent
 
@@ -13,7 +14,7 @@ class CleaningPipeline:
     """Orchestrates the logical execution of cleaning operators in order."""
     def __init__(self, steps: List[Dict[str, Any]]):
         self.steps = steps
-        # Logical sequence sorting: Trim -> Duplicates -> Impute -> Cap
+        # Logical sequence sorting: Trim -> Duplicates -> Impute -> Cap/Remove Outliers
         self.sorted_steps = self._sort_steps(steps)
         self.lineage_events: List[LineageEvent] = []
 
@@ -26,7 +27,7 @@ class CleaningPipeline:
                 return 1
             elif rule in ("fill_missing_mean", "fill_missing_median"):
                 return 2
-            elif rule == "cap_outliers":
+            elif rule in ("cap_outliers", "remove_outliers"):
                 return 3
             return 4
         
@@ -54,6 +55,8 @@ class CleaningPipeline:
                 op = ImputeOperator(params)
             elif rule_name == "cap_outliers":
                 op = CapOutlierOperator(params)
+            elif rule_name == "remove_outliers":
+                op = RemoveOutlierOperator(params)
             else:
                 raise ValueError(f"Unknown rule: {rule_name}")
 
