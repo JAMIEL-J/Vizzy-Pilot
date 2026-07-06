@@ -524,3 +524,43 @@ def preview_remap_impact(
 
 def resolve_semantic_map(session: Session, version: DatasetVersion) -> str | None:
     return version.semantic_map_json
+
+
+def delete_version(
+    session: Session,
+    version_id: UUID,
+    user_id: UUID,
+    role: UserRole,
+) -> DatasetVersion:
+    """
+    Deactivate (soft delete) a specific dataset version.
+    """
+    from app.models.dataset_version import DatasetVersion
+    from app.services.dataset_service import get_dataset_by_id
+
+    version = session.get(DatasetVersion, version_id)
+    if not version:
+        raise ResourceNotFound("DatasetVersion", str(version_id))
+
+    # Verify user has access to the dataset
+    get_dataset_by_id(session, version.dataset_id, user_id, role)
+
+    if not version.is_active:
+        raise InvalidOperation(
+            operation="delete_version",
+            reason="Version is already deleted/inactive",
+        )
+
+    version.is_active = False
+    session.add(version)
+    session.commit()
+    session.refresh(version)
+
+    record_audit_event(
+        event_type="DATASET_VERSION_DELETED",
+        user_id=str(user_id),
+        resource_type="DatasetVersion",
+        resource_id=str(version.id),
+    )
+
+    return version

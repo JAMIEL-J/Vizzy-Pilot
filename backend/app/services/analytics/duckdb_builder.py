@@ -131,11 +131,12 @@ async def build_duckdb_from_csv(
         # Create database engine pointing to persistent file
         db_engine = DBEngine(db_path=str(duckdb_path))
 
-        # Load CSV into DuckDB (creates table + runs coercion pipeline)
-        await db_engine.load_csv(table_name, csv_path)
-
-        # Close connection to finalize file
-        db_engine.close()
+        try:
+            # Load CSV into DuckDB (creates table + runs coercion pipeline)
+            await db_engine.load_csv(table_name, csv_path)
+        finally:
+            # Close connection to finalize file
+            db_engine.close()
 
         mark_duckdb_ready(dataset_id, version_id)
 
@@ -148,7 +149,10 @@ async def build_duckdb_from_csv(
         logger.error(f"Failed to build DuckDB file: {e}")
         # Clean up partial file if it exists
         if duckdb_path.exists():
-            duckdb_path.unlink()
+            try:
+                duckdb_path.unlink()
+            except Exception as unlink_err:
+                logger.warning(f"Failed to delete partial DuckDB file: {unlink_err}")
         mark_duckdb_failed(dataset_id, version_id, str(e))
         raise RuntimeError(f"DuckDB build failed: {e}")
 

@@ -262,3 +262,30 @@ def remap_mapping_confirm(
         raise HTTPException(status_code=404, detail=e.message)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/{version_id}", status_code=status.HTTP_200_OK)
+def delete_version(
+    version_id: UUID,
+    session: DBSession,
+    current_user: RateLimitedUser,
+) -> Dict[str, Any]:
+    """
+    Deactivate (soft delete) a specific dataset version.
+    """
+    try:
+        dataset_version_service.delete_version(
+            session=session,
+            version_id=version_id,
+            user_id=UUID(current_user.user_id),
+            role=current_user.role,
+        )
+        return {"success": True, "message": f"Version {version_id} deleted successfully"}
+    except ResourceNotFound as e:
+        raise HTTPException(status_code=404, detail=e.message)
+    except AuthorizationError as e:
+        raise HTTPException(status_code=403, detail=e.message)
+    except InvalidOperation as e:
+        raise HTTPException(status_code=409, detail=e.message)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

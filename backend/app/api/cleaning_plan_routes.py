@@ -63,6 +63,24 @@ def create_cleaning_plan(
     Plan is NOT executed automatically.
     """
     try:
+        from sqlmodel import select
+        from app.models.dataset_version import SourceType
+        
+        existing_cleaned = session.exec(
+            select(DatasetVersion)
+            .where(
+                DatasetVersion.dataset_id == version.dataset_id,
+                DatasetVersion.source_type == SourceType.CLEAN,
+                DatasetVersion.is_active == True,
+            )
+        ).first()
+        
+        if existing_cleaned:
+            raise InvalidOperation(
+                operation="create_cleaning_plan",
+                reason="This dataset already has a cleaned version. Delete the existing cleaned version to run a new cleaning process.",
+            )
+
         plan = cleaning_plan_service.create_cleaning_plan(
             session=session,
             dataset_version_id=version.id,
@@ -296,6 +314,23 @@ async def execute_cleaning_plan(
         from app.services.dataset_version_service import _get_next_version_number
         
         plan = cleaning_plan_service.get_plan_by_id(session, plan_id)
+
+        # Block if the dataset already has an active cleaned version
+        from sqlmodel import select
+        existing_cleaned = session.exec(
+            select(DatasetVersion)
+            .where(
+                DatasetVersion.dataset_id == version.dataset_id,
+                DatasetVersion.source_type == SourceType.CLEAN,
+                DatasetVersion.is_active == True,
+            )
+        ).first()
+        
+        if existing_cleaned:
+            raise InvalidOperation(
+                operation="execute_cleaning_plan",
+                reason="This dataset already has a cleaned version. Delete the existing cleaned version to run a new cleaning process.",
+            )
 
         # Re-check approval status immediately before execution to prevent race condition
         # where plan gets approved between get_plan_by_id and execution

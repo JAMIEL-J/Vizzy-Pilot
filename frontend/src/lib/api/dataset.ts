@@ -33,6 +33,7 @@ export interface DatasetVersionSummary {
     is_active: boolean;
     parent_version_id?: string | null;
     semantic_map_json?: string | null;
+    created_at?: string;
 }
 
 export interface VersionListResponse {
@@ -124,6 +125,10 @@ export const datasetService = {
 
     deleteDataset: async (datasetId: string) => {
         await apiClient.delete(`/datasets/${datasetId}`);
+    },
+
+    deleteVersion: async (datasetId: string, versionId: string) => {
+        await apiClient.delete(`/datasets/${datasetId}/versions/${versionId}`);
     },
 
     downloadRaw: async (datasetId: string) => {

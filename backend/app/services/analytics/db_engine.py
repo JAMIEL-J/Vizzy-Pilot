@@ -95,6 +95,7 @@ class DBEngine:
 
         async with _write_lock:
             effective_path = file_path
+        loaded = False
         try:
             self._write_con.execute(f'DROP TABLE IF EXISTS {safe_identifier(table_name)}')
             self._write_con.execute(
@@ -102,49 +103,53 @@ class DBEngine:
                 [effective_path]
             )
             _phase_times["read_csv_auto"] = time.perf_counter() - _t0
+            loaded = True
         except duckdb.Error as first_err:
-                err_msg = str(first_err).lower()
-                is_encoding_error = any(
-                    tok in err_msg
-                    for tok in ["unicode", "utf-8", "utf8", "codec", "encoding", "byte sequence"]
-                )
-                if not is_encoding_error:
-                    logger.error(f"Failed to load CSV via DuckDB: {first_err}")
-                    raise ValueError(f"Direct CSV load failed: {first_err}")
-
-                logger.warning(
-                    "DuckDB detected encoding issue in %s. Attempting re-encoding to UTF-8.",
-                    file_path,
-                )
-
-                # Strategy 1: detect encoding and re-encode to a UTF-8 temp file
-                _t_reencode = time.perf_counter()
-                effective_path = self._reencode_csv_to_utf8(file_path)
-
-        try:
-            self._write_con.execute(f'DROP TABLE IF EXISTS {safe_identifier(table_name)}')
-            self._write_con.execute(
-                f"CREATE TABLE {safe_identifier(table_name)} AS SELECT * FROM read_csv_auto(?)",
-                [effective_path]
+            err_msg = str(first_err).lower()
+            is_encoding_error = any(
+                tok in err_msg
+                for tok in ["unicode", "utf-8", "utf8", "codec", "encoding", "byte sequence"]
             )
-            _phase_times["read_csv_auto_retry"] = time.perf_counter() - _t_reencode
-        except duckdb.Error:
-            # Strategy 2: load with ignore_errors so only broken rows are skipped
+            if not is_encoding_error:
+                logger.error(f"Failed to load CSV via DuckDB: {first_err}")
+                raise ValueError(f"Direct CSV load failed: {first_err}")
+
             logger.warning(
-                "Re-encoded file still failed. Retrying with ignore_errors=true for %s",
+                "DuckDB detected encoding issue in %s. Attempting re-encoding to UTF-8.",
                 file_path,
             )
+
+            # Strategy 1: detect encoding and re-encode to a UTF-8 temp file
+            _t_reencode = time.perf_counter()
+            effective_path = self._reencode_csv_to_utf8(file_path)
+
             try:
                 self._write_con.execute(f'DROP TABLE IF EXISTS {safe_identifier(table_name)}')
                 self._write_con.execute(
-                    f"CREATE TABLE {safe_identifier(table_name)} AS SELECT * FROM "
-                    f"read_csv_auto(?, ignore_errors=true)",
+                    f"CREATE TABLE {safe_identifier(table_name)} AS SELECT * FROM read_csv_auto(?)",
                     [effective_path]
                 )
-            except duckdb.Error as final_err:
-                logger.error(f"All CSV load strategies failed: {final_err}")
-                raise ValueError(f"Direct CSV load failed: {final_err}")
+                _phase_times["read_csv_auto_retry"] = time.perf_counter() - _t_reencode
+                loaded = True
+            except duckdb.Error:
+                # Strategy 2: load with ignore_errors so only broken rows are skipped
+                logger.warning(
+                    "Re-encoded file still failed. Retrying with ignore_errors=true for %s",
+                    file_path,
+                )
+                try:
+                    self._write_con.execute(f'DROP TABLE IF EXISTS {safe_identifier(table_name)}')
+                    self._write_con.execute(
+                        f"CREATE TABLE {safe_identifier(table_name)} AS SELECT * FROM "
+                        f"read_csv_auto(?, ignore_errors=true)",
+                        [effective_path]
+                    )
+                    loaded = True
+                except duckdb.Error as final_err:
+                    logger.error(f"All CSV load strategies failed: {final_err}")
+                    raise ValueError(f"Direct CSV load failed: {final_err}")
 
+        if loaded:
             _t_coerce = time.perf_counter()
             try:
                 self.coercion_results = run_coercion_pipeline(self._write_con, table_name)

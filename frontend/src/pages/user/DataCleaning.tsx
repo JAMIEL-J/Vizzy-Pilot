@@ -8,7 +8,7 @@ import {
 import { ArcElement, Chart as ChartJS, Tooltip as ChartTooltip, type ChartOptions } from "chart.js";
 import { Doughnut } from "react-chartjs-2";
 import { AxiosError } from "axios";
-import { datasetService, type Dataset } from "../../lib/api/dataset";
+import { datasetService, type Dataset, type DatasetVersionSummary } from "../../lib/api/dataset";
 import { cleaningService, type Recommendation, type HealthScore } from "../../services/cleaningService";
 import type { InspectionReport } from "../../services/cleaningService";
 import { toast } from "react-hot-toast";
@@ -43,6 +43,10 @@ export default function DataCleaning() {
 
     const [selectedRecIds, setSelectedRecIds] = useState<Set<string>>(new Set());
     const [selectedStrategies, setSelectedStrategies] = useState<Record<string, string>>({});
+    
+    // Already Cleaned Gate States
+    const [activeVersion, setActiveVersion] = useState<DatasetVersionSummary | null>(null);
+    const [showCleanedGate, setShowCleanedGate] = useState(false);
 
     // Custom dropdown states
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -106,7 +110,7 @@ export default function DataCleaning() {
         }
     };
 
-    const loadInspection = async (id: string, forceRescan = false) => {
+    const loadInspection = async (id: string, forceRescan = false, overrideVersionId?: string) => {
         const requestId = ++inspectionRequestId.current;
         const dataset = datasets.find(d => d.id === id);
         if (!dataset || !dataset.current_version_id) {
@@ -114,14 +118,28 @@ export default function DataCleaning() {
             return;
         }
 
-        const versionId = dataset.current_version_id;
+        const versionId = overrideVersionId || dataset.current_version_id;
         setIsLoading(true);
         setInspection(null);
         setPreviewData(null);
         setErrorState(null);
 
         try {
-            const latestVersion = await datasetService.getLatestVersion(id);
+            let latestVersion: DatasetVersionSummary | null = null;
+            if (overrideVersionId) {
+                const versions = await datasetService.listVersionsForDataset(id);
+                latestVersion = versions.find((v: DatasetVersionSummary) => v.id === overrideVersionId) || null;
+            } else {
+                latestVersion = await datasetService.getLatestVersion(id);
+            }
+            setActiveVersion(latestVersion);
+
+            if (!overrideVersionId && latestVersion && latestVersion.source_type === 'CLEAN') {
+                setShowCleanedGate(true);
+            } else {
+                setShowCleanedGate(false);
+            }
+
             const inspectionVersionId = latestVersion?.id || versionId;
             let newReport: InspectionReport | null = null;
             if (!forceRescan) {
@@ -595,6 +613,21 @@ export default function DataCleaning() {
                 </div>
             )}
 
+            {activeVersion?.source_type === 'CLEAN' && !showCleanedGate && (
+                <div className="mx-5 mt-4 p-3 bg-sky-500/10 border border-sky-500/20 text-sky-700 dark:text-sky-400 flex items-center justify-between text-xs font-mono">
+                    <div className="flex items-center gap-2">
+                        <Info className="h-4 w-4 text-sky-500" />
+                        <span>This dataset was cleaned on {activeVersion?.created_at ? new Date((activeVersion as any).created_at).toLocaleDateString() : new Date().toLocaleDateString()}</span>
+                    </div>
+                    <button 
+                        onClick={() => setShowCleanedGate(true)}
+                        className="underline hover:text-sky-500 font-semibold"
+                    >
+                        Change actions (Re-run / Modify / Reset)
+                    </button>
+                </div>
+            )}
+
             <div className="flex flex-row flex-1 p-5 gap-5 overflow-hidden">
                 {!selectedDatasetId ? (
                     <div className="flex-1 flex items-center justify-center min-h-[400px]">
@@ -606,6 +639,77 @@ export default function DataCleaning() {
                             <p className="text-[13px] text-muted-foreground leading-relaxed">
                                 Choose a dataset from the top menu to run a quality inspection and generate a cleaning plan.
                             </p>
+                        </div>
+                    </div>
+                ) : showCleanedGate ? (
+                    <div className="flex-1 flex items-center justify-center min-h-[400px]">
+                        <div className="text-center max-w-2xl mx-auto space-y-6 p-8 border border-sky-500/20 bg-sky-500/5 backdrop-blur-sm shadow-xl relative overflow-hidden">
+                            <div className="absolute top-0 left-0 w-full h-1 bg-sky-500" />
+                            
+                            <div className="w-14 h-14 bg-sky-500/10 border border-sky-500/20 rounded-none flex items-center justify-center mx-auto mb-4">
+                                <AlertTriangle className="h-6 w-6 text-sky-500" />
+                            </div>
+                            
+                            <div className="space-y-2">
+                                <h3 className="text-lg font-semibold text-foreground uppercase tracking-wider font-mono">Dataset Already Cleaned</h3>
+                                <p className="text-[13px] text-muted-foreground leading-relaxed max-w-md mx-auto">
+                                    This dataset version was already cleaned on{" "}
+                                    <span className="text-foreground font-semibold font-mono">
+                                        {activeVersion?.created_at ? new Date((activeVersion as any).created_at).toLocaleDateString() : new Date().toLocaleDateString()}
+                                    </span>.
+                                    Re-running cleaning directly on a cleaned dataset may cause unexpected results.
+                                </p>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-4 pt-4 max-w-lg mx-auto">
+                                <button
+                                    onClick={async () => {
+                                        setShowCleanedGate(false);
+                                        toast.success("Proceeding to re-run on current version");
+                                    }}
+                                    className="flex flex-col items-center justify-center p-4 bg-surface hover:bg-sky-500/5 border border-border hover:border-sky-500 transition-all group"
+                                >
+                                    <Play className="h-5 w-5 text-muted-foreground group-hover:text-sky-500 mb-2" />
+                                    <span className="text-xs font-semibold text-foreground font-mono">Re-run</span>
+                                    <span className="text-[10px] text-muted-foreground mt-1 text-center font-sans">Run cleaning on this version</span>
+                                </button>
+
+                                <button
+                                    onClick={async () => {
+                                        if (activeVersion?.parent_version_id) {
+                                            await loadInspection(selectedDatasetId, false, activeVersion.parent_version_id);
+                                            toast.success("Loaded parent version for modification");
+                                        } else {
+                                            setShowCleanedGate(false);
+                                            toast("No parent version found. Modifying current version.", { icon: "i" });
+                                        }
+                                    }}
+                                    className="flex flex-col items-center justify-center p-4 bg-surface hover:bg-sky-500/5 border border-border hover:border-sky-500 transition-all group"
+                                >
+                                    <Edit3 className="h-5 w-5 text-muted-foreground group-hover:text-sky-500 mb-2" />
+                                    <span className="text-xs font-semibold text-foreground font-mono">Modify</span>
+                                    <span className="text-[10px] text-muted-foreground mt-1 text-center font-sans">Edit original recommendations</span>
+                                </button>
+
+                                <button
+                                    onClick={async () => {
+                                        if (activeVersion?.parent_version_id) {
+                                            await loadInspection(selectedDatasetId, true, activeVersion.parent_version_id);
+                                            setSelectedRecIds(new Set());
+                                            toast.success("Reset to original raw version");
+                                        } else {
+                                            setSelectedRecIds(new Set());
+                                            setShowCleanedGate(false);
+                                            toast.success("Cleared all selections");
+                                        }
+                                    }}
+                                    className="flex flex-col items-center justify-center p-4 bg-surface hover:bg-sky-500/5 border border-border hover:border-sky-500 transition-all group"
+                                >
+                                    <Trash2 className="h-5 w-5 text-muted-foreground group-hover:text-sky-500 mb-2" />
+                                    <span className="text-xs font-semibold text-foreground font-mono">Reset</span>
+                                    <span className="text-[10px] text-muted-foreground mt-1 text-center font-sans">Discard cleaning, start fresh</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 ) : isLoading ? (
@@ -752,13 +856,107 @@ export default function DataCleaning() {
                                         ) : previewData ? (
                                             <div className="flex-1 flex flex-col min-h-0">
                                                 {/* Preview Summary Bar */}
-                                                <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-surface-2/40 text-[11px] font-mono text-muted-foreground">
-                                                    <span>SAMPLE SIZE: 200 ROWS</span>
-                                                    <div className="flex gap-4">
-                                                        <span>CAPPED/FILLED: <span className="text-success font-semibold">{previewData.cells_modified}</span></span>
-                                                        <span>DROPPED ROWS: <span className="text-destructive font-semibold">{previewData.rows_dropped}</span></span>
-                                                    </div>
-                                                </div>
+                                                {(() => {
+                                                    // Calculate deltas
+                                                    const numericCols = headers.filter(h => {
+                                                        return originalRecords.some((r: any) => typeof r[h] === 'number' && r[h] !== null);
+                                                    });
+
+                                                    const shifts: Array<{ column: string; originalMean: number; cleanedMean: number; pctShift: number }> = [];
+                                                    numericCols.forEach(col => {
+                                                        let origSum = 0;
+                                                        let origCount = 0;
+                                                        let cleanSum = 0;
+                                                        let cleanCount = 0;
+
+                                                        originalRecords.forEach((r: any) => {
+                                                            const val = r[col];
+                                                            if (typeof val === 'number' && !isNaN(val)) {
+                                                                origSum += val;
+                                                                origCount++;
+                                                            }
+                                                        });
+
+                                                        cleanedRecords.forEach((r: any) => {
+                                                            const val = r[col];
+                                                            if (typeof val === 'number' && !isNaN(val)) {
+                                                                cleanSum += val;
+                                                                cleanCount++;
+                                                            }
+                                                        });
+
+                                                        const origMean = origCount > 0 ? origSum / origCount : 0;
+                                                        const cleanMean = cleanCount > 0 ? cleanSum / cleanCount : 0;
+                                                        const diff = cleanMean - origMean;
+                                                        if (Math.abs(diff) > 0.0001 && origMean !== 0) {
+                                                            shifts.push({
+                                                                column: col,
+                                                                originalMean: origMean,
+                                                                cleanedMean: cleanMean,
+                                                                pctShift: (diff / origMean) * 100
+                                                            });
+                                                        }
+                                                    });
+
+                                                    let originalNulls = 0;
+                                                    let cleanedNulls = 0;
+                                                    originalRecords.forEach((r: any) => {
+                                                        headers.forEach(h => {
+                                                            if (r[h] === null || r[h] === undefined) originalNulls++;
+                                                        });
+                                                    });
+                                                    cleanedRecords.forEach((r: any) => {
+                                                        headers.forEach(h => {
+                                                            if (r[h] === null || r[h] === undefined) cleanedNulls++;
+                                                        });
+                                                    });
+                                                    const nullReduction = originalNulls - cleanedNulls;
+
+                                                    return (
+                                                        <div className="px-4 py-3 border-b border-border bg-sky-500/5 divide-y divide-border/40 text-[11.5px] font-mono">
+                                                            <div className="flex flex-wrap items-center justify-between gap-4 pb-2">
+                                                                <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+                                                                    <span className="text-muted-foreground uppercase text-[10px] font-bold tracking-wider text-sky-600">Impact Stats</span>
+                                                                    <span className="flex items-center gap-1.5">
+                                                                        <span className="text-muted-foreground">Rows Dropped:</span>
+                                                                        <span className={`font-semibold ${previewData.rows_dropped > 0 ? 'text-rose-500 font-bold' : 'text-foreground'}`}>
+                                                                            {previewData.rows_dropped}
+                                                                        </span>
+                                                                    </span>
+                                                                    <span className="flex items-center gap-1.5">
+                                                                        <span className="text-muted-foreground">Null Reduction:</span>
+                                                                        <span className={`font-semibold ${nullReduction > 0 ? 'text-emerald-500 font-bold' : 'text-foreground'}`}>
+                                                                            {nullReduction} ({originalNulls} → {cleanedNulls})
+                                                                        </span>
+                                                                    </span>
+                                                                    <span className="flex items-center gap-1.5">
+                                                                        <span className="text-muted-foreground">Cells Modified/Imputed:</span>
+                                                                        <span className={`font-semibold ${previewData.cells_modified > 0 ? 'text-sky-500 font-bold' : 'text-foreground'}`}>
+                                                                            {previewData.cells_modified}
+                                                                        </span>
+                                                                    </span>
+                                                                </div>
+                                                                <div className="text-[10px] text-muted-foreground uppercase font-semibold">
+                                                                    Sample: {originalRecords.length} rows
+                                                                </div>
+                                                            </div>
+                                                            
+                                                            {shifts.length > 0 && (
+                                                                <div className="flex items-center gap-3 pt-2 flex-wrap">
+                                                                    <span className="text-muted-foreground uppercase text-[9px] font-bold tracking-wider text-sky-600">Mean Shifts:</span>
+                                                                    {shifts.slice(0, 4).map(shift => (
+                                                                        <span key={shift.column} className="px-2 py-0.5 bg-surface border border-border/80 text-[10.5px] rounded-none flex items-center gap-1">
+                                                                            <span className="text-muted-foreground font-semibold font-sans">{shift.column}:</span>
+                                                                            <span className={shift.pctShift > 0 ? 'text-emerald-500 font-semibold' : 'text-rose-500 font-semibold'}>
+                                                                                {shift.pctShift > 0 ? '+' : ''}{shift.pctShift.toFixed(2)}%
+                                                                            </span>
+                                                                        </span>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })()}
 
                                                 {/* Split Side-by-side Table Container */}
                                                 <div className="flex-1 flex min-h-0 overflow-hidden divide-x divide-border">
@@ -831,12 +1029,21 @@ export default function DataCleaning() {
                                                                             {headers.map(col => {
                                                                                 // Lookup change details to highlight new values
                                                                                 const originalRowVal = originalRecords[idx] ? originalRecords[idx][col] : null;
-                                                                                const { modified } = getCellChange(idx, col, originalRowVal);
+                                                                                const { modified, isNull } = getCellChange(idx, col, originalRowVal);
+                                                                                
+                                                                                let cellClass = "px-2 py-1.5 border-r border-border max-w-[120px] truncate ";
+                                                                                if (modified) {
+                                                                                    if (isNull) {
+                                                                                        cellClass += "cell-imputed bg-emerald-500/10 text-emerald-600 font-semibold";
+                                                                                    } else {
+                                                                                        cellClass += "cell-modified bg-sky-500/10 text-sky-600 border border-sky-500/20 font-semibold";
+                                                                                    }
+                                                                                } else if (row[col] === null || row[col] === undefined) {
+                                                                                    cellClass += "italic text-muted-foreground/60";
+                                                                                }
+                                                                                
                                                                                 return (
-                                                                                    <td 
-                                                                                        key={col} 
-                                                                                        className={`px-2 py-1.5 border-r border-border max-w-[120px] truncate ${modified ? "bg-success/10 text-success font-semibold" : row[col] === null || row[col] === undefined ? "italic text-muted-foreground/60" : ""}`}
-                                                                                    >
+                                                                                    <td key={col} className={cellClass}>
                                                                                         {row[col] === null || row[col] === undefined ? "null" : String(row[col])}
                                                                                     </td>
                                                                                 );

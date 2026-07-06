@@ -3,8 +3,8 @@ from typing import Any, Dict
 
 import pandas as pd
 
-from app.services.cleaning_execution.rule_engine import build_execution_plan
-from app.services.cleaning_execution.executor import execute_plan
+from app.services.cleaning_execution.pipeline import CleaningPipeline
+from app.services.cleaning_execution.guardrails import PostFlightValidator
 
 
 def execute_cleaning(
@@ -15,9 +15,9 @@ def execute_cleaning(
     Orchestrate execution of an approved cleaning plan.
 
     Validates proposed_actions is not empty.
-    Builds execution plan using rule_engine.
-    Executes plan using executor.
-    Captures start and end timestamps in UTC ISO format.
+    Runs pre-flight safety and sparsity checks.
+    Builds and executes the plan using CleaningPipeline (with in-flight safety guardrails).
+    Compares raw vs cleaned Health Scores in a post-flight validation step.
 
     Returns:
         {
@@ -28,7 +28,11 @@ def execute_cleaning(
                 "completed_at": str,
                 "rows_dropped": int,
                 "cells_modified": int,
-                "changes": list
+                "changes": list,
+                "preflight": dict,
+                "postflight": dict,
+                "columns_affected": list,
+                "lineage": list
             }
         }
     """
@@ -37,13 +41,19 @@ def execute_cleaning(
 
     started_at = datetime.now(timezone.utc).isoformat()
 
-    execution_plan = build_execution_plan(proposed_actions)
+    # 1. Pre-flight checks
+    validator = PostFlightValidator()
+    preflight_report = validator.run_preflight_checks(df)
+
+    # 2. Pipeline execution
+    steps = proposed_actions.get("steps", [])
+    pipeline = CleaningPipeline(steps)
     
     # Inject temporary tracking index
-    df_with_idx = df.copy()
+    df_with_idx = df.copy(deep=False)
     df_with_idx["_vizzy_row_idx"] = range(len(df_with_idx))
     
-    cleaned_df = execute_plan(df_with_idx, execution_plan)
+    cleaned_df = pipeline.execute(df_with_idx, validator=validator)
     
     # Calculate differences
     original_len = len(df)
@@ -86,14 +96,27 @@ def execute_cleaning(
         
     completed_at = datetime.now(timezone.utc).isoformat()
 
+    # 3. Post-flight validation
+    postflight_report = validator.validate_postflight(df, cleaned_df)
+
+    # Summarize metrics
+    total_cells_modified = sum(e.cells_modified for e in pipeline.lineage_events)
+    affected_cols = set()
+    for e in pipeline.lineage_events:
+        affected_cols.update(e.columns_affected)
+
     return {
         "cleaned_df": cleaned_df,
         "execution_summary": {
-            "steps_executed": len(execution_plan),
+            "steps_executed": len(pipeline.lineage_events),
             "started_at": started_at,
             "completed_at": completed_at,
             "rows_dropped": rows_dropped,
-            "cells_modified": len(changes),
+            "cells_modified": total_cells_modified,
             "changes": changes,
+            "preflight": preflight_report,
+            "postflight": postflight_report,
+            "columns_affected": sorted(list(affected_cols)),
+            "lineage": [e.to_dict() for e in pipeline.lineage_events]
         },
     }
