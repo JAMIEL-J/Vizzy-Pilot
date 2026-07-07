@@ -61,7 +61,8 @@ def _deduplicate_charts(charts: List['ChartRecommendation']) -> List['ChartRecom
         
         # Rule 2: Skip if both dim and metric exist and we've seen this combo
         if dim and met:
-            data_fingerprint = f"{dim}|{met}|{agg}"
+            gran = getattr(chart, "granularity", "") or ""
+            data_fingerprint = f"{dim}|{met}|{agg}|{gran}"
             if data_fingerprint in seen_combos:
                 continue
             seen_combos.add(data_fingerprint)

@@ -92,8 +92,11 @@ from .titles import (
     _is_low_value_column,
 )
 
+from dataclasses import dataclass
+
 logger = logging.getLogger(__name__)
 
+@dataclass
 class ChartConfig:
     """Configuration for a chart to be executed by the hybrid engine."""
     chart_id: str
@@ -105,6 +108,7 @@ class ChartConfig:
     aggregation: str = "sum"  # "sum", "mean", "count"
     numerator_col: Optional[str] = None  # For pandas ratio_pct
     denominator_col: Optional[str] = None # For pandas ratio_pct
+    granularity: Optional[str] = None
 
 def generate_chart_configs(semantic_map: Any) -> List[ChartConfig]:
     """
@@ -195,6 +199,42 @@ def generate_chart_configs(semantic_map: Any) -> List[ChartConfig]:
                 title=f"Total {measure['column']}"
             ))
             
+    # Rule 5: Growth Benchmarking (YoY / YTD) — date × revenue/sales measure
+    if date_cols and measure_cols:
+        primary_date = date_cols[0]["column"]
+        revenue_col = None
+        for measure in measure_cols:
+            col_lower = measure["column"].lower()
+            role_lower = measure.get("role", "").lower()
+            if role_lower in ("revenue", "sales") or any(kw in col_lower for kw in ('revenue', 'sales', 'amount', 'total', 'gmv')):
+                revenue_col = measure["column"]
+                break
+        
+        if not revenue_col:
+            revenue_col = measure_cols[0]["column"]
+            
+        if revenue_col:
+            # YoY Bar Chart
+            configs.append(ChartConfig(
+                chart_id=f"chart_yoy_{revenue_col}",
+                chart_type="bar",
+                x_col=primary_date,
+                y_col=revenue_col,
+                execution_slot="duckdb",
+                title=f"Year-over-Year {revenue_col}",
+                granularity="year"
+            ))
+            # YTD Bar Chart
+            configs.append(ChartConfig(
+                chart_id=f"chart_ytd_{revenue_col}",
+                chart_type="bar",
+                x_col=primary_date,
+                y_col=revenue_col,
+                execution_slot="duckdb",
+                title=f"Year-to-Date {revenue_col} Benchmark",
+                granularity="ytd"
+            ))
+
     return configs
 
     def __post_init__(self):

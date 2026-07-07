@@ -242,6 +242,7 @@ def build_chart_query(
     metric = _get_chart_config_value(chart_config, 'y_col', 'metric', 'y_column')
     aggregation = _normalize_aggregation(_get_chart_config_value(chart_config, 'aggregation'), default='COUNT')
     chart_type = _get_chart_config_value(chart_config, 'chart_type', 'type') or 'bar'
+    granularity = _get_chart_config_value(chart_config, 'granularity')
     
     # Detect if X-axis is a date column or if it's a trend chart (line/area)
     is_date = False
@@ -252,6 +253,20 @@ def build_chart_query(
 
 
     where_clause, params = build_filter_where_clause(filters, target_column, target_value)
+
+    if is_date and granularity == 'ytd' and dimension:
+        parsed_date_expr = get_parsed_date_expr(dimension)
+        ytd_conditions = (
+            f"strftime({parsed_date_expr}, '%m%d') <= (SELECT strftime(MAX({parsed_date_expr}), '%m%d') FROM {safe_identifier(table_name)}) "
+            f"AND EXTRACT(YEAR FROM {parsed_date_expr}) IN ("
+            f"  (SELECT EXTRACT(YEAR FROM MAX({parsed_date_expr})) FROM {safe_identifier(table_name)}),"
+            f"  (SELECT EXTRACT(YEAR FROM MAX({parsed_date_expr})) - 1 FROM {safe_identifier(table_name)})"
+            f")"
+        )
+        if where_clause and where_clause.strip() != "1=1" and where_clause.strip() != "":
+            where_clause = f"({where_clause}) AND ({ytd_conditions})"
+        else:
+            where_clause = ytd_conditions
 
     # Base query components
     select_parts = []
@@ -290,13 +305,26 @@ def build_chart_query(
         if is_date:
             # Dynamic date parser that attempts multiple common formats
             parsed_date_expr = get_parsed_date_expr(dimension)
-            # Truncate to month for trends and format to YYYY-MM
-            # If parsing fails, fallback to casting the raw dimension
-            select_parts.append(f"DATE_TRUNC('month', {parsed_date_expr}) as date")
-            select_parts.append(f"COALESCE(STRFTIME(DATE_TRUNC('month', {parsed_date_expr}), '%Y-%m'), CAST({safe_identifier(dimension)} AS VARCHAR)) as name")
-            group_by_parts.extend(['1', '2'])
-            order_by = 'ORDER BY date ASC NULLS LAST'
-            limit_clause = ''
+            if granularity == 'year':
+                select_parts.append(f"EXTRACT(YEAR FROM {parsed_date_expr}) as date_yr")
+                select_parts.append(f"CAST(EXTRACT(YEAR FROM {parsed_date_expr}) AS VARCHAR) as name")
+                group_by_parts.extend(['1', '2'])
+                order_by = 'ORDER BY date_yr ASC NULLS LAST'
+                limit_clause = ''
+            elif granularity == 'ytd':
+                select_parts.append(f"EXTRACT(YEAR FROM {parsed_date_expr}) as date_yr")
+                select_parts.append(f"CAST(EXTRACT(YEAR FROM {parsed_date_expr}) AS VARCHAR) || ' YTD' as name")
+                group_by_parts.extend(['1', '2'])
+                order_by = 'ORDER BY date_yr ASC NULLS LAST'
+                limit_clause = ''
+            else:
+                # Truncate to month for trends and format to YYYY-MM
+                # If parsing fails, fallback to casting the raw dimension
+                select_parts.append(f"DATE_TRUNC('month', {parsed_date_expr}) as date")
+                select_parts.append(f"COALESCE(STRFTIME(DATE_TRUNC('month', {parsed_date_expr}), '%Y-%m'), CAST({safe_identifier(dimension)} AS VARCHAR)) as name")
+                group_by_parts.extend(['1', '2'])
+                order_by = 'ORDER BY date ASC NULLS LAST'
+                limit_clause = ''
         else:
             select_parts.append(f'CAST({safe_identifier(dimension)} AS VARCHAR) as name')
             group_by_parts.append('1')
