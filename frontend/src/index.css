@@ -753,6 +753,10 @@ body {
     font-family: "DM Mono", "JetBrains Mono", ui-monospace, monospace;
 }
 
+.font-body {
+    font-family: var(--font-body);
+}
+
 /* Premium typography and styling for chat insights */
 .chat-insight-container {
     font-family: var(--font-body);
@@ -813,6 +817,19 @@ body {
 /* SVG stroke styling */
 .text-stroke-custom {
     -webkit-text-stroke: 1px var(--border);
+}
+
+/* Custom Canvas Workspace fonts override */
+.canvas-workspace-root,
+.canvas-workspace-root * {
+    font-family: "Aptos", "Plus Jakarta Sans", "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif !important;
+}
+
+.canvas-workspace-root code,
+.canvas-workspace-root pre,
+.canvas-workspace-root .sql-code,
+.canvas-workspace-root .font-mono-code {
+    font-family: "DM Mono", "JetBrains Mono", ui-monospace, monospace !important;
 }
 
 

@@ -24,6 +24,7 @@ import DataCleaning from './pages/user/DataCleaning';
 import ConnectDatabase from './pages/user/ConnectDatabase';
 import Downloads from './pages/user/Downloads';
 import UserProfile from './pages/user/UserProfile';
+import CanvasPage from './pages/user/CanvasPage';
 
 // User Pages
 import UserLayout from './components/layout/UserLayout';
@@ -72,6 +73,7 @@ function App() {
                             <Route path="connect-db" element={<ConnectDatabase />} />
                             <Route path="downloads" element={<Downloads />} />
                             <Route path="profile" element={<UserProfile />} />
+                            <Route path="canvas" element={<CanvasPage />} />
                         </Route>
 
                         {/* Admin Routes (Protected) */}

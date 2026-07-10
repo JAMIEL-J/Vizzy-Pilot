@@ -1,0 +1,444 @@
+"""
+Canvas workspace API routes.
+
+Belongs to: API layer (Canvas)
+Responsibility: Lightweight schema loader and SQL execution for the Canvas UI
+Restrictions: Read-only access; all queries go through the security sandbox
+"""
+
+import json
+import time
+from typing import Any, Dict, List, Optional
+from uuid import UUID
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from sqlmodel import select
+
+from app.api.deps import DBSession, AuthenticatedUser
+from app.api.sql_transparency_routes import (
+    SQLExecuteRequest,
+    SQLExecuteResponse,
+    _get_duckdb_connection,
+    _df_to_records_safe,
+)
+from app.core.logger import get_logger
+from app.models.dataset import Dataset
+from app.services.dataset_version_service import get_latest_version
+from app.services.security.sandbox import execute_sandboxed, QueryExecutionError
+
+router = APIRouter()
+logger = get_logger(__name__)
+
+# Type keywords used for column classification
+_NUMERIC_TYPES = frozenset({
+    "int", "integer", "smallint", "tinyint", "bigint", "hugeint",
+    "float", "double", "real", "decimal", "numeric",
+    "int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64",
+    "float4", "float8", "ubigint", "uinteger", "usmallint", "utinyint",
+})
+_DATE_TYPES = frozenset({
+    "date", "time", "timestamp", "timestamptz", "timestamp_s",
+    "timestamp_ms", "timestamp_ns", "interval",
+    "timestamp with time zone",
+})
+
+
+# =============================================================================
+# Request / Response Schemas
+# =============================================================================
+
+
+class CanvasColumnSchema(BaseModel):
+    """Single column descriptor for the Canvas UI."""
+    name: str
+    dtype: str  # raw DuckDB type
+    category: str  # 'Metrics' | 'Dimensions' | 'Dates'
+    formula: str | None = None
+
+class CanvasSchemaResponse(BaseModel):
+    """Lightweight schema payload consumed by the Canvas workspace."""
+    dataset_id: str
+    version_id: str
+    dataset_name: str
+    columns: List[CanvasColumnSchema]
+    row_count: Optional[int] = None
+
+
+# =============================================================================
+# Helpers
+# =============================================================================
+
+
+def _classify_dtype(dtype: str, name: str = "") -> str:
+    """Classify a DuckDB type string into Metrics / Dates / Dimensions."""
+    lower_name = name.lower().strip()
+    # Check column name keywords first for dirty metrics (e.g. TotalCharges stored as string)
+    metric_keywords = {"charge", "amount", "sales", "revenue", "profit", "cost", "price", "total", "margin"}
+    if any(k in lower_name for k in metric_keywords):
+        return "Metrics"
+
+    lower = dtype.lower().strip()
+    # Check numeric types (prefix match handles e.g. "DECIMAL(18,2)")
+    for keyword in _NUMERIC_TYPES:
+        if lower == keyword or lower.startswith(keyword + "("):
+            return "Metrics"
+    # Check date/time types
+    for keyword in _DATE_TYPES:
+        if lower == keyword or lower.startswith(keyword + "("):
+            return "Dates"
+    return "Dimensions"
+
+
+# =============================================================================
+# Endpoints
+# =============================================================================
+
+
+@router.get(
+    "/schema",
+    response_model=CanvasSchemaResponse,
+    summary="Get column schema for the Canvas workspace",
+)
+async def get_canvas_schema(
+    dataset_id: UUID,
+    session: DBSession,
+    current_user: AuthenticatedUser,
+) -> CanvasSchemaResponse:
+    """
+    Return the column schema for the dataset's latest version.
+
+    Lightweight alternative to getDuckdbStatus — returns only the column
+    metadata needed by the Canvas UI without triggering heavy build-status
+    lookups or recommendations generation.
+    """
+    from app.api.deps import verify_dataset_owner
+
+    await verify_dataset_owner(
+        dataset_id=dataset_id,
+        session=session,
+        current_user=current_user,
+    )
+
+    # Fetch dataset name
+    dataset = session.exec(
+        select(Dataset).where(Dataset.id == dataset_id)
+    ).first()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    # Fetch latest version
+    latest_version = get_latest_version(session=session, dataset_id=dataset_id)
+    if not latest_version:
+        raise HTTPException(status_code=404, detail="Dataset version not found")
+
+    # Parse schema_metadata JSON → list of {name, dtype}
+    raw_schema: List[Dict[str, str]] = []
+    if latest_version.schema_metadata:
+        try:
+            raw_schema = json.loads(latest_version.schema_metadata)
+        except (json.JSONDecodeError, TypeError):
+            logger.warning(
+                "[CANVAS SCHEMA] Failed to parse schema_metadata for version %s",
+                latest_version.id,
+            )
+
+    columns = [
+        CanvasColumnSchema(
+            name=col["name"],
+            dtype=col["dtype"],
+            category=_classify_dtype(col["dtype"], col["name"]),
+            formula=col.get("formula")
+        )
+        for col in raw_schema
+        if "name" in col and "dtype" in col
+    ]
+
+    return CanvasSchemaResponse(
+        dataset_id=str(dataset_id),
+        version_id=str(latest_version.id),
+        dataset_name=dataset.name,
+        columns=columns,
+        row_count=latest_version.row_count,
+    )
+
+
+@router.post(
+    "/sql/execute",
+    response_model=SQLExecuteResponse,
+    summary="Execute a sandboxed SQL query from the Canvas workspace",
+)
+async def execute_canvas_sql(
+    dataset_id: UUID,
+    request: SQLExecuteRequest,
+    session: DBSession,
+    current_user: AuthenticatedUser,
+) -> SQLExecuteResponse:
+    """
+    Execute a user-provided SQL query against the dataset's DuckDB.
+
+    Thin wrapper around the sandboxed execution engine, scoped under the
+    canvas prefix so canvas-specific middleware or rate-limiting can be
+    applied independently of the analyst SQL transparency routes.
+    """
+    from app.api.deps import verify_dataset_owner
+
+    await verify_dataset_owner(
+        dataset_id=dataset_id,
+        session=session,
+        current_user=current_user,
+    )
+
+    latest_version = get_latest_version(session=session, dataset_id=dataset_id)
+    if not latest_version:
+        raise HTTPException(status_code=404, detail="Dataset version not found")
+
+    file_path = (
+        latest_version.cleaned_reference
+        if latest_version.cleaned_reference
+        else latest_version.source_reference
+    )
+    if not file_path:
+        raise HTTPException(
+            status_code=422,
+            detail="Dataset has no active data file reference."
+        )
+
+    conn = None
+    try:
+        conn = _get_duckdb_connection(dataset_id, latest_version.id, file_path)
+
+        start_time = time.monotonic()
+        try:
+            result_df = await execute_sandboxed(
+                conn=conn,
+                sql=request.sql,
+                table_name="data",
+                max_rows=request.max_rows,
+                timeout_seconds=request.timeout_seconds,
+            )
+            elapsed_ms = (time.monotonic() - start_time) * 1000
+
+            records, truncated = _df_to_records_safe(result_df, request.max_rows)
+            columns = result_df.columns.tolist()
+
+            return SQLExecuteResponse(
+                sql=request.sql,
+                results=records,
+                columns=columns,
+                row_count=len(records),
+                truncated=truncated,
+                execution_time_ms=round(elapsed_ms, 1),
+            )
+        except QueryExecutionError as e:
+            elapsed_ms = (time.monotonic() - start_time) * 1000
+            return SQLExecuteResponse(
+                sql=request.sql,
+                results=[],
+                columns=[],
+                row_count=0,
+                execution_time_ms=round(elapsed_ms, 1),
+                error=str(e),
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("[CANVAS SQL EXECUTE] Unexpected error: %s", e)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error executing SQL: {str(e)}",
+        )
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+# =============================================================================
+# Calculated Fields Endpoint
+# =============================================================================
+
+
+class CalculateFieldRequest(BaseModel):
+    """Payload to request the generation of an AI calculated field."""
+    prompt: str
+
+
+class CalculateFieldResponse(BaseModel):
+    """Result payload after successfully adding a calculated field."""
+    success: bool
+    field_name: str
+    formula_sql: str
+    category: str
+    dtype: str
+    schema: CanvasSchemaResponse
+
+
+@router.post(
+    "/calculate-field",
+    response_model=CalculateFieldResponse,
+    summary="Generate and validate an AI calculated field",
+)
+async def create_canvas_calculated_field(
+    dataset_id: UUID,
+    request: CalculateFieldRequest,
+    session: DBSession,
+    current_user: AuthenticatedUser,
+) -> CalculateFieldResponse:
+    """
+    Generate a new calculated field via AI, validate it in DuckDB,
+    and save it in the dataset version's schema_metadata.
+    """
+    from app.api.deps import verify_dataset_owner
+    from app.core.llm_client import get_llm_client, parse_json_response
+
+    await verify_dataset_owner(
+        dataset_id=dataset_id,
+        session=session,
+        current_user=current_user,
+    )
+
+    # 1. Fetch latest version
+    latest_version = get_latest_version(session=session, dataset_id=dataset_id)
+    if not latest_version:
+        raise HTTPException(status_code=404, detail="Dataset version not found")
+
+    file_path = (
+        latest_version.cleaned_reference
+        if latest_version.cleaned_reference
+        else latest_version.source_reference
+    )
+    if not file_path:
+        raise HTTPException(status_code=422, detail="Dataset has no active data file reference")
+
+    # 2. Parse current schema metadata
+    raw_schema: List[Dict[str, str]] = []
+    if latest_version.schema_metadata:
+        try:
+            raw_schema = json.loads(latest_version.schema_metadata)
+        except Exception:
+            pass
+
+    columns_str = ", ".join([f'"{col["name"]}" ({col["dtype"]})' for col in raw_schema if "name" in col])
+
+    # 3. Call AI client to detect/infer formula
+    system_prompt = (
+        "You are an expert data analysis calculated field generator.\n"
+        "Your task is to take a user prompt and convert it to a safe, valid DuckDB SQL projection formula expression.\n"
+        "Rules:\n"
+        "1. Map user terms to exact casing of column names in this dataset schema.\n"
+        "2. Keep the SQL formula simple. Use standard DuckDB SQL operators (+, -, *, /).\n"
+        "3. Protect divisions by wrapping the denominator in NULLIF(col, 0) or handling division by zero safely.\n"
+        "4. Wrap all column names in double quotes (e.g. \"Profit\" / NULLIF(\"Sales\", 0)).\n"
+        "5. Classify the resulting field as 'Metrics' (if numeric) or 'Dimensions' (if category/boolean).\n"
+        "6. Standardize the DuckDB datatype (e.g. DOUBLE, VARCHAR, BIGINT).\n"
+        "7. Suggest a clean, readable title for the calculated field (e.g. 'Profit Margin' or 'Sales Increase').\n"
+        "Output strictly valid JSON with no markdown blocks: "
+        '{"field_name": "Field Title", "formula_sql": "SQL projection snippet", "category": "Metrics", "dtype": "DOUBLE"}'
+    )
+
+    user_prompt = (
+        f"Dataset Columns: {columns_str}\n"
+        f"User Prompt: {request.prompt}"
+    )
+
+    client = get_llm_client()
+    try:
+        response = await client.complete(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=0.0,
+            purpose="chat"
+        )
+        ai_data = parse_json_response(response.content)
+    except Exception as e:
+        logger.exception("[AI CALCULATE FIELD] Inference failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"AI model inference failed: {str(e)}")
+
+    field_name = ai_data.get("field_name", "Calculated Field").strip()
+    formula_sql = ai_data.get("formula_sql", "").strip()
+    category = ai_data.get("category", "Metrics").strip()
+    dtype = ai_data.get("dtype", "DOUBLE").strip()
+
+    if not formula_sql:
+        raise HTTPException(status_code=422, detail="Failed to generate a valid SQL formula from prompt.")
+
+    # 4. Dry-run validate the formula in the DuckDB sandbox
+    conn = None
+    try:
+        conn = _get_duckdb_connection(dataset_id, latest_version.id, file_path)
+        test_query = f'SELECT ({formula_sql}) AS "val" FROM data LIMIT 1'
+        await execute_sandboxed(
+            conn=conn,
+            sql=test_query,
+            table_name="data",
+            max_rows=1,
+            timeout_seconds=5
+        )
+    except Exception as e:
+        logger.warning("[AI CALCULATE FIELD] SQL validation failed for formula '%s': %s", formula_sql, e)
+        raise HTTPException(
+            status_code=422,
+            detail=f"Formula SQL validation failed: {str(e)}. (Attempted expression: {formula_sql})"
+        )
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    # 5. Check if field name already exists to prevent duplicate collisions
+    if any(c.get("name", "").lower() == field_name.lower() for c in raw_schema):
+         field_name = f"{field_name} (AI)"
+
+    # 6. Append new field metadata registry & save
+    new_column = {
+        "name": field_name,
+        "dtype": dtype,
+        "category": category,
+        "is_calculated": True,
+        "formula": formula_sql
+    }
+    raw_schema.append(new_column)
+    latest_version.schema_metadata = json.dumps(raw_schema)
+    
+    session.add(latest_version)
+    session.commit()
+    session.refresh(latest_version)
+
+    # 7. Construct schema response structure
+    columns = [
+        CanvasColumnSchema(
+            name=col["name"],
+            dtype=col["dtype"],
+            category=col.get("category") or _classify_dtype(col["dtype"]),
+            formula=col.get("formula")
+        )
+        for col in raw_schema
+        if "name" in col and "dtype" in col
+    ]
+
+    dataset = session.exec(select(Dataset).where(Dataset.id == dataset_id)).first()
+    dataset_name = dataset.name if dataset else "Dataset"
+
+    schema_response = CanvasSchemaResponse(
+        dataset_id=str(dataset_id),
+        version_id=str(latest_version.id),
+        dataset_name=dataset_name,
+        columns=columns,
+        row_count=latest_version.row_count,
+    )
+
+    return CalculateFieldResponse(
+        success=True,
+        field_name=field_name,
+        formula_sql=formula_sql,
+        category=category,
+        dtype=dtype,
+        schema=schema_response
+    )
+

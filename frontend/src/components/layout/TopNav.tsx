@@ -21,6 +21,7 @@ const NAV = [
   { to: "/user/datasets", label: "Datasets" },
   { to: "/user/cleaning", label: "Cleaning" },
   { to: "/user/chat", label: "AI Assistant" },
+  { to: "/user/canvas", label: "Canvas" },
   { to: "/user/downloads", label: "Exports" },
 ];
 
@@ -160,7 +161,7 @@ export function TopNav() {
                     : "text-themed-muted hover:text-themed-main hover:bg-surface-2"
                 }`}
               >
-                <span>{tab.label === "AI Assistant" ? "Vizzy Pilot AI" : tab.label === "Datasets" ? "Dataset Viewer" : tab.label === "Downloads" ? "Export Dataset" : tab.label}</span>
+                <span>{tab.label === "AI Assistant" ? "Vizzy Pilot AI" : tab.label === "Datasets" ? "Dataset Viewer" : tab.label === "Downloads" ? "Export Dataset" : tab.label === "Canvas" ? "AI Canvas" : tab.label}</span>
               </Link>
             );
           })}
@@ -344,7 +345,7 @@ export function TopNav() {
                   : "text-themed-muted hover:text-themed-main"
               }`}
             >
-              {tab.label === "AI Assistant" ? "Vizzy Pilot AI" : tab.label === "Datasets" ? "Dataset Viewer" : tab.label === "Downloads" ? "Export Dataset" : tab.label}
+              {tab.label === "AI Assistant" ? "Vizzy Pilot AI" : tab.label === "Datasets" ? "Dataset Viewer" : tab.label === "Downloads" ? "Export Dataset" : tab.label === "Canvas" ? "AI Canvas" : tab.label}
             </Link>
           );
         })}

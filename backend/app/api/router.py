@@ -21,6 +21,7 @@ from app.api import (
     dashboard_routes,
     dashboard_load_routes,
     analytics_routes,
+    canvas_routes,
 )
 
 
@@ -136,4 +137,10 @@ api_router.include_router(
 api_router.include_router(
     analytics_routes.router,
     tags=["Analytics"],
+)
+
+api_router.include_router(
+    canvas_routes.router,
+    prefix="/datasets/{dataset_id}/canvas",
+    tags=["Canvas"],
 )

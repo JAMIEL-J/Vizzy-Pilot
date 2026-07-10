@@ -125,7 +125,7 @@ LLM_TEMPERATURE=0.2             # More focused
 LLM_MAX_TOKENS=1024             # Longer explanations
 LLM_MAX_INPUT_TOKENS=2048       # More context
 LLM_MAX_ROWS_SAMPLE=100         # Larger sample
-LLM_GEMINI_MODEL=gemini-1.5-pro # Better model (but slower rate limit!)
+LLM_GEMINI_MODEL=gemini-3.1-flash-lite # Optimized low-latency agentic model
 ```
 
 ### For Maximum Savings (Extreme mode)

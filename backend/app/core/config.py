@@ -246,8 +246,8 @@ class LLMSettings(BaseSettings):
 
     # Gemini configurations
     gemini_api_key: SecretStr = Field(default=SecretStr(""))
-    gemini_model: str = Field(default="gemma-4-26b-a4b-it")
-    gemini_chat_model: str = Field(default="gemma-4-26b-a4b-it")
+    gemini_model: str = Field(default="gemini-3.1-flash-lite")
+    gemini_chat_model: str = Field(default="gemini-3.1-flash-lite")
 
     # NVIDIA configuration
     nvidia_key: SecretStr = Field(default=SecretStr(""))
