@@ -425,6 +425,52 @@ export default function CanvasPage() {
     };
   };
 
+  // Consume pinned charts from ChatInterface
+  useEffect(() => {
+    const importPinnedCharts = () => {
+      try {
+        const pinnedStr = localStorage.getItem('vizzy_pinned_charts');
+        if (pinnedStr) {
+          const pinned = JSON.parse(pinnedStr);
+          if (pinned && pinned.length > 0) {
+            // Synchronously clear to prevent StrictMode double-invokes or race conditions
+            localStorage.removeItem('vizzy_pinned_charts');
+            
+            const newWidgets = pinned.map((p: any, index: number) => {
+              const w = chartSpecToCanvasWidget(p.spec, p.query || '', p.sql || '', p.thinking || [], p.resultSummary || '');
+              // Offset position slightly for multiple pins
+              w.position = { x: 40 + (index * 20), y: 160 + (index * 20) };
+              return w;
+            });
+            
+            setWidgets(prev => [...prev, ...newWidgets]);
+            toast.success(`Imported ${pinned.length} pinned chart(s) from Chat.`);
+          }
+        }
+      } catch (e) {
+        console.error('Failed to import pinned charts', e);
+      }
+    };
+
+    // 1. Check on mount
+    importPinnedCharts();
+
+    // 2. Listen for cross-tab pins
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'vizzy_pinned_charts' && e.newValue) {
+        importPinnedCharts();
+      }
+    });
+
+    // 3. Listen for same-tab pins (if route is cached/persistent)
+    window.addEventListener('vizzy-pin', importPinnedCharts);
+
+    return () => {
+      window.removeEventListener('storage', importPinnedCharts);
+      window.removeEventListener('vizzy-pin', importPinnedCharts);
+    };
+  }, []);
+
   const handleSaveDashboard = async () => {
     if (widgets.length === 0) {
       toast.error("Canvas is empty. Add some widgets first!");
@@ -2388,6 +2434,18 @@ export default function CanvasPage() {
                     // Compute dynamic KPI values
                     const kpiData = widget.type === 'kpi' ? getDisplayKPI(widget) : { value: widget.value, subtext: widget.subtext };
 
+                    // Check if slicer fields are missing from this widget's data
+                    const activeFilters = customFilters.filter(f => f.selectedValue !== null);
+                    const hasActiveSlicers = activeFilters.length > 0;
+                    const isSlicerMissing = hasActiveSlicers && activeFilters.some(f => {
+                      if (widget.type === 'kpi') return true;
+                      if (!widget.data || widget.data.length === 0) return false;
+                      const key = widget.xAxisKey || 'label';
+                      if (f.fieldName.toLowerCase() === key.toLowerCase()) return false;
+                      const firstRow = widget.data[0];
+                      return firstRow[f.fieldName] === undefined && firstRow[f.fieldName.toLowerCase()] === undefined;
+                    });
+
                     return (
                       <motion.div
                         initial={{ opacity: 0, scale: 0.95 }}
@@ -2425,9 +2483,19 @@ export default function CanvasPage() {
                         {/* Upper controls toolbar */}
                         {isPresentMode ? (
                           <div className="flex items-center justify-between mb-2 border-b border-border-custom/30 pb-1.5 text-left">
-                            <span className="text-[10px] font-mono text-text-custom font-bold uppercase tracking-wider truncate" title={widget.title}>
-                              {widget.title}
-                            </span>
+                            <div className="flex items-center space-x-1.5 min-w-0">
+                              <span className="text-[10px] font-mono text-text-custom font-bold uppercase tracking-wider truncate" title={widget.title}>
+                                {widget.title}
+                              </span>
+                              {isSlicerMissing && (
+                                <div className="group relative flex items-center">
+                                  <AlertCircle className="w-3 h-3 text-amber-500/80" />
+                                  <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1 hidden group-hover:block w-max max-w-[200px] bg-surface-3 text-text-custom text-[9px] px-2 py-1 rounded shadow-md border border-border-custom z-50 whitespace-normal">
+                                    Static Snapshot: Field not available on this chart.
+                                  </div>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         ) : (
                           <div 
@@ -2440,6 +2508,14 @@ export default function CanvasPage() {
                               <span className="text-[10px] font-mono text-text-custom font-semibold uppercase tracking-wider truncate max-w-[100px]" title={widget.title}>
                                 {widget.title}
                               </span>
+                              {isSlicerMissing && (
+                                <div className="group relative flex items-center">
+                                  <AlertCircle className="w-3.5 h-3.5 text-amber-500/80 hover:text-amber-500 transition-colors" />
+                                  <div className="absolute left-0 bottom-full mb-1 hidden group-hover:block w-max max-w-[200px] bg-surface-3 text-text-custom text-[10px] px-2 py-1 rounded shadow-md border border-border-custom z-50 whitespace-normal">
+                                    Static Snapshot: Field not available on this chart.
+                                  </div>
+                                </div>
+                              )}
                             </div>
                             
                             {/* Sizing & Delete Controls */}
@@ -2590,7 +2666,7 @@ export default function CanvasPage() {
                           
                           {/* Type 1: KPI */}
                           {widget.type === 'kpi' && (
-                            <div className="flex flex-col justify-center h-full text-left relative overflow-hidden" style={{ height: `${height - 50}px` }}>
+                            <div className={`flex flex-col justify-center h-full text-left relative overflow-hidden transition-opacity duration-300 ${isSlicerMissing ? 'opacity-50' : ''}`} style={{ height: `${height - 50}px` }}>
                               {/* Accent gradient bar */}
                               <div 
                                 className="absolute top-0 left-0 w-1 h-full rounded-r-full opacity-80"
@@ -2644,6 +2720,9 @@ export default function CanvasPage() {
                                     if (activeFilters.length === 0) return true;
                                     
                                     return activeFilters.every(f => {
+                                      if (item[f.fieldName] === undefined && item[f.fieldName.toLowerCase()] === undefined && f.fieldName.toLowerCase() !== key.toLowerCase()) {
+                                        return true; // Ignore missing fields
+                                      }
                                       const itemVal = item[f.fieldName] || item[f.fieldName.toLowerCase()] || (f.fieldName.toLowerCase() === key.toLowerCase() ? itemLabel : '') || '';
                                       return String(itemVal).toLowerCase() === String(f.selectedValue).toLowerCase();
                                     });
@@ -2907,6 +2986,9 @@ export default function CanvasPage() {
                                       if (activeFilters.length === 0) return true;
                                       
                                       return activeFilters.every(f => {
+                                        if (item[f.fieldName] === undefined && item[f.fieldName.toLowerCase()] === undefined && f.fieldName.toLowerCase() !== (widget.xAxisKey || 'name').toLowerCase()) {
+                                          return true; // Ignore missing fields
+                                        }
                                         const itemVal = item[f.fieldName] || item[f.fieldName.toLowerCase()] || (f.fieldName.toLowerCase() === (widget.xAxisKey || 'name').toLowerCase() ? keyName : '') || '';
                                         return String(itemVal).toLowerCase() === String(f.selectedValue).toLowerCase();
                                       });

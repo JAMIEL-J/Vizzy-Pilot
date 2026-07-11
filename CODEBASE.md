@@ -1,5 +1,9 @@
 # CODEBASE.md - System Map & Project Context
 
+## ⚠️ Known Architectural Limitations
+
+- **Canvas Multi-Tab Sync (2026-07-11)**: `vizzy_canvas_widgets` `localStorage` relies on a single-writer assumption. While cross-tab chart pinning works flawlessly (via `storage` event interceptors that read, append, and clear the queue), if two Canvas tabs are left open simultaneously, they maintain diverged in-memory `widgets` arrays. Whichever tab writes its state to `localStorage` last will silently overwrite the other tab's layout changes.
+
 ## 📝 Recent Architectural Changes Log
 
 ### **Inline Calculated Fields Prompt Input Bar (2026-07-10)**
