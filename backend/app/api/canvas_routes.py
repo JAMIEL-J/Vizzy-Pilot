@@ -161,6 +161,25 @@ async def get_canvas_schema(
         columns=columns,
         row_count=latest_version.row_count,
     )
+import sqlglot
+
+def _inject_filters_into_sql(sql: str, filters: list) -> str:
+    if not filters:
+        return sql
+    # Wrap original query in a subquery so we can safely filter on aliased columns (e.g. 'label' or 'name')
+    parsed = sqlglot.parse_one(f"SELECT * FROM ({sql}) AS _canvas_sq", read="duckdb")
+    for f in filters:
+        col = f.fieldName
+        val = f.selectedValue
+        if not col or val is None:
+            continue
+        if isinstance(val, str):
+            val_escaped = val.replace("'", "''")
+            condition = f"\"{col}\" = '{val_escaped}'"
+        else:
+            condition = f"\"{col}\" = {val}"
+        parsed = parsed.where(condition, append=True)
+    return parsed.sql(dialect="duckdb")
 
 
 @router.post(
@@ -208,15 +227,43 @@ async def execute_canvas_sql(
     try:
         conn = _get_duckdb_connection(dataset_id, latest_version.id, file_path)
 
+        sql_to_run = request.sql
+        filter_omitted = False
+
+        if request.filters:
+            try:
+                sql_to_run = _inject_filters_into_sql(request.sql, request.filters)
+            except Exception as e:
+                logger.warning(f"AST parsing failed for Canvas SQL: {e}")
+                sql_to_run = request.sql
+                filter_omitted = True
+
         start_time = time.monotonic()
         try:
-            result_df = await execute_sandboxed(
-                conn=conn,
-                sql=request.sql,
-                table_name="data",
-                max_rows=request.max_rows,
-                timeout_seconds=request.timeout_seconds,
-            )
+            try:
+                result_df = await execute_sandboxed(
+                    conn=conn,
+                    sql=sql_to_run,
+                    table_name="data",
+                    max_rows=request.max_rows,
+                    timeout_seconds=request.timeout_seconds,
+                )
+            except QueryExecutionError as inner_e:
+                # If AST injection caused a column mismatch (or duckdb execution error)
+                # and we attempted filtering, fall back to unfiltered query gracefully
+                if request.filters and not filter_omitted:
+                    logger.info("Filtered execution failed, falling back to unfiltered SQL")
+                    filter_omitted = True
+                    result_df = await execute_sandboxed(
+                        conn=conn,
+                        sql=request.sql,
+                        table_name="data",
+                        max_rows=request.max_rows,
+                        timeout_seconds=request.timeout_seconds,
+                    )
+                else:
+                    raise inner_e
+
             elapsed_ms = (time.monotonic() - start_time) * 1000
 
             records, truncated = _df_to_records_safe(result_df, request.max_rows)
@@ -229,6 +276,7 @@ async def execute_canvas_sql(
                 row_count=len(records),
                 truncated=truncated,
                 execution_time_ms=round(elapsed_ms, 1),
+                filter_omitted=filter_omitted,
             )
         except QueryExecutionError as e:
             elapsed_ms = (time.monotonic() - start_time) * 1000

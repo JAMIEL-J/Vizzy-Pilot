@@ -10,13 +10,14 @@ import {
     Sparkles, Database, Code2, Check, ArrowUp,
     BarChart3, AlertCircle, X, Plus, MessageSquare,
     PanelLeft, PanelLeftClose, Table as TableIcon, FileText, Wand2, BrainCog, Globe,
-    ChevronDown, ChevronRight
+    ChevronDown, ChevronRight, Pin
 } from 'lucide-react';
 import { Panel, PanelHeader, Pill, BtnGhost, BtnSecondary, BtnAccent } from '@/components/ui/primitive';
 import RuixenMoonChat from '../../components/ui/ruixen-moon-chat';
 import { PromptInputBox } from '@/components/ui/ai-prompt-box';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { VizzyPilotLogoIcon } from '../../components/layout/VizzyLogo';
+import { toast } from 'react-hot-toast';
 
 // --- Helpers ---
 const isInsightMessage = (msg: ChatMessage) => {
@@ -387,7 +388,9 @@ export default function ChatInterface() {
     const loadSessions = async () => {
         try {
             const data = await chatService.listSessions();
-            setSessions(data);
+            // Hide isolated Canvas compilation sessions from the user's Chat sidebar
+            const visibleSessions = data.filter((s: any) => s.title !== "Canvas Workspace Session");
+            setSessions(visibleSessions);
         } catch (error) {
             console.error('Failed to load sessions:', error);
         }
@@ -482,6 +485,26 @@ export default function ChatInterface() {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+    };
+
+    const handlePinToCanvas = (msg: ChatMessage, targetData: any) => {
+        try {
+            const pinnedStr = localStorage.getItem('vizzy_pinned_charts');
+            const pinned = pinnedStr ? JSON.parse(pinnedStr) : [];
+            pinned.push({
+                spec: targetData,
+                query: msg.prompt,
+                sql: msg.sql,
+                thinking: msg.thought_process,
+                resultSummary: msg.key_insight
+            });
+            localStorage.setItem('vizzy_pinned_charts', JSON.stringify(pinned));
+            window.dispatchEvent(new Event('vizzy-pin'));
+            toast.success('Chart pinned! Open the Canvas to view it.');
+        } catch (e) {
+            console.error('Failed to pin chart', e);
+            toast.error('Failed to pin chart to Canvas.');
+        }
     };
 
     const handleSendMessage = async (text: string, options?: { forceDeepAnalysis?: boolean; enableSuggestions?: boolean }) => {
@@ -714,6 +737,7 @@ export default function ChatInterface() {
                         {targetData?.type !== 'kpi' && !isTableMode && (
                             <BtnGhost onClick={() => handleDownloadImage(msg.id, targetData?.title || 'chart')}><Copy className="h-3 w-3" /></BtnGhost>
                         )}
+                        <BtnGhost onClick={() => handlePinToCanvas(msg, targetData)} title="Pin to Canvas"><Pin className="h-3 w-3 text-accent-custom" /></BtnGhost>
                         <BtnGhost onClick={() => setIsFullScreenArtifact(!isFullScreenArtifact)}><Maximize2 className="h-3 w-3" /></BtnGhost>
                         <BtnGhost onClick={() => { setSelectedArtifactId(null); setIsArtifactVisible(false); }}><PanelRightClose className="h-3 w-3" /></BtnGhost>
                     </div>
@@ -1133,9 +1157,14 @@ export default function ChatInterface() {
                                                                              </BtnGhost>
                                                                          )}
                                                                          {!isKpi && (
-                                                                             <BtnGhost onClick={() => handleDownloadCSV(msg.output_data, msg.id)} className="flex items-center gap-1.5 text-xs">
-                                                                                 <Download className="h-3 w-3" /> CSV
-                                                                             </BtnGhost>
+                                                                             <>
+                                                                                 <BtnGhost onClick={() => handleDownloadCSV(msg.output_data, msg.id)} className="flex items-center gap-1.5 text-xs">
+                                                                                     <Download className="h-3 w-3" /> CSV
+                                                                                 </BtnGhost>
+                                                                                 <BtnGhost onClick={() => handlePinToCanvas(msg, msg.output_data)} className="flex items-center gap-1.5 text-xs text-accent-custom hover:text-accent-custom">
+                                                                                     <Pin className="h-3 w-3" /> Pin to Canvas
+                                                                                 </BtnGhost>
+                                                                             </>
                                                                          )}
                                                                      </div>
                                                                      {msg.output_data?.sql && showSql[msg.id] && (

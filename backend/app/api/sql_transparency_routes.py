@@ -31,11 +31,16 @@ logger = get_logger(__name__)
 # =============================================================================
 
 
+class CanvasFilter(BaseModel):
+    fieldName: str
+    selectedValue: Any
+
 class SQLExecuteRequest(BaseModel):
     """Request to execute a user-provided SQL query against a dataset."""
     sql: str = Field(..., min_length=1, max_length=10000)
     max_rows: int = Field(default=1000, ge=1, le=10000)
     timeout_seconds: int = Field(default=30, ge=5, le=120)
+    filters: Optional[List[CanvasFilter]] = None
 
 
 class SQLExecuteResponse(BaseModel):
@@ -47,6 +52,7 @@ class SQLExecuteResponse(BaseModel):
     truncated: bool = False
     execution_time_ms: float = 0.0
     error: Optional[str] = None
+    filter_omitted: bool = False
 
 
 class SQLExplainRequest(BaseModel):

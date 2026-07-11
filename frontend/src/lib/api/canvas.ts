@@ -26,6 +26,7 @@ export interface CanvasSqlResult {
     truncated: boolean;
     execution_time_ms: number;
     error: string | null;
+    filter_omitted?: boolean;
 }
 
 // =============================================================================
@@ -33,30 +34,20 @@ export interface CanvasSqlResult {
 // =============================================================================
 
 export const canvasService = {
-    /**
-     * Fetch lightweight column schema for the canvas workspace.
-     * This is a dedicated endpoint that avoids the heavy dashboard/recommendations pipeline.
-     */
-    getSchema: async (datasetId: string): Promise<CanvasSchemaResponse> => {
-        const response = await apiClient.get<CanvasSchemaResponse>(
-            `/datasets/${datasetId}/canvas/schema`
-        );
+    // Get lightweight column schema
+    getSchema: async (datasetId: string) => {
+        const response = await apiClient.get<CanvasSchemaResponse>(`/datasets/${datasetId}/canvas/schema`);
         return response.data;
     },
 
-    /**
-     * Execute a sandboxed SQL query against a dataset's DuckDB.
-     * Returns typed results with column metadata and execution timing.
-     */
-    executeSql: async (
-        datasetId: string,
-        sql: string,
-        maxRows = 1000
-    ): Promise<CanvasSqlResult> => {
-        const response = await apiClient.post<CanvasSqlResult>(
-            `/datasets/${datasetId}/canvas/sql/execute`,
-            { sql, max_rows: maxRows }
-        );
+    // Execute sandboxed SQL on Canvas dataset
+    executeSql: async (datasetId: string, versionId: string, sql: string, filters?: any[]) => {
+        const response = await apiClient.post<CanvasSqlResult>(`/datasets/${datasetId}/canvas/sql/execute`, {
+            sql,
+            max_rows: 500,  // Prevent massive table rendering
+            timeout_seconds: 30,
+            filters: filters || null
+        });
         return response.data;
     },
 
@@ -97,7 +88,8 @@ function isCurrencyMetric(label: string): boolean {
     const keywords = [
         'revenue', 'sales', 'profit', 'cost', 'price', 'amount',
         'income', 'expense', 'budget', 'spend', 'earning',
-        'total_revenue', 'total_sales', 'gross', 'net'
+        'total_revenue', 'total_sales', 'gross', 'net',
+        'ltv', 'cac', 'arpu'
     ];
     const lower = label.toLowerCase().replace(/[_\-]/g, ' ');
     return keywords.some(k => lower.includes(k));
@@ -113,6 +105,7 @@ function isPercentageMetric(label: string): boolean {
         'yield', 'share'
     ];
     const lower = label.toLowerCase().replace(/[_\-]/g, ' ');
+    if (lower.includes('count')) return false; // Prevent fields like 'ChurnCount' from triggering percentage rules
     return keywords.some(k => lower.includes(k));
 }
 
