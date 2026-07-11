@@ -37,6 +37,7 @@ interface CanvasWidget {
   activeAgg?: 'SUM' | 'AVG' | 'MIN' | 'MAX' | 'COUNT' | 'VAR_SAMP';
   targetMetricName?: string;
   targetDimName?: string;
+  filterOmitted?: boolean;
 }
 
 // Initial starter widgets (Starts empty in production for real data generation)
@@ -663,6 +664,78 @@ export default function CanvasPage() {
     addLog("Redo executed: restored workspace change.");
   };
 
+  // ============================================================================
+  // AST Cross-Filtering Re-query Engine
+  // ============================================================================
+  useEffect(() => {
+    if (!selectedDatasetId) return;
+
+    setWidgets(prevWidgets => {
+      const updatableWidgets = prevWidgets.filter(w => w.sql);
+      if (updatableWidgets.length === 0) return prevWidgets;
+
+      const activeFilters = customFilters.filter(f => f.selectedValue !== null);
+      
+      const executeAll = async () => {
+        try {
+          const promises = updatableWidgets.map(async (w) => {
+            try {
+              const res = await canvasService.executeSql(
+                selectedDatasetId, 
+                selectedVersionId || '', 
+                w.sql || '', 
+                activeFilters
+              );
+              return {
+                id: w.id,
+                data: res.results,
+                error: res.error,
+                filterOmitted: res.filter_omitted,
+                isKpi: w.type === 'kpi'
+              };
+            } catch (e) {
+              console.error(`Failed to requery widget ${w.id}`, e);
+              return { id: w.id, data: w.data, error: 'Failed', filterOmitted: true, isKpi: w.type === 'kpi' };
+            }
+          });
+
+          const updates = await Promise.all(promises);
+          
+          setWidgets(currentWidgets => currentWidgets.map(w => {
+            const update = updates.find(u => u.id === w.id);
+            if (update && !update.error) {
+              const newWidget = {
+                ...w,
+                data: update.data,
+                filterOmitted: update.filterOmitted
+              };
+              // If it's a KPI and it re-queried successfully without fallback, update its value dynamically
+              if (update.isKpi && update.data && update.data.length > 0) {
+                const firstRow = update.data[0];
+                const numericKey = Object.keys(firstRow).find(k => typeof firstRow[k] === 'number');
+                if (numericKey) {
+                   const rawValue = firstRow[numericKey];
+                   const metricLabel = w.targetMetricName || w.yAxisKey || numericKey;
+                   newWidget.value = formatKpiValue(rawValue, metricLabel, w.activeAgg || 'SUM');
+                }
+              }
+              return newWidget;
+            }
+            return w;
+          }));
+        } catch (err) {
+          console.error('Cross-filter re-query failed', err);
+        }
+      };
+
+      // Fire async execution without blocking state
+      executeAll();
+
+      return prevWidgets;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customFilters, selectedDatasetId, selectedVersionId]);
+
   // Bind Ctrl+Z / Ctrl+Y and Mac Cmd counterpart shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1021,14 +1094,11 @@ export default function CanvasPage() {
     addLog(`AI Parsing prompt query: "${promptInput}"`);
 
     try {
-      // 1. Ensure active chat session
-      let sessionId = canvasChatSessionId;
-      if (!sessionId) {
-        addLog("Creating canvas chat session...");
-        const session = await chatService.createSession(selectedDatasetId, selectedVersionId || undefined, "Canvas Workspace Session");
-        sessionId = session.id;
-        setCanvasChatSessionId(sessionId);
-      }
+      // 1. Enforce strict Session Isolation (0% context bleed)
+      // We explicitly create a NEW session for every prompt so the LLM doesn't incorrectly reuse formats or insights from previous widgets
+      addLog("Creating isolated canvas compilation session...");
+      const session = await chatService.createSession(selectedDatasetId, selectedVersionId || undefined, "Canvas Workspace Session");
+      const sessionId = session.id;
 
       // 2. Stream thoughts and progress
       const promptQuery = promptInput;
@@ -1255,17 +1325,15 @@ export default function CanvasPage() {
           subtext = formatKpiSubtext(primaryMetric, 'SUM');
           chartData = [];
         } else if (type === 'pie') {
-          chartData = queryData.map((row: any) => {
-            const rowKeys = Object.keys(row);
-            const labelKey = rowKeys.find(k => k.toLowerCase() === 'label') || rowKeys[0];
-            const valueKey = rowKeys.find(k => k.toLowerCase() === 'value') || rowKeys[1];
-            return {
-              name: row[labelKey] || '',
-              val: row[valueKey] || 0
-            };
-          });
-          xAxisKey = 'name';
-          yAxisKey = 'val';
+          const rowKeys = Object.keys(queryData[0] || {});
+          xAxisKey = rowKeys.find(k => k.toLowerCase() === 'label') || rowKeys[0] || 'name';
+          yAxisKey = rowKeys.find(k => k.toLowerCase() === 'value') || rowKeys[1] || 'val';
+          chartData = queryData;
+        } else if (type === 'bar' || type === 'line') {
+          const rowKeys = Object.keys(queryData[0] || {});
+          xAxisKey = rowKeys.find(k => k.toLowerCase() === 'label') || rowKeys[0] || 'label';
+          yAxisKey = rowKeys.find(k => k.toLowerCase() === 'value') || rowKeys[1] || 'value';
+          chartData = queryData;
         } else if (type === 'table') {
           xAxisKey = undefined;
           yAxisKey = undefined;
@@ -2437,14 +2505,14 @@ export default function CanvasPage() {
                     // Check if slicer fields are missing from this widget's data
                     const activeFilters = customFilters.filter(f => f.selectedValue !== null);
                     const hasActiveSlicers = activeFilters.length > 0;
-                    const isSlicerMissing = hasActiveSlicers && activeFilters.some(f => {
-                      if (widget.type === 'kpi') return true;
+                    const isSlicerMissing = hasActiveSlicers && (widget.filterOmitted || activeFilters.some(f => {
+                      if (widget.type === 'kpi') return false; // AST filters apply to KPIs directly now, missing columns get caught by filterOmitted
                       if (!widget.data || widget.data.length === 0) return false;
                       const key = widget.xAxisKey || 'label';
                       if (f.fieldName.toLowerCase() === key.toLowerCase()) return false;
                       const firstRow = widget.data[0];
                       return firstRow[f.fieldName] === undefined && firstRow[f.fieldName.toLowerCase()] === undefined;
-                    });
+                    }));
 
                     return (
                       <motion.div
@@ -2837,6 +2905,28 @@ export default function CanvasPage() {
                                           stroke="#fff"
                                           strokeWidth="2"
                                           className="cursor-pointer hover:scale-125 transition-all duration-150"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            const filterCol = widget.xAxisKey || 'label';
+                                            setCustomFilters(prev => {
+                                              const existing = prev.find(f => f.fieldName.toLowerCase() === filterCol.toLowerCase());
+                                              if (existing) {
+                                                return prev.map(f => f.fieldName.toLowerCase() === filterCol.toLowerCase() ? {
+                                                  ...f,
+                                                  selectedValue: f.selectedValue === labelVal ? null : labelVal
+                                                } : f);
+                                              } else {
+                                                const options = Array.from(new Set(widget.data.map(d => String(d[filterCol]))));
+                                                return [...prev, {
+                                                  fieldName: filterCol,
+                                                  category: 'Dimensions',
+                                                  options,
+                                                  selectedValue: labelVal
+                                                }];
+                                              }
+                                            });
+                                            addLog(`Clicked Line Point: cross-filtered canvas by "${filterCol}" = "${labelVal}"`);
+                                          }}
                                           onMouseEnter={(e) => {
                                             const rect = e.currentTarget.getBoundingClientRect();
                                             setActiveHoverTooltip({
@@ -2884,6 +2974,28 @@ export default function CanvasPage() {
                                               stroke="#fff" 
                                               strokeWidth="1.5" 
                                               className="cursor-pointer hover:scale-125 transition-all duration-150"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                const filterCol = widget.xAxisKey || 'label';
+                                                setCustomFilters(prev => {
+                                                  const existing = prev.find(f => f.fieldName.toLowerCase() === filterCol.toLowerCase());
+                                                  if (existing) {
+                                                    return prev.map(f => f.fieldName.toLowerCase() === filterCol.toLowerCase() ? {
+                                                      ...f,
+                                                      selectedValue: f.selectedValue === labelVal ? null : labelVal
+                                                    } : f);
+                                                  } else {
+                                                    const options = Array.from(new Set(widget.data.map(d => String(d[filterCol]))));
+                                                    return [...prev, {
+                                                      fieldName: filterCol,
+                                                      category: 'Dimensions',
+                                                      options,
+                                                      selectedValue: labelVal
+                                                    }];
+                                                  }
+                                                });
+                                                addLog(`Clicked Line Point: cross-filtered canvas by "${filterCol}" = "${labelVal}"`);
+                                              }}
                                               onMouseEnter={(e) => {
                                                 const rect = e.currentTarget.getBoundingClientRect();
                                                 setActiveHoverTooltip({
@@ -2954,6 +3066,28 @@ export default function CanvasPage() {
                                           strokeDasharray={`${percent} ${100 - percent}`} 
                                           strokeDashoffset={offset} 
                                           className={`transition-all duration-200 cursor-pointer ${isRingSelected ? 'opacity-100' : 'opacity-20'}`}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            const filterCol = widget.xAxisKey || 'name';
+                                            setCustomFilters(prev => {
+                                              const existing = prev.find(f => f.fieldName.toLowerCase() === filterCol.toLowerCase());
+                                              if (existing) {
+                                                return prev.map(f => f.fieldName.toLowerCase() === filterCol.toLowerCase() ? {
+                                                  ...f,
+                                                  selectedValue: f.selectedValue === keyName ? null : keyName
+                                                } : f);
+                                              } else {
+                                                const options = Array.from(new Set(widget.data.map(d => String(d[filterCol]))));
+                                                return [...prev, {
+                                                  fieldName: filterCol,
+                                                  category: 'Dimensions',
+                                                  options,
+                                                  selectedValue: keyName
+                                                }];
+                                              }
+                                            });
+                                            addLog(`Clicked Pie Slice: cross-filtered canvas by "${filterCol}" = "${keyName}"`);
+                                          }}
                                           onMouseEnter={(e) => {
                                             const rect = e.currentTarget.getBoundingClientRect();
                                             setActiveHoverTooltip({
