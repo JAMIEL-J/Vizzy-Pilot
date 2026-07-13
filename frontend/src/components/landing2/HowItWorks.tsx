@@ -6,7 +6,7 @@ const PHASES = [
     icon: Database,
     phase: "01",
     title: "Ingest & Profile",
-    body: "Upload a CSV or connect a database. Vizzy profiles a 50-row sample to detect column semantics — numeric, categorical, date, identifier — using a deterministic regex pre-mapper backed by an LLM corrective loop. Low-confidence mappings are flagged for human review.",
+    body: "Upload a CSV or connect a database. Vizzy Pilot profiles a 50-row sample to detect column semantics — numeric, categorical, date, identifier — using a deterministic regex pre-mapper backed by an LLM corrective loop. Low-confidence mappings are flagged for human review.",
     accent: "#0EA5E9",
     tag: "Schema detection",
   },

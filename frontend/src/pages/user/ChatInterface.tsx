@@ -493,10 +493,10 @@ export default function ChatInterface() {
             const pinned = pinnedStr ? JSON.parse(pinnedStr) : [];
             pinned.push({
                 spec: targetData,
-                query: msg.prompt,
-                sql: msg.sql,
-                thinking: msg.thought_process,
-                resultSummary: msg.key_insight
+                query: msg.output_data?.original_query || msg.content || 'Pinned Chart',
+                sql: msg.output_data?.sql || '',
+                thinking: msg.output_data?.thinking || [],
+                resultSummary: msg.output_data?.explanation?.summary || 'Pinned from chat'
             });
             localStorage.setItem('vizzy_pinned_charts', JSON.stringify(pinned));
             window.dispatchEvent(new Event('vizzy-pin'));

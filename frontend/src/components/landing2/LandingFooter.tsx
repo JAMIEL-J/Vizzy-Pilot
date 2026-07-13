@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Github, FileText, ArrowUpRight } from "lucide-react";
+import { VizzyPilotFullLogo } from "../layout/VizzyLogo";
 
 const FOOTER_LINKS = {
   Product: [
@@ -22,7 +23,7 @@ const FOOTER_LINKS = {
   ],
 };
 
-const LETTERS = ["V", "I", "Z", "Z", "Y"];
+const LETTERS = ["V", "I", "Z", "Z", "Y", "\u00A0", "P", "I", "L", "O", "T"];
 
 function FooterWordmark() {
   const ref = useRef<HTMLDivElement>(null);
@@ -81,10 +82,7 @@ export default function LandingFooter({ onLaunch }: FooterProps) {
           {/* Brand column */}
           <div>
             <div className="flex items-center gap-2 mb-4">
-              <div className="h-6 w-6 rounded-md bg-[#0A0A0A] flex items-center justify-center">
-                <span className="text-white font-bold text-[11px] font-mono">V</span>
-              </div>
-              <span className="font-semibold text-[15px] text-[#0A0A0A]">Vizzy</span>
+              <VizzyPilotFullLogo size={24} />
             </div>
             <p className="text-[13px] text-[#6B7280] leading-relaxed mb-5 max-w-[200px]">
               Natural language to validated SQL. Open source analytics platform.
@@ -123,7 +121,7 @@ export default function LandingFooter({ onLaunch }: FooterProps) {
         {/* Bottom bar */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-6">
           <p className="text-[12px] text-[#9CA3AF] font-mono">
-            © 2025 Vizzy Analytics · Open source · MIT License
+            © 2026 Vizzy Pilot Inc. · Open source · MIT License
           </p>
           <div className="flex items-center gap-4">
             <a href="#" className="text-[12px] text-[#9CA3AF] hover:text-[#0A0A0A] transition-colors flex items-center gap-1">

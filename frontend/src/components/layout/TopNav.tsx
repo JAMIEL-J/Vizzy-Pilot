@@ -161,7 +161,7 @@ export function TopNav() {
                     : "text-themed-muted hover:text-themed-main hover:bg-surface-2"
                 }`}
               >
-                <span>{tab.label === "AI Assistant" ? "Vizzy Pilot AI" : tab.label === "Datasets" ? "Dataset Viewer" : tab.label === "Downloads" ? "Export Dataset" : tab.label === "Canvas" ? "AI Canvas" : tab.label}</span>
+                <span>{tab.label === "AI Assistant" ? "Vizzy Pilot AI" : tab.label === "Datasets" ? "Dataset Viewer" : tab.label === "Downloads" ? "Export Dataset" : tab.label === "Canvas" ? "Vizzy Canvas" : tab.label}</span>
               </Link>
             );
           })}
@@ -345,7 +345,7 @@ export function TopNav() {
                   : "text-themed-muted hover:text-themed-main"
               }`}
             >
-              {tab.label === "AI Assistant" ? "Vizzy Pilot AI" : tab.label === "Datasets" ? "Dataset Viewer" : tab.label === "Downloads" ? "Export Dataset" : tab.label === "Canvas" ? "AI Canvas" : tab.label}
+              {tab.label === "AI Assistant" ? "Vizzy Pilot AI" : tab.label === "Datasets" ? "Dataset Viewer" : tab.label === "Downloads" ? "Export Dataset" : tab.label === "Canvas" ? "Vizzy Canvas" : tab.label}
             </Link>
           );
         })}

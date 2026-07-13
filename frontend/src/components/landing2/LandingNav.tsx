@@ -7,6 +7,8 @@ interface LandingNavProps {
   onLaunch?: () => void;
 }
 
+import { VizzyPilotFullLogo } from "../layout/VizzyLogo";
+
 const NAV_LINKS = [
   { label: "Product", href: "#how-it-works" },
   { label: "Features", href: "#features" },
@@ -37,11 +39,10 @@ export default function LandingNav({ onSignIn, onLaunch }: LandingNavProps) {
     >
       <div className="mx-auto flex h-[60px] max-w-6xl items-center justify-between px-6">
         {/* Logo */}
-        <a href="#" className="flex items-center gap-2.5 group">
-          <div className="h-6 w-6 rounded-md bg-[#0A0A0A] flex items-center justify-center shadow-sm transition-transform group-hover:scale-105">
-            <span className="text-white font-bold text-[11px] font-mono">V</span>
+        <a href="#" className="flex items-center group">
+          <div className="transition-transform group-hover:scale-105">
+            <VizzyPilotFullLogo size={22} />
           </div>
-          <span className="font-semibold text-[15px] text-[#0A0A0A] tracking-tight">Vizzy</span>
         </a>
 
         {/* Desktop Links */}

@@ -6,6 +6,12 @@
 
 ## 📝 Recent Architectural Changes Log
 
+### **Canvas Layout Deletion & High-Res Export PNG (2026-07-13)**
+- **Feature (Dashboard Deletion UI)**: Replaced the native browser `confirm()` prompt for layout deletion with a custom, high-fidelity frontend React modal (`showDeleteModal`). Updated the load layouts modal to feature an integrated delete trashcan button that launches this modal, preventing jarring native popups.
+- **Feature (Sidebar Field Deletion)**: Added interactive deletion options directly to the Canvas sidebar Field list. Fields can now be deleted safely by right-clicking on a field and selecting "Delete Field", or by clicking the trashcan icon on hover. Both methods launch a unified premium deletion confirmation modal (`showDeleteFieldModal`) that instantly cleans up active state (`checkedFields`, `geoFilters`) upon confirmation.
+- **Feature (High-Resolution Canvas Export)**: Implemented the `handleExportVisuals` function leveraging `html-to-image` and `downloadjs` to capture the `canvasContainerRef` grid. Added high-density pixel ratios (`pixelRatio: 2`) and short `setTimeout` logic to ensure all charts render cleanly before serialization into a PNG image. Linked this export pipeline to the "Export Visuals" button in the TopNav panel.
+- **UI Update (Branding Consistency)**: Renamed "AI Canvas" to "Vizzy Canvas" globally across the navbar menus (`TopNav.tsx`) and default dashboard naming conventions to align with the core Vizzy branding strategy.
+
 ### **Inline Calculated Fields Prompt Input Bar (2026-07-10)**
 - **Feature (Inline Input Bar)**: Replaced the popover modal trigger with a clean, inline input bar directly inside the Fields Sidebar checklist in [CanvasPage.tsx](file:///D:/Vizzy%20Redesign/Vizzy%20Redesign/frontend/src/pages/user/CanvasPage.tsx). Users can now directly prompt AI to compute values (e.g. *"create a churn rate field"*) using the text field, which registers and inserts fields immediately without triggering heavy popups.
 

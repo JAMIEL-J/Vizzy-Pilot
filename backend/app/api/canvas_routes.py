@@ -166,13 +166,19 @@ import sqlglot
 def _inject_filters_into_sql(sql: str, filters: list) -> str:
     if not filters:
         return sql
-    # Wrap original query in a subquery so we can safely filter on aliased columns (e.g. 'label' or 'name')
-    parsed = sqlglot.parse_one(f"SELECT * FROM ({sql}) AS _canvas_sq", read="duckdb")
+    # Parse the original query directly so we inject into the actual base table or CTE where columns exist
+    parsed = sqlglot.parse_one(sql, read="duckdb")
     for f in filters:
-        col = f.fieldName
-        val = f.selectedValue
+        col = getattr(f, "fieldName", None)
+        if col is None and isinstance(f, dict):
+            col = f.get("fieldName")
+        val = getattr(f, "selectedValue", None)
+        if val is None and isinstance(f, dict):
+            val = f.get("selectedValue")
+            
         if not col or val is None:
             continue
+            
         if isinstance(val, str):
             val_escaped = val.replace("'", "''")
             condition = f"\"{col}\" = '{val_escaped}'"

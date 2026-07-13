@@ -15,7 +15,7 @@ RULES:
 2. The Database is DuckDB. Use DuckDB compatible SQL syntax.
 3. Return a strict JSON object with NO OTHER TEXT. It must be valid JSON, no markdown codeblocks.
 4. Determine the best chart output type for the result set.
-5. IMPORTANT: If a column appears to contain numeric data but its type is listed as 'VARCHAR' or 'STRING', use `TRY_CAST(column_name AS DOUBLE)` for calculations (SUM, AVG, etc.) to avoid type errors.
+5. CRITICAL: ALWAYS use `TRY_CAST(column_name AS DOUBLE)` inside all aggregations (SUM, AVG, MIN, MAX), even if the schema says the column is numeric. The data often contains string-typed numbers (e.g. '123.45'). Example: `SUM(TRY_CAST(TotalCharges AS DOUBLE))`. NEVER just use `SUM(TotalCharges)`.
 6. The SQL query MUST be valid syntax. Use single quotes for strings and double quotes for exact column identifiers if needed.
 7. For 'kpi', return ONE row + ONE numeric column.
 8. For 'bar'/'pie', return category + numeric value.
@@ -53,7 +53,7 @@ RULES:
   - CRITICAL: The `QUALIFY` clause MUST be placed BEFORE the `ORDER BY` clause in the SQL statement. Ordering must be done at the very end of the query (e.g. `SELECT ... FROM ... GROUP BY ... QUALIFY ... ORDER BY ...`).
 
 Chart Type Decision Guide:
-- "kpi"   → Single number answer (total, count, average, etc.) OR a query asking for a single best/worst/top entity (e.g. "which category has the highest sales"). In this case, limit the SQL to 1 row and return the entity name + its metric.
+- "kpi"   → Single number answer (total, count, average, etc.) OR a query asking for a single best/worst/top entity. If the user explicitly asks for a "KPI" or "KPI card", you ABSOLUTELY MUST set chart_type to "kpi" and return a SQL query that yields exactly ONE row and ONE numeric column (e.g. `SELECT SUM(...) AS value`).
 - "bar"   → Comparison across categories with ONE numeric metric (top N, by region, by product)
 - "stacked_bar" → Comparison across categories with MULTIPLE numeric metrics (e.g. top 10 products with sales and profit)
 - "line"  → Trends over time (monthly, daily, yearly)

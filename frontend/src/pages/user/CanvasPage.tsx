@@ -4,7 +4,7 @@ import {
   ChevronRight, ChevronLeft, Plus, Check, Settings2, Download, Eye, FileSpreadsheet,
   Info, BarChart3, PieChart as PieIcon, TrendingUp, HelpCircle, AlertCircle, Maximize2, Minimize2, Move,
   Terminal, Code, Cpu, Database, Copy, CheckCheck, Table2, Layers, Undo2, Redo2,
-  GripVertical, Filter, ChevronDown, GitBranch, FolderOpen, Save as SaveIcon, Loader2
+  GripVertical, Filter, ChevronDown, GitBranch, FolderOpen, Save as SaveIcon, Loader2, ArrowRightLeft
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTheme } from '../../context/ThemeContext';
@@ -14,6 +14,10 @@ import { chatService, type ChatSession, type ChatMessage } from '../../lib/api/c
 import { canvasService, formatKpiValue, formatKpiSubtext } from '../../lib/api/canvas';
 import { apiClient } from '../../lib/api/client';
 import { toast } from 'react-hot-toast';
+import * as htmlToImage from 'html-to-image';
+import download from 'downloadjs';
+import { VizzyPilotLogoIcon } from '../../components/layout/VizzyLogo';
+import { prettifyLabel } from '../../components/dashboard/dashboard-helpers';
 
 // Define Widget Type for the Canvas with AI logs
 interface CanvasWidget {
@@ -95,6 +99,12 @@ export default function CanvasPage() {
   // Dashboards persistence list
   const [dashboardsList, setDashboardsList] = useState<any[]>([]);
   const [showLoadModal, setShowLoadModal] = useState(false);
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteDashboardId, setDeleteDashboardId] = useState<string | null>(null);
+  const [showDeleteFieldModal, setShowDeleteFieldModal] = useState(false);
+  const [deleteFieldId, setDeleteFieldId] = useState<string | null>(null);
+  const [saveDashboardName, setSaveDashboardName] = useState('');
   const [geoFilters, setGeoFilters] = useState<Record<string, string[]>>({});
 
   const buildAggExpr = (agg: string, colName: string) => {
@@ -235,17 +245,17 @@ export default function CanvasPage() {
   }, []);
 
   // Handle dataset change
-  const handleDatasetChange = async (datasetId: string) => {
+  const handleDatasetChange = async (datasetId: string, keepWidgets: boolean = false, targetVersionId?: string) => {
     setSelectedDatasetId(datasetId);
     localStorage.setItem('vizzy_last_dataset_id', datasetId);
     setCanvasChatSessionId(null); // Reset session
-    setWidgets([]); // Empty canvas on dataset change
+    if (!keepWidgets) setWidgets([]); // Empty canvas on dataset change
     try {
       if (datasetId) {
         const vers = await datasetService.listVersionsForDataset(datasetId);
         setVersions(vers);
         if (vers.length > 0) {
-          const latestVersion = vers[0].id;
+          const latestVersion = targetVersionId && vers.some((v: any) => v.id === targetVersionId) ? targetVersionId : vers[0].id;
           setSelectedVersionId(latestVersion);
           localStorage.setItem('vizzy_last_version_id', latestVersion);
           loadDatasetColumns(datasetId, latestVersion);
@@ -472,13 +482,21 @@ export default function CanvasPage() {
     };
   }, []);
 
-  const handleSaveDashboard = async () => {
+  const handleSaveDashboard = () => {
     if (widgets.length === 0) {
       toast.error("Canvas is empty. Add some widgets first!");
       return;
     }
-    const name = prompt("Enter a name for this dashboard:", "My AI Canvas Dashboard");
-    if (!name) return;
+    setSaveDashboardName("My Vizzy Canvas");
+    setShowSaveModal(true);
+  };
+
+  const executeSaveDashboard = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!saveDashboardName.trim()) {
+      toast.error("Dashboard name is required");
+      return;
+    }
 
     try {
       const configObj = {
@@ -491,8 +509,8 @@ export default function CanvasPage() {
       };
       
       const payload = {
-        name,
-        description: "AI Canvas generated dashboard",
+        name: saveDashboardName,
+        description: "Vizzy Canvas generated layout",
         dataset_id: selectedDatasetId || null,
         dataset_version_id: selectedVersionId || null,
         config: configObj,
@@ -501,7 +519,8 @@ export default function CanvasPage() {
 
       await apiClient.post('/dashboards', payload);
       toast.success("Dashboard layout saved successfully!");
-      addLog(`SUCCESS: Saved dashboard layout: "${name}"`);
+      addLog(`SUCCESS: Saved dashboard layout: "${saveDashboardName}"`);
+      setShowSaveModal(false);
     } catch (err: any) {
       console.error(err);
       toast.error("Failed to save dashboard layout.");
@@ -518,7 +537,7 @@ export default function CanvasPage() {
         setGridSnap(db.config.gridSnap ?? true);
         setShowGridlines(db.config.showGridlines ?? true);
         if (db.config.selectedDatasetId) {
-          handleDatasetChange(db.config.selectedDatasetId);
+          handleDatasetChange(db.config.selectedDatasetId, true, db.config.selectedVersionId);
         }
         toast.success(`Loaded dashboard: ${db.name}`);
         addLog(`SUCCESS: Loaded dashboard layout: "${db.name}"`);
@@ -541,6 +560,26 @@ export default function CanvasPage() {
     } catch (err) {
       console.error(err);
       toast.error("Failed to load dashboards list.");
+    }
+  };
+
+  const handleDeleteDashboardClick = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setDeleteDashboardId(id);
+    setShowDeleteModal(true);
+  };
+
+  const executeDeleteDashboard = async () => {
+    if (!deleteDashboardId) return;
+    try {
+      await apiClient.delete(`/dashboards/${deleteDashboardId}`);
+      toast.success("Dashboard deleted");
+      setDashboardsList(prev => prev.filter(db => db.id !== deleteDashboardId));
+      setShowDeleteModal(false);
+      setDeleteDashboardId(null);
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to delete dashboard");
     }
   };
 
@@ -567,12 +606,27 @@ export default function CanvasPage() {
     const containerWidth = canvasContainerRef.current.clientWidth - 32;
     const containerHeight = canvasContainerRef.current.clientHeight - 32;
 
-    const scaleX = containerWidth / 2400;
-    const scaleY = containerHeight / 1600;
+    let maxX = 0;
+    let maxY = 0;
+    widgets.forEach(w => {
+      const wWidth = w.customWidth ?? (w.type === 'kpi' ? 245 : 375);
+      const wHeight = w.customHeight ?? (w.type === 'kpi' ? 120 : 230);
+      const right = (w.position?.x ?? 20) + wWidth;
+      const bottom = (w.position?.y ?? 20) + wHeight;
+      if (right > maxX) maxX = right;
+      if (bottom > maxY) maxY = bottom;
+    });
+
+    // We add a little padding (40px) so the edges aren't flush
+    const contentWidth = Math.max(maxX + 40, 800); 
+    const contentHeight = Math.max(maxY + 40, 600);
+
+    const scaleX = containerWidth / contentWidth;
+    const scaleY = containerHeight / contentHeight;
 
     if (isPresentMode) {
-      // Cover the screen with the dashboard responsively, filling the background and avoiding being minimized
-      return Math.max(scaleX, scaleY);
+      // Cover the screen with the dashboard responsively, containing it entirely
+      return Math.min(scaleX, scaleY);
     }
 
     // In regular edit full screen, we let the user adjust zoom or default to fit width
@@ -1000,7 +1054,7 @@ export default function CanvasPage() {
     try {
       // Query distinct values from DuckDB
       const sql = `SELECT DISTINCT "${fieldName}" AS val FROM data WHERE "${fieldName}" IS NOT NULL ORDER BY val ASC LIMIT 100`;
-      const sqlResult = await canvasService.executeSql(selectedDatasetId, sql);
+      const sqlResult = await canvasService.executeSql(selectedDatasetId, selectedVersionId || '', sql);
       
       if (sqlResult && !sqlResult.error && sqlResult.results) {
         const queryData = sqlResult.results || [];
@@ -1077,6 +1131,27 @@ export default function CanvasPage() {
     }
   };
 
+  const handleDeleteField = (fieldName: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setDeleteFieldId(fieldName);
+    setShowDeleteFieldModal(true);
+  };
+
+  const executeDeleteField = () => {
+    if (!deleteFieldId) return;
+    setFieldsList(prev => prev.filter(f => f.name !== deleteFieldId));
+    setCheckedFields(prev => prev.filter(f => f !== deleteFieldId));
+    setGeoFilters(prev => {
+      const next = { ...prev };
+      delete next[deleteFieldId];
+      return next;
+    });
+    toast.success(`Field "${deleteFieldId}" deleted successfully`);
+    addLog(`Field "${deleteFieldId}" deleted.`);
+    setShowDeleteFieldModal(false);
+    setDeleteFieldId(null);
+  };
+
   // Rule-based prompt compilation engine replaced with real SSE NL2SQL streaming compiler
   const handlePromptSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -1124,7 +1199,7 @@ export default function CanvasPage() {
 
       // 3. Process result
       const outputData = res.assistant_message?.output_data;
-      if (outputData && outputData.type === 'nl2sql') {
+      if (outputData && (outputData.type === 'nl2sql' || outputData.chart)) {
         const sql = outputData.sql || '';
         const chartSpec = outputData.chart || {};
         const explanation = outputData.explanation || {};
@@ -1219,9 +1294,71 @@ export default function CanvasPage() {
 
   // Clear everything
   const handleClearCanvas = () => {
-    recordHistory();
+    if (!confirm("Are you sure you want to clear the entire canvas?")) return;
     setWidgets([]);
-    addLog('Canvas wiped clean. Ready for a new prompt build session.');
+    setPast([]);
+    setFuture([]);
+    addLog('Canvas cleared.');
+  };
+
+  const handleExportVisuals = (format: 'png' | 'svg' | 'json' = 'png') => {
+    if (!canvasContainerRef.current) return;
+    toast.loading(`Exporting canvas as ${format.toUpperCase()}...`, { id: 'export-toast' });
+    
+    // We add a short timeout to ensure the UI is fully stable before capturing
+    setTimeout(() => {
+      if (format === 'json') {
+        const config = { widgets, past, future };
+        const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+        download(blob, 'vizzy-canvas-export.json');
+        toast.success("Canvas exported successfully as JSON!", { id: 'export-toast' });
+        addLog("Export success! Canvas saved as JSON config.");
+        return;
+      }
+
+      const element = canvasContainerRef.current as HTMLElement;
+      
+      // Calculate tight bounding box for the widgets to prevent massive empty space
+      let maxX = 0;
+      let maxY = 0;
+      widgets.forEach(w => {
+        const wWidth = w.customWidth ?? (w.type === 'kpi' ? 245 : 375);
+        const wHeight = w.customHeight ?? (w.type === 'kpi' ? 120 : 230);
+        const right = (w.position?.x ?? 20) + wWidth;
+        const bottom = (w.position?.y ?? 20) + wHeight;
+        if (right > maxX) maxX = right;
+        if (bottom > maxY) maxY = bottom;
+      });
+      
+      const exportWidth = maxX > 0 ? maxX + 40 : element.scrollWidth;
+      const exportHeight = maxY > 0 ? maxY + 40 : element.scrollHeight;
+
+      const options = { 
+        backgroundColor: '#111111',
+        pixelRatio: 2, // High resolution
+        width: exportWidth,
+        height: exportHeight,
+        style: {
+          transform: 'none' // reset any scaling during export if needed
+        }
+      };
+
+      const promise = format === 'svg' 
+        ? htmlToImage.toSvg(element, options)
+        : htmlToImage.toPng(element, options);
+
+      promise
+      .then((dataUrl) => {
+        download(dataUrl, `vizzy-canvas-export.${format}`);
+        toast.success(`Canvas exported successfully as ${format.toUpperCase()}!`, { id: 'export-toast' });
+        addLog(`Export success! Canvas saved as high-res ${format.toUpperCase()}.`);
+      })
+      .catch((error) => {
+        console.error('Error exporting canvas:', error);
+        toast.error("Failed to export canvas.", { id: 'export-toast' });
+        addLog("Export failed.");
+      });
+    }, 100);
   };
 
   // Add default visual from Fields / Palette clicking using live query compiler
@@ -1304,7 +1441,7 @@ export default function CanvasPage() {
 
       // Execute SQL query against DuckDB sandbox
       addLog(`Executing Canvas query: ${sql}`);
-      const sqlResult = await canvasService.executeSql(selectedDatasetId, sql);
+      const sqlResult = await canvasService.executeSql(selectedDatasetId, selectedVersionId || '', sql);
       
       if (sqlResult && !sqlResult.error && sqlResult.results) {
         const queryData = sqlResult.results || [];
@@ -1475,7 +1612,7 @@ export default function CanvasPage() {
       const sql = `SELECT ${grainExpr} AS label, ${buildAggExpr(currentAgg, realMetric)} AS value FROM data GROUP BY 1 ORDER BY 1 ASC LIMIT 50`;
       
       addLog(`Executing Canvas grain query: ${sql}`);
-      const sqlResult = await canvasService.executeSql(selectedDatasetId, sql);
+      const sqlResult = await canvasService.executeSql(selectedDatasetId, selectedVersionId || '', sql);
       
       if (sqlResult && !sqlResult.error && sqlResult.results) {
         const queryData = sqlResult.results || [];
@@ -1546,7 +1683,7 @@ export default function CanvasPage() {
       }
 
       addLog(`Executing Canvas aggregation query: ${sql}`);
-      const sqlResult = await canvasService.executeSql(selectedDatasetId, sql);
+      const sqlResult = await canvasService.executeSql(selectedDatasetId, selectedVersionId || '', sql);
 
       if (sqlResult && !sqlResult.error && sqlResult.results) {
         const queryData = sqlResult.results || [];
@@ -1601,8 +1738,8 @@ export default function CanvasPage() {
       <div className="border-b border-border-custom bg-surface-2/40 px-6 py-3.5 flex flex-wrap items-center justify-between gap-4 font-mono text-xs">
         <div className="flex items-center space-x-6 flex-wrap gap-y-2">
           <div className="flex items-center space-x-2.5">
-            <div className="w-2.5 h-2.5 bg-accent-custom rounded-full animate-pulse"></div>
-            <span className="font-semibold text-text-custom tracking-wider uppercase">PowerBI AI Canvas Studio</span>
+            <VizzyPilotLogoIcon size={18} className="text-accent-custom shrink-0" />
+            <span className="font-semibold text-text-custom tracking-wider uppercase">Vizzy Pilot Canvas</span>
             <span className="text-muted-custom">|</span>
             <span className="text-muted-custom">Snap: <span className="text-accent-custom font-bold">16px</span></span>
           </div>
@@ -1611,10 +1748,10 @@ export default function CanvasPage() {
           <div className="flex items-center space-x-3 text-xs">
             {/* Dataset select */}
             <div className="flex items-center bg-surface border border-border-custom rounded-xl p-1 shadow-xs">
-              <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-custom font-semibold bg-surface-2 px-2 py-1 rounded-lg mr-1.5">
+              <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-custom font-semibold bg-surface-2 px-2 py-1 rounded-lg mr-1.5">
                 <Database className="w-3 h-3 text-accent-custom" />
                 Dataset
-              </span>
+              </div>
               <select
                 value={selectedDatasetId}
                 onChange={(e) => handleDatasetChange(e.target.value)}
@@ -1630,10 +1767,10 @@ export default function CanvasPage() {
             {/* Version select */}
             {selectedDatasetId && versions.length > 0 && (
               <div className="flex items-center bg-surface border border-border-custom rounded-xl p-1 shadow-xs animate-in fade-in slide-in-from-left-2 duration-200">
-                <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-custom font-semibold bg-surface-2 px-2 py-1 rounded-lg mr-1.5">
+                <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-custom font-semibold bg-surface-2 px-2 py-1 rounded-lg mr-1.5">
                   <GitBranch className="w-3 h-3 text-accent-custom" />
                   Version
-                </span>
+                </div>
                 <select
                   value={selectedVersionId}
                   onChange={(e) => handleVersionChange(e.target.value)}
@@ -1770,16 +1907,28 @@ export default function CanvasPage() {
             <span>Clear Canvas</span>
           </button>
 
-          <button 
-            onClick={() => {
-              addLog('Export success! Configuration serialized to PowerBI templates.');
-              alert('Canvas configuration exported! Dynamic PowerBI JSON compiled successfully.');
-            }}
-            className="h-9 px-4 text-[11px] font-bold bg-accent-custom hover:opacity-90 text-white rounded-full flex items-center space-x-1.5 cursor-pointer transition-all shadow-md active:scale-95"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Export Visuals</span>
-          </button>
+          <div className="relative group/export">
+            <button 
+              className="h-9 px-4 text-[11px] font-bold bg-accent-custom hover:opacity-90 text-white rounded-full flex items-center space-x-1.5 cursor-pointer transition-all shadow-md active:scale-95"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Export Visuals</span>
+            </button>
+            <div className="absolute right-0 mt-2 w-40 bg-surface border border-border-custom rounded-xl shadow-xl opacity-0 invisible group-hover/export:opacity-100 group-hover/export:visible transition-all z-50 flex flex-col p-1.5 font-mono text-[11px]">
+              <button onClick={() => handleExportVisuals('png')} className="w-full text-left px-3 py-2 hover:bg-surface-2 rounded-lg text-text-custom transition-colors cursor-pointer flex items-center justify-between group/btn">
+                <span>Export as PNG</span>
+                <ChevronRight className="w-3 h-3 opacity-0 group-hover/btn:opacity-100 transition-opacity" />
+              </button>
+              <button onClick={() => handleExportVisuals('svg')} className="w-full text-left px-3 py-2 hover:bg-surface-2 rounded-lg text-text-custom transition-colors cursor-pointer flex items-center justify-between group/btn">
+                <span>Interactive SVG</span>
+                <ChevronRight className="w-3 h-3 opacity-0 group-hover/btn:opacity-100 transition-opacity" />
+              </button>
+              <button onClick={() => handleExportVisuals('json')} className="w-full text-left px-3 py-2 hover:bg-surface-2 rounded-lg text-text-custom transition-colors cursor-pointer flex items-center justify-between group/btn">
+                <span>JSON Config</span>
+                <ChevronRight className="w-3 h-3 opacity-0 group-hover/btn:opacity-100 transition-opacity" />
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1930,13 +2079,23 @@ export default function CanvasPage() {
                             }`}>
                               {isChecked && <Check className="w-2.5 h-2.5" />}
                             </div>
-                            <span className={`truncate ${isChecked ? 'text-text-custom font-semibold' : 'text-muted-custom'}`}>
-                              {field.name}
+                            <span className={`truncate ${isChecked ? 'text-text-custom font-semibold' : 'text-muted-custom'}`} title={field.name}>
+                              {prettifyLabel(field.name)}
                             </span>
                           </div>
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-surface border border-border-custom text-muted-custom font-mono uppercase">
-                            {field.category.slice(0, 3)}
-                          </span>
+                          <div className="flex items-center space-x-1.5">
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-surface border border-border-custom text-muted-custom font-mono uppercase group-hover:hidden">
+                              {field.category.slice(0, 3)}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => handleDeleteField(field.name, e)}
+                              className="hidden group-hover:flex p-1 hover:bg-red-500/10 hover:text-red-500 text-muted-custom rounded transition-colors cursor-pointer"
+                              title="Delete field"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
                         </button>
                       );
                     })
@@ -1995,7 +2154,7 @@ export default function CanvasPage() {
             {/* Form */}
             <form onSubmit={handlePromptSubmit} className="relative">
               <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
-                <Sparkles className="w-4.5 h-4.5 text-accent-custom animate-pulse" />
+                <VizzyPilotLogoIcon size={18} className="text-accent-custom animate-pulse" />
               </div>
               <input
                 type="text"
@@ -2300,10 +2459,10 @@ export default function CanvasPage() {
                     key={cf.fieldName} 
                     className="flex items-center space-x-1 bg-surface-2 p-1 rounded-xl border border-accent-custom/30 relative group/slicer animate-in fade-in zoom-in-95 duration-150"
                   >
-                    <span className="text-[10px] font-mono text-accent-custom px-1.5 font-bold flex items-center space-x-1">
+                    <div className="text-[10px] font-mono text-accent-custom px-1.5 font-bold flex items-center space-x-1">
                       <Filter className="w-2.5 h-2.5" />
                       <span>{cf.fieldName}:</span>
-                    </span>
+                    </div>
                     {['All', ...cf.options].map((opt) => {
                       const isSelected = opt === 'All' ? !cf.selectedValue : cf.selectedValue === opt;
                       return (
@@ -2625,10 +2784,10 @@ export default function CanvasPage() {
                             onClick={(e) => e.stopPropagation()}
                           >
                             <div className="flex items-center justify-between border-b border-border-custom/50 pb-1 mb-1.5">
-                              <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-accent-custom flex items-center space-x-1">
+                              <div className="text-[9px] font-mono font-bold uppercase tracking-wider text-accent-custom flex items-center space-x-1">
                                 <Settings2 className="w-2.5 h-2.5" />
                                 <span>Geometry Bounds</span>
-                              </span>
+                              </div>
                               <button
                                 type="button"
                                 onClick={() => setEditingWidgetId(null)}
@@ -2788,11 +2947,10 @@ export default function CanvasPage() {
                                     if (activeFilters.length === 0) return true;
                                     
                                     return activeFilters.every(f => {
-                                      if (item[f.fieldName] === undefined && item[f.fieldName.toLowerCase()] === undefined && f.fieldName.toLowerCase() !== key.toLowerCase()) {
-                                        return true; // Ignore missing fields
-                                      }
-                                      const itemVal = item[f.fieldName] || item[f.fieldName.toLowerCase()] || (f.fieldName.toLowerCase() === key.toLowerCase() ? itemLabel : '') || '';
-                                      return String(itemVal).toLowerCase() === String(f.selectedValue).toLowerCase();
+                                      const isTargetingThisChart = (widget.targetDimName && f.fieldName.toLowerCase() === widget.targetDimName.toLowerCase()) || f.fieldName.toLowerCase() === key.toLowerCase();
+                                      if (isTargetingThisChart) return String(itemLabel).toLowerCase() === String(f.selectedValue).toLowerCase();
+                                      if (item[f.fieldName] !== undefined) return String(item[f.fieldName]).toLowerCase() === String(f.selectedValue).toLowerCase();
+                                      return true;
                                     });
                                   })();
 
@@ -2801,7 +2959,7 @@ export default function CanvasPage() {
                                       key={idx} 
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        const filterCol = widget.xAxisKey || 'label';
+                                        const filterCol = widget.targetDimName || widget.xAxisKey || 'label';
                                         setCustomFilters(prev => {
                                           const existing = prev.find(f => f.fieldName.toLowerCase() === filterCol.toLowerCase());
                                           if (existing) {
@@ -2810,7 +2968,7 @@ export default function CanvasPage() {
                                               selectedValue: f.selectedValue === itemLabel ? null : itemLabel
                                             } : f);
                                           } else {
-                                            const options = Array.from(new Set(widget.data.map(d => String(d[filterCol]))));
+                                            const options = Array.from(new Set(widget.data.map(d => String(d[widget.xAxisKey || 'label'] || d[filterCol]))));
                                             return [...prev, {
                                               fieldName: filterCol,
                                               category: 'Dimensions',
@@ -2907,7 +3065,7 @@ export default function CanvasPage() {
                                           className="cursor-pointer hover:scale-125 transition-all duration-150"
                                           onClick={(e) => {
                                             e.stopPropagation();
-                                            const filterCol = widget.xAxisKey || 'label';
+                                            const filterCol = widget.targetDimName || widget.xAxisKey || 'label';
                                             setCustomFilters(prev => {
                                               const existing = prev.find(f => f.fieldName.toLowerCase() === filterCol.toLowerCase());
                                               if (existing) {
@@ -2916,7 +3074,7 @@ export default function CanvasPage() {
                                                   selectedValue: f.selectedValue === labelVal ? null : labelVal
                                                 } : f);
                                               } else {
-                                                const options = Array.from(new Set(widget.data.map(d => String(d[filterCol]))));
+                                                const options = Array.from(new Set(widget.data.map(d => String(d[widget.xAxisKey || 'label'] || d[filterCol]))));
                                                 return [...prev, {
                                                   fieldName: filterCol,
                                                   category: 'Dimensions',
@@ -2976,7 +3134,7 @@ export default function CanvasPage() {
                                               className="cursor-pointer hover:scale-125 transition-all duration-150"
                                               onClick={(e) => {
                                                 e.stopPropagation();
-                                                const filterCol = widget.xAxisKey || 'label';
+                                                const filterCol = widget.targetDimName || widget.xAxisKey || 'label';
                                                 setCustomFilters(prev => {
                                                   const existing = prev.find(f => f.fieldName.toLowerCase() === filterCol.toLowerCase());
                                                   if (existing) {
@@ -2985,7 +3143,7 @@ export default function CanvasPage() {
                                                       selectedValue: f.selectedValue === labelVal ? null : labelVal
                                                     } : f);
                                                   } else {
-                                                    const options = Array.from(new Set(widget.data.map(d => String(d[filterCol]))));
+                                                    const options = Array.from(new Set(widget.data.map(d => String(d[widget.xAxisKey || 'label'] || d[filterCol]))));
                                                     return [...prev, {
                                                       fieldName: filterCol,
                                                       category: 'Dimensions',
@@ -3028,7 +3186,8 @@ export default function CanvasPage() {
                           {/* Type 4: DONUT/PIE CHART */}
                           {widget.type === 'pie' && (() => {
                             const totalVal = widget.data.reduce((acc, d) => acc + Number(d[widget.yAxisKey || 'val'] || 0), 0) || 1;
-                            const pieFilter = customFilters.find(f => f.fieldName.toLowerCase() === (widget.xAxisKey || 'name').toLowerCase());
+                            const pieFilterCol = widget.targetDimName || widget.xAxisKey || 'name';
+                            const pieFilter = customFilters.find(f => f.fieldName.toLowerCase() === pieFilterCol.toLowerCase());
                             const selectedVal = pieFilter?.selectedValue;
                             
                             const paletteColors = [
@@ -3068,7 +3227,7 @@ export default function CanvasPage() {
                                           className={`transition-all duration-200 cursor-pointer ${isRingSelected ? 'opacity-100' : 'opacity-20'}`}
                                           onClick={(e) => {
                                             e.stopPropagation();
-                                            const filterCol = widget.xAxisKey || 'name';
+                                            const filterCol = widget.targetDimName || widget.xAxisKey || 'name';
                                             setCustomFilters(prev => {
                                               const existing = prev.find(f => f.fieldName.toLowerCase() === filterCol.toLowerCase());
                                               if (existing) {
@@ -3077,7 +3236,7 @@ export default function CanvasPage() {
                                                   selectedValue: f.selectedValue === keyName ? null : keyName
                                                 } : f);
                                               } else {
-                                                const options = Array.from(new Set(widget.data.map(d => String(d[filterCol]))));
+                                                const options = Array.from(new Set(widget.data.map(d => String(d[widget.xAxisKey || 'name'] || d[filterCol]))));
                                                 return [...prev, {
                                                   fieldName: filterCol,
                                                   category: 'Dimensions',
@@ -3118,13 +3277,11 @@ export default function CanvasPage() {
                                     const isHighlighted = (() => {
                                       const activeFilters = customFilters.filter(f => f.selectedValue !== null);
                                       if (activeFilters.length === 0) return true;
-                                      
                                       return activeFilters.every(f => {
-                                        if (item[f.fieldName] === undefined && item[f.fieldName.toLowerCase()] === undefined && f.fieldName.toLowerCase() !== (widget.xAxisKey || 'name').toLowerCase()) {
-                                          return true; // Ignore missing fields
-                                        }
-                                        const itemVal = item[f.fieldName] || item[f.fieldName.toLowerCase()] || (f.fieldName.toLowerCase() === (widget.xAxisKey || 'name').toLowerCase() ? keyName : '') || '';
-                                        return String(itemVal).toLowerCase() === String(f.selectedValue).toLowerCase();
+                                        const isTargetingThisChart = (widget.targetDimName && f.fieldName.toLowerCase() === widget.targetDimName.toLowerCase()) || f.fieldName.toLowerCase() === (widget.xAxisKey || 'name').toLowerCase();
+                                        if (isTargetingThisChart) return String(keyName).toLowerCase() === String(f.selectedValue).toLowerCase();
+                                        if (item[f.fieldName] !== undefined) return String(item[f.fieldName]).toLowerCase() === String(f.selectedValue).toLowerCase();
+                                        return true;
                                       });
                                     })();
                                     return (
@@ -3132,7 +3289,7 @@ export default function CanvasPage() {
                                         key={idx} 
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          const filterCol = widget.xAxisKey || 'name';
+                                          const filterCol = widget.targetDimName || widget.xAxisKey || 'name';
                                           setCustomFilters(prev => {
                                             const existing = prev.find(f => f.fieldName.toLowerCase() === filterCol.toLowerCase());
                                             if (existing) {
@@ -3141,7 +3298,7 @@ export default function CanvasPage() {
                                                 selectedValue: f.selectedValue === keyName ? null : keyName
                                               } : f);
                                             } else {
-                                              const options = Array.from(new Set(widget.data.map(d => String(d[filterCol]))));
+                                              const options = Array.from(new Set(widget.data.map(d => String(d[widget.xAxisKey || 'name'] || d[filterCol]))));
                                               return [...prev, {
                                                 fieldName: filterCol,
                                                 category: 'Dimensions',
@@ -3243,10 +3400,10 @@ export default function CanvasPage() {
                     whileHover={{ scale: 1.05 }}
                     type="button"
                     onClick={() => setIsPromptBubbleCollapsed(false)}
-                    className="ml-auto w-12 h-12 rounded-full bg-accent-custom text-white hover:bg-accent-custom/95 flex items-center justify-center cursor-pointer shadow-2xl hover:scale-110 active:scale-95 duration-200 border border-accent-custom/30"
+                    className="ml-auto flex items-center justify-center cursor-pointer hover:scale-110 active:scale-95 duration-200 bg-transparent border-none"
                     title="Expand AI Prompt Assistant"
                   >
-                    <Sparkles className="w-5 h-5 animate-pulse" />
+                    <VizzyPilotLogoIcon size={48} className="text-accent-custom drop-shadow-2xl animate-pulse" />
                   </motion.button>
                 ) : (
                   <motion.div
@@ -3256,8 +3413,8 @@ export default function CanvasPage() {
                   >
                     <div className="flex items-center justify-between border-b border-border-custom/50 pb-2">
                       <div className="flex items-center space-x-2">
-                        <Sparkles className="w-4 h-4 text-accent-custom animate-pulse" />
-                        <span className="text-[11px] font-bold font-mono uppercase text-text-custom">AI Prompt Stage Assistant</span>
+                        <VizzyPilotLogoIcon size={16} className="text-accent-custom animate-pulse" />
+                        <span className="text-[11px] font-bold font-mono uppercase text-text-custom">Vizzy Pilot Assistant</span>
                       </div>
                       <div className="flex items-center space-x-3">
                         <button
@@ -3280,7 +3437,7 @@ export default function CanvasPage() {
 
                     <form onSubmit={handlePromptSubmit} className="relative">
                       <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
-                        <Sparkles className="w-4.5 h-4.5 text-accent-custom animate-pulse" />
+                        <VizzyPilotLogoIcon size={18} className="text-accent-custom animate-pulse" />
                       </div>
                       <input
                         type="text"
@@ -3387,6 +3544,21 @@ export default function CanvasPage() {
             <button
               type="button"
               onClick={() => {
+                setFieldsList(prev => prev.map(f => f.name === contextMenu.field.name ? {
+                  ...f,
+                  category: f.category === 'Dimensions' ? 'Metrics' : 'Dimensions'
+                } : f));
+                setContextMenu(null);
+                addLog(`Converted "${contextMenu.field.name}" to ${contextMenu.field.category === 'Dimensions' ? 'Measure' : 'Dimension'}`);
+              }}
+              className="w-full flex items-center space-x-2 px-2.5 py-2 hover:bg-accent-custom/10 hover:text-accent-custom rounded-lg transition-all text-left cursor-pointer"
+            >
+              <ArrowRightLeft className="w-3.5 h-3.5 text-accent-custom" />
+              <span>{contextMenu.field.category === 'Dimensions' ? 'Convert to Measure' : 'Convert to Dimension'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
                 handleFieldToggle(contextMenu.field.name);
                 setContextMenu(null);
               }}
@@ -3394,6 +3566,18 @@ export default function CanvasPage() {
             >
               <Grid className="w-3.5 h-3.5 text-muted-custom/60" />
               <span>{checkedFields.includes(contextMenu.field.name) ? 'Deselect Property' : 'Select Property'}</span>
+            </button>
+            <div className="h-px bg-border-custom/30 my-1 w-full" />
+            <button
+              type="button"
+              onClick={(e) => {
+                handleDeleteField(contextMenu.field.name, e);
+                setContextMenu(null);
+              }}
+              className="w-full flex items-center space-x-2 px-2.5 py-2 hover:bg-red-500/10 hover:text-red-500 rounded-lg transition-all text-left cursor-pointer text-muted-custom"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Delete Field</span>
             </button>
           </div>
         </>
@@ -3462,7 +3646,57 @@ export default function CanvasPage() {
         );
       })()}
 
-      {/* 4. LOAD DASHBOARD MODAL */}
+      {/* 4. SAVE DASHBOARD MODAL */}
+      {showSaveModal && (
+        <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-[fadeIn_0.15s_ease-out]">
+          <div className="bg-surface border border-border-custom rounded-2xl max-w-md w-full p-6 shadow-2xl flex flex-col font-sans">
+            <div className="flex items-center justify-between border-b border-border-custom/50 pb-3 mb-4">
+              <h3 className="text-sm font-bold text-text-custom flex items-center space-x-2">
+                <SaveIcon className="w-4 h-4 text-accent-custom" />
+                <span>Save Canvas Layout</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowSaveModal(false)}
+                className="p-1 hover:bg-surface-2 rounded-md text-muted-custom hover:text-text-custom transition-all cursor-pointer border-none bg-transparent"
+              >
+                <ChevronLeft className="rotate-90 w-4 h-4" />
+              </button>
+            </div>
+            
+            <form onSubmit={executeSaveDashboard} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-text-custom">Dashboard Name</label>
+                <input
+                  type="text"
+                  value={saveDashboardName}
+                  onChange={(e) => setSaveDashboardName(e.target.value)}
+                  className="w-full bg-surface-2 border border-border-custom hover:border-border-custom/80 focus:border-accent-custom/50 rounded-lg px-3 py-2 text-xs text-text-custom outline-none transition-all"
+                  autoFocus
+                />
+              </div>
+              <div className="flex justify-end pt-2 space-x-3 border-t border-border-custom/50 mt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowSaveModal(false)}
+                  className="px-4 py-2 rounded-lg text-xs font-semibold text-muted-custom hover:text-text-custom hover:bg-surface-2 transition-colors cursor-pointer border border-transparent"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-lg text-xs font-semibold bg-accent-custom text-white hover:bg-accent-custom/90 transition-colors shadow-lg shadow-accent-custom/20 cursor-pointer border border-transparent flex items-center space-x-1.5"
+                >
+                  <SaveIcon className="w-3.5 h-3.5" />
+                  <span>Save Layout</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 5. LOAD DASHBOARD MODAL */}
       {showLoadModal && (
         <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-[fadeIn_0.15s_ease-out]">
           <div className="bg-surface border border-border-custom rounded-2xl max-w-md w-full p-6 shadow-2xl flex flex-col max-h-[80vh] font-sans">
@@ -3497,7 +3731,16 @@ export default function CanvasPage() {
                       <div className="text-xs font-bold text-text-custom group-hover:text-accent-custom transition-colors">{db.name}</div>
                       <div className="text-[10px] text-muted-custom mt-0.5">{db.description || 'Canvas Dashboard'}</div>
                     </div>
-                    <ChevronRight className="w-3.5 h-3.5 text-muted-custom group-hover:translate-x-0.5 transition-transform" />
+                    <div className="flex items-center space-x-2">
+                      <button 
+                        onClick={(e) => handleDeleteDashboardClick(db.id, e)} 
+                        className="p-1.5 text-muted-custom hover:text-red-500 hover:bg-red-500/10 rounded-md transition-colors cursor-pointer"
+                        title="Delete layout"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                      <ChevronRight className="w-3.5 h-3.5 text-muted-custom group-hover:translate-x-0.5 transition-transform" />
+                    </div>
                   </button>
                 ))
               )}
@@ -3506,7 +3749,77 @@ export default function CanvasPage() {
         </div>
       )}
 
+      {/* 6. DELETE DASHBOARD MODAL */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-[2010] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-[fadeIn_0.15s_ease-out]">
+          <div className="bg-surface border border-border-custom rounded-2xl max-w-sm w-full p-6 shadow-2xl flex flex-col font-sans">
+            <div className="flex items-center space-x-3 text-red-500 mb-4">
+              <div className="p-2 bg-red-500/10 rounded-full">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <h3 className="text-sm font-bold">Delete Layout</h3>
+            </div>
+            <p className="text-xs text-muted-custom mb-6">
+              Are you sure you want to delete this layout? This action cannot be undone.
+            </p>
+            <div className="flex justify-end space-x-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDeleteModal(false);
+                  setDeleteDashboardId(null);
+                }}
+                className="px-4 py-2 rounded-lg text-xs font-semibold text-muted-custom hover:text-text-custom hover:bg-surface-2 transition-colors cursor-pointer border border-transparent"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={executeDeleteDashboard}
+                className="px-4 py-2 rounded-lg text-xs font-semibold bg-red-500 text-white hover:bg-red-600 transition-colors shadow-lg shadow-red-500/20 cursor-pointer border border-transparent"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
+      {/* 7. DELETE FIELD MODAL */}
+      {showDeleteFieldModal && (
+        <div className="fixed inset-0 z-[2010] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-[fadeIn_0.15s_ease-out]">
+          <div className="bg-surface border border-border-custom rounded-2xl max-w-sm w-full p-6 shadow-2xl flex flex-col font-sans">
+            <div className="flex items-center space-x-3 text-red-500 mb-4">
+              <div className="p-2 bg-red-500/10 rounded-full">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <h3 className="text-sm font-bold">Delete Field</h3>
+            </div>
+            <p className="text-xs text-muted-custom mb-6">
+              Are you sure you want to delete the field "{deleteFieldId}"? It will be removed from your active selections and visuals.
+            </p>
+            <div className="flex justify-end space-x-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDeleteFieldModal(false);
+                  setDeleteFieldId(null);
+                }}
+                className="px-4 py-2 rounded-lg text-xs font-semibold text-muted-custom hover:text-text-custom hover:bg-surface-2 transition-colors cursor-pointer border border-transparent"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={executeDeleteField}
+                className="px-4 py-2 rounded-lg text-xs font-semibold bg-red-500 text-white hover:bg-red-600 transition-colors shadow-lg shadow-red-500/20 cursor-pointer border border-transparent"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {activeHoverTooltip && (
         <div 

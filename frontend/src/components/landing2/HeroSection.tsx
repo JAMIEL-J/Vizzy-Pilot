@@ -208,7 +208,7 @@ export default function HeroSection({ onLaunch }: { onLaunch?: () => void }) {
           variants={itemVariants}
           className="text-[17px] text-[#6B7280] leading-relaxed max-w-xl mb-8"
         >
-          Vizzy translates natural language to validated SQL, executes it on a dual-engine
+          Vizzy Pilot translates natural language to validated SQL, executes it on a dual-engine
           pipeline, and version-logs every transformation — so every chart is explainable.
         </motion.p>
 

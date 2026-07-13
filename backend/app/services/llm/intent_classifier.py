@@ -262,7 +262,7 @@ _FAST_KPI = [
     r'\btotal\b', r'\bhow\s+many\b', r'\bhow\s+much\b',
     r'\bcount\b', r'\baverage\b', r'\bmean\b', r'\bmedian\b',
     r'\bmax(?:imum)?\b', r'\bmin(?:imum)?\b', r'\bsum\b',
-    r'\bwhat\s+is\s+the\b', r'\bwhat\'s\s+the\b',
+    r'\bwhat\s+is\s+the\b', r'\bwhat\'s\s+the\b', r'\bkpi\b',
 ]
 _FAST_TREND = [
     r'\btrend\b', r'\bover\s+time\b', r'\bmonthly\b', r'\bdaily\b',
