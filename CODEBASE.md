@@ -13,6 +13,10 @@
 - **Feature (Responsive Presentation & Full-Screen)**: Adjusted `canvasScale` hook in `CanvasPage.tsx` to utilize the same dynamic widget bounding box logic as exports. Presentation mode now computes the exact scaling `Math.min(scaleX, scaleY)` required to perfectly fit the specific generated widget layouts cleanly onto the screen instead of scaling off a hardcoded infinite dimension.
 - **UI Update (Branding Consistency)**: Renamed "AI Canvas" to "Vizzy Canvas" globally across the navbar menus (`TopNav.tsx`) and default dashboard naming conventions to align with the core Vizzy branding strategy.
 
+### **Calculated Fields SQL Query Fixes (2026-07-13)**
+- **Bug Fix (Frontend Query Construction)**: Resolved the "Could not construct dynamic query" crash when generating charts using AI Calculated Fields. Extracted `getColExpr()` logic globally within `CanvasPage.tsx` to automatically inject the inline mathematical formula SQL `(CASE WHEN ...)` instead of wrapping the literal alias string in quotes whenever a chart component is dropped or generated.
+- **Bug Fix (Backend Cross-Filtering)**: Updated `_inject_filters_into_sql` in `backend/app/api/canvas_routes.py` to parse the dataset schema on the fly and map calculated fields back to their `formula`. This ensures that when a user clicks on a slice generated from a calculated field (e.g. "tenure cohort"), the DuckDB engine filters against the evaluated mathematical expression rather than throwing a `column not found` Binder exception.
+
 ### **Inline Calculated Fields Prompt Input Bar (2026-07-10)**
 - **Feature (Inline Input Bar)**: Replaced the popover modal trigger with a clean, inline input bar directly inside the Fields Sidebar checklist in [CanvasPage.tsx](file:///D:/Vizzy%20Redesign/Vizzy%20Redesign/frontend/src/pages/user/CanvasPage.tsx). Users can now directly prompt AI to compute values (e.g. *"create a churn rate field"*) using the text field, which registers and inserts fields immediately without triggering heavy popups.
 
