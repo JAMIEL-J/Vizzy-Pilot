@@ -139,6 +139,12 @@ export default function CanvasPage() {
     return str.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   };
 
+  const getColExpr = (colName: string) => {
+    const colObj = fieldsList.find(f => f.name === colName);
+    if (colObj?.formula) return `(${colObj.formula})`;
+    return `"${colName}"`;
+  };
+
   // Sanitize internal boolean, integer, or raw values for clean presentation (e.g. 0/1 to No/Yes, yes/no to Yes/No)
   const _sanitizeLabel = (val: any): string => {
     if (val === null || val === undefined) return '—';
@@ -1053,7 +1059,8 @@ export default function CanvasPage() {
 
     try {
       // Query distinct values from DuckDB
-      const sql = `SELECT DISTINCT "${fieldName}" AS val FROM data WHERE "${fieldName}" IS NOT NULL ORDER BY val ASC LIMIT 100`;
+      const fieldExpr = getColExpr(fieldName);
+      const sql = `SELECT DISTINCT ${fieldExpr} AS val FROM data WHERE ${fieldExpr} IS NOT NULL ORDER BY val ASC LIMIT 100`;
       const sqlResult = await canvasService.executeSql(selectedDatasetId, selectedVersionId || '', sql);
       
       if (sqlResult && !sqlResult.error && sqlResult.results) {
@@ -1384,12 +1391,6 @@ export default function CanvasPage() {
     addLog(`Compiling live query for manual visual append (${type})...`);
     setIsCompiling(true);
 
-    const getColExpr = (colName: string) => {
-      const colObj = fieldsList.find(f => f.name === colName);
-      if (colObj?.formula) return `(${colObj.formula})`;
-      return `"${colName}"`;
-    };
-
     try {
       let sql = '';
       let title = '';
@@ -1601,16 +1602,16 @@ export default function CanvasPage() {
       const realMetric = widget.targetMetricName || fieldsList.find(f => f.category === 'Metrics')?.name || '1';
       
       let grainExpr = '';
-      const fallbackDate = `(CASE WHEN TRY_CAST("${realDim}" AS DATE) IS NOT NULL THEN TRY_CAST("${realDim}" AS DATE) WHEN TRY_CAST("${realDim}" AS TIMESTAMP) IS NOT NULL THEN CAST(TRY_CAST("${realDim}" AS TIMESTAMP) AS DATE) ELSE NULL END)`;
+      const fallbackDate = `(CASE WHEN TRY_CAST(${getColExpr(realDim)} AS DATE) IS NOT NULL THEN TRY_CAST(${getColExpr(realDim)} AS DATE) WHEN TRY_CAST(${getColExpr(realDim)} AS TIMESTAMP) IS NOT NULL THEN CAST(TRY_CAST(${getColExpr(realDim)} AS TIMESTAMP) AS DATE) ELSE NULL END)`;
       
       if (grain === 'year') {
-        grainExpr = `COALESCE(strftime(${fallbackDate}, '%Y'), CAST(regexp_extract("${realDim}", '\\d{4}') AS VARCHAR))`;
+        grainExpr = `COALESCE(strftime(${fallbackDate}, '%Y'), CAST(regexp_extract(${getColExpr(realDim)}, '\\d{4}') AS VARCHAR))`;
       } else if (grain === 'quarter') {
-        grainExpr = `COALESCE(strftime(${fallbackDate}, '%Y-Q') || CAST(quarter(${fallbackDate}) AS VARCHAR), "${realDim}")`;
+        grainExpr = `COALESCE(strftime(${fallbackDate}, '%Y-Q') || CAST(quarter(${fallbackDate}) AS VARCHAR), ${getColExpr(realDim)})`;
       } else if (grain === 'month') {
-        grainExpr = `COALESCE(strftime(${fallbackDate}, '%Y-%m'), "${realDim}")`;
+        grainExpr = `COALESCE(strftime(${fallbackDate}, '%Y-%m'), ${getColExpr(realDim)})`;
       } else {
-        grainExpr = `COALESCE(CAST(${fallbackDate} AS VARCHAR), "${realDim}")`;
+        grainExpr = `COALESCE(CAST(${fallbackDate} AS VARCHAR), ${getColExpr(realDim)})`;
       }
 
       // Always alias output as label/value for consistent key mapping
@@ -1666,17 +1667,17 @@ export default function CanvasPage() {
       } else if (widget.type === 'line') {
         // If trend line, respect the active time grain
         const grain = widget.activeGrain || 'month';
-        const fallbackDate = `(CASE WHEN TRY_CAST("${dimension}" AS DATE) IS NOT NULL THEN TRY_CAST("${dimension}" AS DATE) WHEN TRY_CAST("${dimension}" AS TIMESTAMP) IS NOT NULL THEN CAST(TRY_CAST("${dimension}" AS TIMESTAMP) AS DATE) ELSE NULL END)`;
+        const fallbackDate = `(CASE WHEN TRY_CAST(${getColExpr(dimension)} AS DATE) IS NOT NULL THEN TRY_CAST(${getColExpr(dimension)} AS DATE) WHEN TRY_CAST(${getColExpr(dimension)} AS TIMESTAMP) IS NOT NULL THEN CAST(TRY_CAST(${getColExpr(dimension)} AS TIMESTAMP) AS DATE) ELSE NULL END)`;
         
         let grainExpr = '';
         if (grain === 'year') {
-          grainExpr = `COALESCE(strftime(${fallbackDate}, '%Y'), CAST(regexp_extract("${dimension}", '\\d{4}') AS VARCHAR))`;
+          grainExpr = `COALESCE(strftime(${fallbackDate}, '%Y'), CAST(regexp_extract(${getColExpr(dimension)}, '\\d{4}') AS VARCHAR))`;
         } else if (grain === 'quarter') {
-          grainExpr = `COALESCE(strftime(${fallbackDate}, '%Y-Q') || CAST(quarter(${fallbackDate}) AS VARCHAR), "${dimension}")`;
+          grainExpr = `COALESCE(strftime(${fallbackDate}, '%Y-Q') || CAST(quarter(${fallbackDate}) AS VARCHAR), ${getColExpr(dimension)})`;
         } else if (grain === 'month') {
-          grainExpr = `COALESCE(strftime(${fallbackDate}, '%Y-%m'), "${dimension}")`;
+          grainExpr = `COALESCE(strftime(${fallbackDate}, '%Y-%m'), ${getColExpr(dimension)})`;
         } else {
-          grainExpr = `COALESCE(CAST(${fallbackDate} AS VARCHAR), "${dimension}")`;
+          grainExpr = `COALESCE(CAST(${fallbackDate} AS VARCHAR), ${getColExpr(dimension)})`;
         }
         
         // Always alias to label/value for consistent key mapping
@@ -1684,7 +1685,7 @@ export default function CanvasPage() {
         title = `${metric} (${agg}) Trend by ${dimension}`;
       } else {
         // Bar/Pie — always alias to label/value
-        sql = `SELECT "${dimension}" AS label, ${buildAggExpr(agg, metric)} AS value FROM data GROUP BY 1 ORDER BY value DESC LIMIT 15`;
+        sql = `SELECT ${getColExpr(dimension)} AS label, ${buildAggExpr(agg, metric)} AS value FROM data GROUP BY 1 ORDER BY value DESC LIMIT 15`;
         title = `${metric} (${agg}) by ${dimension}`;
       }
 
