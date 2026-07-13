@@ -163,9 +163,17 @@ async def get_canvas_schema(
     )
 import sqlglot
 
-def _inject_filters_into_sql(sql: str, filters: list) -> str:
+def _inject_filters_into_sql(sql: str, filters: list, schema_columns: list = None) -> str:
     if not filters:
         return sql
+    
+    # Build lookup map for formulas
+    formula_map = {}
+    if schema_columns:
+        for c in schema_columns:
+            if "name" in c and c.get("formula"):
+                formula_map[c["name"]] = c["formula"]
+
     # Parse the original query directly so we inject into the actual base table or CTE where columns exist
     parsed = sqlglot.parse_one(sql, read="duckdb")
     for f in filters:
@@ -178,12 +186,15 @@ def _inject_filters_into_sql(sql: str, filters: list) -> str:
             
         if not col or val is None:
             continue
+
+        # If this is a calculated field, use its formula instead of the alias
+        col_expr = f'({formula_map[col]})' if col in formula_map else f'"{col}"'
             
         if isinstance(val, str):
             val_escaped = val.replace("'", "''")
-            condition = f"\"{col}\" = '{val_escaped}'"
+            condition = f"{col_expr} = '{val_escaped}'"
         else:
-            condition = f"\"{col}\" = {val}"
+            condition = f"{col_expr} = {val}"
         parsed = parsed.where(condition, append=True)
     return parsed.sql(dialect="duckdb")
 
@@ -238,7 +249,14 @@ async def execute_canvas_sql(
 
         if request.filters:
             try:
-                sql_to_run = _inject_filters_into_sql(request.sql, request.filters)
+                raw_schema = []
+                if latest_version.schema_metadata:
+                    import json
+                    try:
+                        raw_schema = json.loads(latest_version.schema_metadata)
+                    except Exception:
+                        pass
+                sql_to_run = _inject_filters_into_sql(request.sql, request.filters, raw_schema)
             except Exception as e:
                 logger.warning(f"AST parsing failed for Canvas SQL: {e}")
                 sql_to_run = request.sql
