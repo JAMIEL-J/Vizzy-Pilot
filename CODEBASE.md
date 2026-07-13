@@ -6,10 +6,11 @@
 
 ## 📝 Recent Architectural Changes Log
 
-### **Canvas Layout Deletion & High-Res Export PNG (2026-07-13)**
+### **Canvas Layout Deletion, Scaling & High-Res Export PNG (2026-07-13)**
 - **Feature (Dashboard Deletion UI)**: Replaced the native browser `confirm()` prompt for layout deletion with a custom, high-fidelity frontend React modal (`showDeleteModal`). Updated the load layouts modal to feature an integrated delete trashcan button that launches this modal, preventing jarring native popups.
 - **Feature (Sidebar Field Deletion)**: Added interactive deletion options directly to the Canvas sidebar Field list. Fields can now be deleted safely by right-clicking on a field and selecting "Delete Field", or by clicking the trashcan icon on hover. Both methods launch a unified premium deletion confirmation modal (`showDeleteFieldModal`) that instantly cleans up active state (`checkedFields`, `geoFilters`) upon confirmation.
-- **Feature (High-Resolution Canvas Export)**: Implemented the `handleExportVisuals` function leveraging `html-to-image` and `downloadjs` to capture the `canvasContainerRef` grid. Added high-density pixel ratios (`pixelRatio: 2`) and short `setTimeout` logic to ensure all charts render cleanly before serialization into a PNG image. Linked this export pipeline to the "Export Visuals" button in the TopNav panel.
+- **Feature (High-Resolution Responsive Canvas Export)**: Implemented the `handleExportVisuals` function leveraging `html-to-image` and `downloadjs` to capture the `canvasContainerRef` grid. Integrated dynamic bounding box calculation iterating over widget positions and sizes, enabling cropped and perfectly scaled PNG/SVG exports rather than capturing massive empty dotted backgrounds. Replaced nested `<span>` elements with `<div>` to eliminate XML structure parsing crashes during SVG generation.
+- **Feature (Responsive Presentation & Full-Screen)**: Adjusted `canvasScale` hook in `CanvasPage.tsx` to utilize the same dynamic widget bounding box logic as exports. Presentation mode now computes the exact scaling `Math.min(scaleX, scaleY)` required to perfectly fit the specific generated widget layouts cleanly onto the screen instead of scaling off a hardcoded infinite dimension.
 - **UI Update (Branding Consistency)**: Renamed "AI Canvas" to "Vizzy Canvas" globally across the navbar menus (`TopNav.tsx`) and default dashboard naming conventions to align with the core Vizzy branding strategy.
 
 ### **Inline Calculated Fields Prompt Input Bar (2026-07-10)**
