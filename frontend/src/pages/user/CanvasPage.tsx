@@ -1384,30 +1384,36 @@ export default function CanvasPage() {
     addLog(`Compiling live query for manual visual append (${type})...`);
     setIsCompiling(true);
 
+    const getColExpr = (colName: string) => {
+      const colObj = fieldsList.find(f => f.name === colName);
+      if (colObj?.formula) return `(${colObj.formula})`;
+      return `"${colName}"`;
+    };
+
     try {
       let sql = '';
       let title = '';
       
       if (type === 'kpi') {
         sql = isDimOnlyAnalysis
-          ? `SELECT COUNT("${primaryMetric}") AS value FROM data`
+          ? `SELECT COUNT(${getColExpr(primaryMetric)}) AS value FROM data`
           : `SELECT ${buildAggExpr('SUM', primaryMetric)} AS value FROM data`;
         title = isDimOnlyAnalysis ? `Count of ${primaryMetric}` : `Total ${primaryMetric}`;
       } else if (type === 'table') {
         // Table renders the checked columns in order, or slices first 4 from dataset
         const colsToSelect = checkedFields.length > 0 
-          ? checkedFields.map(f => `"${f}"`).join(', ')
-          : fieldsList.slice(0, 4).map(f => `"${f.name}"`).join(', ');
+          ? checkedFields.map(f => `${getColExpr(f)} AS "${f}"`).join(', ')
+          : fieldsList.slice(0, 4).map(f => `${getColExpr(f.name)} AS "${f.name}"`).join(', ');
         sql = `SELECT ${colsToSelect} FROM data LIMIT 50`;
         title = `Dataset Sample Ledger`;
       } else if (type === 'line') {
-        const fallbackDate = `(CASE WHEN TRY_CAST("${primaryDim}" AS DATE) IS NOT NULL THEN TRY_CAST("${primaryDim}" AS DATE) WHEN TRY_CAST("${primaryDim}" AS TIMESTAMP) IS NOT NULL THEN CAST(TRY_CAST("${primaryDim}" AS TIMESTAMP) AS DATE) ELSE NULL END)`;
+        const fallbackDate = `(CASE WHEN TRY_CAST(${getColExpr(primaryDim)} AS DATE) IS NOT NULL THEN TRY_CAST(${getColExpr(primaryDim)} AS DATE) WHEN TRY_CAST(${getColExpr(primaryDim)} AS TIMESTAMP) IS NOT NULL THEN CAST(TRY_CAST(${getColExpr(primaryDim)} AS TIMESTAMP) AS DATE) ELSE NULL END)`;
         const dateExpr = fieldsList.some(f => f.name === primaryDim && f.category === 'Dates')
-          ? `COALESCE(strftime(${fallbackDate}, '%Y-%m'), "${primaryDim}")`
-          : `"${primaryDim}"`;
+          ? `COALESCE(strftime(${fallbackDate}, '%Y-%m'), ${getColExpr(primaryDim)})`
+          : `${getColExpr(primaryDim)}`;
 
         if (isDimOnlyAnalysis) {
-          sql = `SELECT ${dateExpr} AS label, COUNT("${primaryMetric}") AS value FROM data GROUP BY 1 ORDER BY 1 ASC LIMIT 30`;
+          sql = `SELECT ${dateExpr} AS label, COUNT(${getColExpr(primaryMetric)}) AS value FROM data GROUP BY 1 ORDER BY 1 ASC LIMIT 30`;
           title = `Count of ${primaryMetric} by ${primaryDim}`;
         } else if (checkedMetrics.length > 1) {
           // Multiple metrics over a single dimension
@@ -1421,20 +1427,20 @@ export default function CanvasPage() {
       } else {
         // Bar/Pie Chart
         if (isDimOnlyAnalysis) {
-          sql = `SELECT "${primaryDim}" AS label, COUNT("${primaryMetric}") AS value FROM data GROUP BY 1 ORDER BY value DESC LIMIT 15`;
+          sql = `SELECT ${getColExpr(primaryDim)} AS label, COUNT(${getColExpr(primaryMetric)}) AS value FROM data GROUP BY 1 ORDER BY value DESC LIMIT 15`;
           title = `Count of ${primaryMetric} by ${primaryDim}`;
         } else if (checkedDims.length > 1) {
           // Composite dimension grouping (e.g. Region - Segment)
-          const concatDims = checkedDims.map(d => `COALESCE(CAST("${d}" AS VARCHAR), '')`).join(" || ' - ' || ");
-          sql = `SELECT ${concatDims} AS label, ${buildAggExpr('SUM', primaryMetric)} AS value FROM data GROUP BY ${checkedDims.map(d => `"${d}"`).join(', ')} ORDER BY value DESC LIMIT 15`;
+          const concatDims = checkedDims.map(d => `COALESCE(CAST(${getColExpr(d)} AS VARCHAR), '')`).join(" || ' - ' || ");
+          sql = `SELECT ${concatDims} AS label, ${buildAggExpr('SUM', primaryMetric)} AS value FROM data GROUP BY ${checkedDims.map(d => getColExpr(d)).join(', ')} ORDER BY value DESC LIMIT 15`;
           title = `${primaryMetric} by ${checkedDims.join(' & ')}`;
         } else if (checkedMetrics.length > 1) {
           // Multiple metrics over a single dimension
           const metricSelections = checkedMetrics.map(m => `${buildAggExpr('SUM', m)} AS "${m}"`).join(', ');
-          sql = `SELECT "${primaryDim}" AS label, ${metricSelections} FROM data GROUP BY 1 ORDER BY "${checkedMetrics[0]}" DESC LIMIT 15`;
+          sql = `SELECT ${getColExpr(primaryDim)} AS label, ${metricSelections} FROM data GROUP BY 1 ORDER BY "${checkedMetrics[0]}" DESC LIMIT 15`;
           title = `Comparison by ${primaryDim}`;
         } else {
-          sql = `SELECT "${primaryDim}" AS label, ${buildAggExpr('SUM', primaryMetric)} AS value FROM data GROUP BY 1 ORDER BY value DESC LIMIT 15`;
+          sql = `SELECT ${getColExpr(primaryDim)} AS label, ${buildAggExpr('SUM', primaryMetric)} AS value FROM data GROUP BY 1 ORDER BY value DESC LIMIT 15`;
           title = `${primaryMetric} by ${primaryDim}`;
         }
       }
