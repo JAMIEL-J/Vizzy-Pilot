@@ -38,7 +38,7 @@ interface CanvasWidget {
   customWidth?: number;
   customHeight?: number;
   activeGrain?: 'year' | 'quarter' | 'month' | 'day';
-  activeAgg?: 'SUM' | 'AVG' | 'MIN' | 'MAX' | 'COUNT' | 'VAR_SAMP';
+  activeAgg?: 'SUM' | 'AVG' | 'MIN' | 'MAX' | 'COUNT' | 'VAR_SAMP' | 'PERCENT_CHANGE';
   targetMetricName?: string;
   targetDimName?: string;
   filterOmitted?: boolean;
@@ -107,31 +107,38 @@ export default function CanvasPage() {
   const [saveDashboardName, setSaveDashboardName] = useState('');
   const [geoFilters, setGeoFilters] = useState<Record<string, string[]>>({});
 
-  const buildAggExpr = (agg: string, colName: string) => {
+  const buildAggExpr = (agg: string, colName: string, orderExpr?: string) => {
     const colObj = fieldsList.find(f => f.name === colName);
     
+    let baseAgg = agg === 'PERCENT_CHANGE' ? 'SUM' : agg;
+    let baseExpr = `${baseAgg}("${colName}")`;
+
     // 1. Handle AI Calculated Fields with formulas
     if (colObj?.formula) {
-      // If the formula already performs an aggregation, DO NOT wrap it again!
       if (/\b(SUM|AVG|MIN|MAX|COUNT|VAR_SAMP)\s*\(/i.test(colObj.formula)) {
-        return `(${colObj.formula})`;
+        baseExpr = `(${colObj.formula})`;
+      } else {
+        baseExpr = `${baseAgg}(${colObj.formula})`;
       }
-      return `${agg}(${colObj.formula})`;
     }
-
     // 2. Handle dirty numeric string columns
-    if (
+    else if (
       colObj && 
       colObj.category === 'Metrics' && 
       (colObj.type.toLowerCase().includes('varchar') || 
        colObj.type.toLowerCase().includes('string') || 
        colObj.type.toLowerCase().includes('char'))
     ) {
-      return `${agg}(TRY_CAST(NULLIF(REGEXP_REPLACE("${colName}", '^\\s*$', ''), '') AS DOUBLE))`;
+      baseExpr = `${baseAgg}(TRY_CAST(NULLIF(REGEXP_REPLACE("${colName}", '^\\s*$', ''), '') AS DOUBLE))`;
     }
 
-    // 3. Normal columns
-    return `${agg}("${colName}")`;
+    if (agg === 'PERCENT_CHANGE') {
+      // For percent change, we need a window function over a dimension
+      const overClause = orderExpr ? `OVER (ORDER BY ${orderExpr} ASC)` : `OVER ()`;
+      return `(((${baseExpr}) - LAG(${baseExpr}) ${overClause}) / NULLIF(LAG(${baseExpr}) ${overClause}, 0)) * 100`;
+    }
+
+    return baseExpr;
   };
 
   // Function to case column names
@@ -156,6 +163,26 @@ export default function CanvasPage() {
     }
     if (lower === '0' || lower === 'false' || lower === 'no' || lower === 'n') {
       return 'No';
+    }
+
+    // Time grain formatting (e.g. 2014-06 -> June 2014)
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+      try {
+        const d = new Date(str);
+        if (!isNaN(d.getTime())) return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      } catch (e) {}
+    }
+    
+    if (/^\d{4}-\d{2}$/.test(str)) {
+      try {
+        const d = new Date(str + "-01");
+        if (!isNaN(d.getTime())) return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+      } catch (e) {}
+    }
+
+    if (/^\d{4}-Q[1-4]$/i.test(str)) {
+      const parts = str.split('-');
+      return `${parts[1].toUpperCase()} ${parts[0]}`;
     }
     
     // Humanize standard text if it looks like a database snake case name
@@ -1645,7 +1672,7 @@ export default function CanvasPage() {
   };
 
   // Tableau-style measure aggregation modifier (Right-click action)
-  const handleWidgetAggregationChange = async (widgetId: string, agg: 'SUM' | 'AVG' | 'MIN' | 'MAX' | 'COUNT' | 'VAR_SAMP') => {
+  const handleWidgetAggregationChange = async (widgetId: string, agg: 'SUM' | 'AVG' | 'MIN' | 'MAX' | 'COUNT' | 'VAR_SAMP' | 'PERCENT_CHANGE') => {
     if (!selectedDatasetId) return;
     const widget = widgets.find(w => w.id === widgetId);
     if (!widget) return;
@@ -1663,7 +1690,7 @@ export default function CanvasPage() {
 
       if (widget.type === 'kpi') {
         sql = `SELECT ${buildAggExpr(agg, metric)} AS value FROM data`;
-        title = `${agg.charAt(0) + agg.slice(1).toLowerCase()} of ${metric}`;
+        title = agg === 'PERCENT_CHANGE' ? `% Change of ${metric}` : `${agg.charAt(0) + agg.slice(1).toLowerCase()} of ${metric}`;
       } else if (widget.type === 'line') {
         // If trend line, respect the active time grain
         const grain = widget.activeGrain || 'month';
@@ -1673,20 +1700,21 @@ export default function CanvasPage() {
         if (grain === 'year') {
           grainExpr = `COALESCE(strftime(${fallbackDate}, '%Y'), CAST(regexp_extract(${getColExpr(dimension)}, '\\d{4}') AS VARCHAR))`;
         } else if (grain === 'quarter') {
-          grainExpr = `COALESCE(strftime(${fallbackDate}, '%Y-Q') || CAST(quarter(${fallbackDate}) AS VARCHAR), ${getColExpr(dimension)})`;
+          grainExpr = `COALESCE(strftime(${fallbackDate}, '%Y-Q') || CAST(quarter(${fallbackDate}) AS VARCHAR), CAST(${getColExpr(dimension)} AS VARCHAR))`;
         } else if (grain === 'month') {
-          grainExpr = `COALESCE(strftime(${fallbackDate}, '%Y-%m'), ${getColExpr(dimension)})`;
+          grainExpr = `COALESCE(strftime(${fallbackDate}, '%Y-%m'), CAST(${getColExpr(dimension)} AS VARCHAR))`;
         } else {
-          grainExpr = `COALESCE(CAST(${fallbackDate} AS VARCHAR), ${getColExpr(dimension)})`;
+          grainExpr = `COALESCE(CAST(${fallbackDate} AS VARCHAR), CAST(${getColExpr(dimension)} AS VARCHAR))`;
         }
         
         // Always alias to label/value for consistent key mapping
-        sql = `SELECT ${grainExpr} AS label, ${buildAggExpr(agg, metric)} AS value FROM data GROUP BY 1 ORDER BY 1 ASC LIMIT 50`;
-        title = `${metric} (${agg}) Trend by ${dimension}`;
+        sql = `SELECT ${grainExpr} AS label, ${buildAggExpr(agg, metric, '1')} AS value FROM data GROUP BY 1 ORDER BY 1 ASC LIMIT 50`;
+        title = agg === 'PERCENT_CHANGE' ? `% Change of ${metric} by ${dimension}` : `${metric} (${agg}) Trend by ${dimension}`;
       } else {
         // Bar/Pie — always alias to label/value
-        sql = `SELECT ${getColExpr(dimension)} AS label, ${buildAggExpr(agg, metric)} AS value FROM data GROUP BY 1 ORDER BY value DESC LIMIT 15`;
-        title = `${metric} (${agg}) by ${dimension}`;
+        const labelExpr = getColExpr(dimension);
+        sql = `SELECT ${labelExpr} AS label, ${buildAggExpr(agg, metric, '1')} AS value FROM data GROUP BY 1 ORDER BY value DESC LIMIT 15`;
+        title = agg === 'PERCENT_CHANGE' ? `% Change of ${metric} by ${dimension}` : `${metric} (${agg}) by ${dimension}`;
       }
 
       addLog(`Executing Canvas aggregation query: ${sql}`);
@@ -3138,11 +3166,11 @@ export default function CanvasPage() {
                                               key={idx} 
                                               cx={p.x} 
                                               cy={p.y} 
-                                              r="4" 
+                                              r="6" 
                                               fill={widget.color || '#3B82F6'} 
                                               stroke="#fff" 
                                               strokeWidth="1.5" 
-                                              className="cursor-pointer hover:opacity-80 transition-opacity duration-150"
+                                              className="cursor-pointer opacity-0 hover:opacity-100 transition-opacity duration-150"
                                               onClick={(e) => {
                                                 e.stopPropagation();
                                                 const filterCol = widget.targetDimName || widget.xAxisKey || 'label';
@@ -3186,8 +3214,8 @@ export default function CanvasPage() {
                               </div>
                               <div className="flex justify-between text-[8px] font-mono text-muted-custom mt-1 border-t border-border-custom/30 pt-0.5 overflow-hidden shrink-0">
                                 {widget.data.map((item, idx) => (
-                                  <span key={idx} className="truncate max-w-[40px] text-center" title={String(item[widget.xAxisKey || 'label'] || '')}>
-                                    {String(item[widget.xAxisKey || 'label'] || '').split(' ')[0] || ''}
+                                  <span key={idx} className="truncate max-w-[40px] text-center" title={_sanitizeLabel(item[widget.xAxisKey || 'label'])}>
+                                    {_sanitizeLabel(item[widget.xAxisKey || 'label'])}
                                   </span>
                                 ))}
                               </div>
@@ -3623,7 +3651,8 @@ export default function CanvasPage() {
                   { label: 'Minimum', value: 'MIN' },
                   { label: 'Maximum', value: 'MAX' },
                   { label: 'Count (Records)', value: 'COUNT' },
-                  { label: 'Variance (SAMP)', value: 'VAR_SAMP' }
+                  { label: 'Variance (SAMP)', value: 'VAR_SAMP' },
+                  { label: '% Change', value: 'PERCENT_CHANGE' }
                 ] as const).map(opt => {
                   const isSelected = targetWidget?.activeAgg === opt.value;
                   const isInvalid = isCategoricalMetric && opt.value !== 'COUNT';

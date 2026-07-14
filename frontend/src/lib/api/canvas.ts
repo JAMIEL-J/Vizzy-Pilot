@@ -132,18 +132,20 @@ export function formatKpiValue(
     // If counting records, bypass currency rules
     const isCount = activeAgg === 'COUNT';
     const isVar = activeAgg === 'VAR_SAMP';
+    const isPercentChange = activeAgg === 'PERCENT_CHANGE';
     
-    const isCurrency = !isCount && !isVar && isCurrencyMetric(metricLabel);
-    const isPercent = !isCount && !isVar && isPercentageMetric(metricLabel);
+    const isCurrency = !isCount && !isVar && !isPercentChange && isCurrencyMetric(metricLabel);
+    const isPercent = isPercentChange || (!isCount && !isVar && isPercentageMetric(metricLabel));
 
     // Handle percentage-like ratios (0.0 to 1.0)
-    if (isPercent && Math.abs(num) <= 1.0) {
+    if (isPercent && Math.abs(num) <= 1.0 && !isPercentChange) {
         return `${(num * 100).toFixed(1)}%`;
     }
 
-    // Handle explicit percentages (including those > 100)
+    // Handle explicit percentages (including those > 100) or PERCENT_CHANGE which is already scaled to 100 by SQL
     if (isPercent) {
-        return `${num.toFixed(1)}%`;
+        const sign = isPercentChange && num > 0 ? '+' : '';
+        return `${sign}${num.toFixed(1)}%`;
     }
 
     const prefix = isCurrency ? '$' : '';
