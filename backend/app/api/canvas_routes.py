@@ -11,7 +11,6 @@ import time
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from app.models.dataset_version import DatasetVersion
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sqlmodel import select
@@ -525,6 +524,7 @@ async def delete_canvas_field(
     """
     Deletes a specific field (e.g. calculated field) from the dataset schema metadata.
     """
+    from app.models.dataset_version import DatasetVersion
     latest_version = session.exec(
         select(DatasetVersion)
         .where(DatasetVersion.dataset_id == dataset_id)
