@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   Sparkles, Grid, Sliders, Play, Trash2, ArrowRight, RotateCcw, LayoutGrid, 
   ChevronRight, ChevronLeft, Plus, Check, Settings2, Download, Eye, FileSpreadsheet,
-  Info, BarChart3, PieChart as PieIcon, TrendingUp, HelpCircle, AlertCircle, Maximize2, Minimize2, Move,
+  Info, BarChart3, BarChart4, PieChart as PieIcon, TrendingUp, HelpCircle, AlertCircle, Maximize2, Minimize2, Move,
   Terminal, Code, Cpu, Database, Copy, CheckCheck, Table2, Layers, Undo2, Redo2,
   GripVertical, Filter, ChevronDown, GitBranch, FolderOpen, Save as SaveIcon, Loader2, ArrowRightLeft
 } from 'lucide-react';
@@ -11,7 +11,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { datasetService, type Dataset, type DatasetVersionSummary } from '../../lib/api/dataset';
 import { analyticsService } from '../../lib/api/dashboard';
 import { chatService, type ChatSession, type ChatMessage } from '../../lib/api/chat';
-import { canvasService, formatKpiValue, formatKpiSubtext } from '../../lib/api/canvas';
+import { canvasService, formatKpiValue, formatKpiSubtext, type NumberFormatConfig } from '../../lib/api/canvas';
 import { apiClient } from '../../lib/api/client';
 import { toast } from 'react-hot-toast';
 import * as htmlToImage from 'html-to-image';
@@ -23,7 +23,7 @@ import { prettifyLabel } from '../../components/dashboard/dashboard-helpers';
 interface CanvasWidget {
   id: string;
   title: string;
-  type: 'kpi' | 'bar' | 'line' | 'pie' | 'table';
+  type: 'kpi' | 'bar' | 'stacked_bar' | 'line' | 'pie' | 'table';
   data: any[];
   width: 'full' | 'half' | 'third';
   value?: string;
@@ -42,6 +42,7 @@ interface CanvasWidget {
   targetMetricName?: string;
   targetDimName?: string;
   filterOmitted?: boolean;
+  numberFormat?: NumberFormatConfig;
 }
 
 // Initial starter widgets (Starts empty in production for real data generation)
@@ -106,6 +107,17 @@ export default function CanvasPage() {
   const [deleteFieldId, setDeleteFieldId] = useState<string | null>(null);
   const [saveDashboardName, setSaveDashboardName] = useState('');
   const [geoFilters, setGeoFilters] = useState<Record<string, string[]>>({});
+
+  // Number Formatting Custom Modal States
+  const [showCustomFormatModal, setShowCustomFormatModal] = useState(false);
+  const [customFormatModalWidgetId, setCustomFormatModalWidgetId] = useState<string | null>(null);
+  const [customFormatModalType, setCustomFormatModalType] = useState<'number_custom' | 'currency_custom' | 'standard_custom'>('number_custom');
+  const [customFormatDecimals, setCustomFormatDecimals] = useState<number>(2);
+  const [customFormatNegative, setCustomFormatNegative] = useState<'minus' | 'parentheses' | 'red'>('minus');
+  const [customFormatPrefix, setCustomFormatPrefix] = useState<string>('');
+  const [customFormatSuffix, setCustomFormatSuffix] = useState<string>('');
+  const [customFormatSeparator, setCustomFormatSeparator] = useState<string>(',');
+  const [customFormatUnit, setCustomFormatUnit] = useState<'none' | 'K' | 'M' | 'B' | 'auto'>('none');
 
   const buildAggExpr = (agg: string, colName: string, orderExpr?: string) => {
     const colObj = fieldsList.find(f => f.name === colName);
@@ -357,7 +369,12 @@ export default function CanvasPage() {
   // Sidebar and individual widget editing/resizing state
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isFullScreenCanvas, setIsFullScreenCanvas] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [isPresentMode, setIsPresentMode] = useState(false);
+  
+  // A single flag that tells us if the layout should snap to a responsive CSS Grid
+  const isResponsive = isExporting;
+
   const [canvasZoom, setCanvasZoom] = useState<'fit-width' | 'fit-page' | 'fit-canvas' | '100' | '75' | '50'>('fit-width');
   const [showFloatingSuggestions, setShowFloatingSuggestions] = useState(false);
   const [isPromptBubbleCollapsed, setIsPromptBubbleCollapsed] = useState(false);
@@ -391,7 +408,7 @@ export default function CanvasPage() {
   // Mapper function to transform a backend chart spec to a CanvasWidget shape
   const chartSpecToCanvasWidget = (spec: any, query: string, sql: string, thinking: string[], resultSummary: string): CanvasWidget => {
     const chart = spec.chart || {};
-    const type = chart.type === 'stacked_bar' || chart.type === 'stacked' ? 'bar' : (chart.type || 'table');
+    const type = chart.type === 'stacked_bar' || chart.type === 'stacked' ? 'stacked_bar' : (chart.type || 'table');
     
     let data: any[] = [];
     let value: string | undefined = undefined;
@@ -416,9 +433,11 @@ export default function CanvasPage() {
       if (chart.data?.metrics && chart.data.metrics.length > 1) {
         data = chart.data.metrics;
       }
-    } else if (type === 'bar' || chart.type === 'stacked_bar' || chart.type === 'stacked') {
+    } else if (type === 'bar' || type === 'stacked_bar') {
       data = chart.data?.rows || [];
       xAxisKey = chart.dimension || 'label';
+      // For stacked bar, we might have multiple metrics, but we store the primary one in yAxisKey
+      // or we can just leave yAxisKey as the first category and use Object.keys in rendering.
       yAxisKey = chart.metric || (chart.data?.categories ? chart.data.categories[0] : 'value');
     } else if (type === 'line') {
       xAxisKey = chart.dimension || 'timestamp';
@@ -632,13 +651,7 @@ export default function CanvasPage() {
 
   const canvasContainerRef = useRef<HTMLDivElement>(null);
 
-  const canvasScale = useMemo(() => {
-    if (!isPresentMode && !isFullScreenCanvas) return 1;
-    if (!canvasContainerRef.current) return 0.5; // fallback until mounted
-
-    const containerWidth = canvasContainerRef.current.clientWidth - 32;
-    const containerHeight = canvasContainerRef.current.clientHeight - 32;
-
+  const { contentWidth, contentHeight } = useMemo(() => {
     let maxX = 0;
     let maxY = 0;
     widgets.forEach(w => {
@@ -649,10 +662,18 @@ export default function CanvasPage() {
       if (right > maxX) maxX = right;
       if (bottom > maxY) maxY = bottom;
     });
+    return {
+      contentWidth: Math.max(maxX + 40, 800),
+      contentHeight: Math.max(maxY + 40, 600)
+    };
+  }, [widgets]);
 
-    // We add a little padding (40px) so the edges aren't flush
-    const contentWidth = Math.max(maxX + 40, 800); 
-    const contentHeight = Math.max(maxY + 40, 600);
+  const canvasScale = useMemo(() => {
+    if (!isPresentMode && !isFullScreenCanvas) return 1;
+    if (!canvasContainerRef.current) return 0.5; // fallback until mounted
+
+    const containerWidth = canvasContainerRef.current.clientWidth - 32;
+    const containerHeight = canvasContainerRef.current.clientHeight - 32;
 
     const scaleX = containerWidth / contentWidth;
     const scaleY = containerHeight / contentHeight;
@@ -679,7 +700,7 @@ export default function CanvasPage() {
       default:
         return scaleX;
     }
-  }, [isFullScreenCanvas, isPresentMode, canvasZoom, viewportSize, widgets.length]);
+  }, [isFullScreenCanvas, isPresentMode, canvasZoom, viewportSize, widgets.length, contentWidth, contentHeight]);
 
   useEffect(() => {
     widgetsRef.current = widgets;
@@ -803,7 +824,7 @@ export default function CanvasPage() {
                 if (numericKey) {
                    const rawValue = firstRow[numericKey];
                    const metricLabel = w.targetMetricName || w.yAxisKey || numericKey;
-                   newWidget.value = formatKpiValue(rawValue, metricLabel, w.activeAgg || 'SUM');
+                   newWidget.value = formatKpiValue(rawValue, metricLabel, w.activeAgg || 'SUM', w.numberFormat);
                 }
               }
               return newWidget;
@@ -1171,19 +1192,42 @@ export default function CanvasPage() {
     setShowDeleteFieldModal(true);
   };
 
-  const executeDeleteField = () => {
-    if (!deleteFieldId) return;
-    setFieldsList(prev => prev.filter(f => f.name !== deleteFieldId));
-    setCheckedFields(prev => prev.filter(f => f !== deleteFieldId));
-    setGeoFilters(prev => {
-      const next = { ...prev };
-      delete next[deleteFieldId];
-      return next;
-    });
-    toast.success(`Field "${deleteFieldId}" deleted successfully`);
-    addLog(`Field "${deleteFieldId}" deleted.`);
-    setShowDeleteFieldModal(false);
-    setDeleteFieldId(null);
+  const executeDeleteField = async () => {
+    if (!deleteFieldId || !selectedDatasetId) return;
+    
+    try {
+      // Call backend to delete the field from schema
+      const updatedSchema = await canvasService.deleteField(selectedDatasetId, deleteFieldId);
+      
+      // Update local state with the returned schema
+      if (updatedSchema && updatedSchema.columns) {
+        const updatedCols = updatedSchema.columns.map((c: any) => ({
+          name: c.name,
+          dtype: c.dtype,
+          category: c.category,
+          type: c.dtype.toLowerCase(),
+          formula: c.formula
+        }));
+        setFieldsList(updatedCols);
+      } else {
+        setFieldsList(prev => prev.filter(f => f.name !== deleteFieldId));
+      }
+      
+      setCheckedFields(prev => prev.filter(f => f !== deleteFieldId));
+      setGeoFilters(prev => {
+        const next = { ...prev };
+        delete next[deleteFieldId];
+        return next;
+      });
+      toast.success(`Field "${deleteFieldId}" deleted successfully`);
+      addLog(`Field "${deleteFieldId}" deleted.`);
+    } catch (err: any) {
+      console.error(err);
+      toast.error(`Failed to delete field: ${err.response?.data?.detail || err.message}`);
+    } finally {
+      setShowDeleteFieldModal(false);
+      setDeleteFieldId(null);
+    }
   };
 
   // Rule-based prompt compilation engine replaced with real SSE NL2SQL streaming compiler
@@ -1350,53 +1394,56 @@ export default function CanvasPage() {
         return;
       }
 
-      const element = canvasContainerRef.current as HTMLElement;
-      
-      // Calculate tight bounding box for the widgets to prevent massive empty space
-      let maxX = 0;
-      let maxY = 0;
-      widgets.forEach(w => {
-        const wWidth = w.customWidth ?? (w.type === 'kpi' ? 245 : 375);
-        const wHeight = w.customHeight ?? (w.type === 'kpi' ? 120 : 230);
-        const right = (w.position?.x ?? 20) + wWidth;
-        const bottom = (w.position?.y ?? 20) + wHeight;
-        if (right > maxX) maxX = right;
-        if (bottom > maxY) maxY = bottom;
-      });
-      
-      const exportWidth = maxX > 0 ? maxX + 40 : element.scrollWidth;
-      const exportHeight = maxY > 0 ? maxY + 40 : element.scrollHeight;
+      setIsExporting(true);
+      // Give React time to apply responsive grid layout for export
+      setTimeout(() => {
+        const element = canvasContainerRef.current as HTMLElement;
+        
+        // When responsive, use the scroll dimensions of the container
+        const exportWidth = element.scrollWidth;
+        const exportHeight = Math.max(element.scrollHeight, 800); // Ensure minimum height
 
-      const options = { 
-        backgroundColor: '#111111',
-        pixelRatio: 2, // High resolution
-        width: exportWidth,
-        height: exportHeight,
-        style: {
-          transform: 'none' // reset any scaling during export if needed
-        }
-      };
+        const options = { 
+          backgroundColor: '#111111',
+          pixelRatio: 2, // High resolution
+          width: exportWidth,
+          height: exportHeight,
+          style: {
+            transform: 'none' // reset any scaling during export if needed
+          }
+        };
 
-      const promise = format === 'svg' 
-        ? htmlToImage.toSvg(element, options)
-        : htmlToImage.toPng(element, options);
+        const promise = format === 'svg' 
+          ? htmlToImage.toSvg(element, options)
+          : htmlToImage.toPng(element, options);
 
-      promise
-      .then((dataUrl) => {
-        download(dataUrl, `vizzy-canvas-export.${format}`);
-        toast.success(`Canvas exported successfully as ${format.toUpperCase()}!`, { id: 'export-toast' });
-        addLog(`Export success! Canvas saved as high-res ${format.toUpperCase()}.`);
-      })
-      .catch((error) => {
-        console.error('Error exporting canvas:', error);
-        toast.error("Failed to export canvas.", { id: 'export-toast' });
-        addLog("Export failed.");
-      });
+        promise
+        .then((dataUrl) => {
+          let finalUrl = dataUrl;
+          if (format === 'svg') {
+            const parts = dataUrl.split(',');
+            if (parts.length > 1) {
+              finalUrl = parts[0] + ',' + encodeURIComponent(decodeURIComponent(parts[1]));
+            }
+          }
+          download(finalUrl, `vizzy-canvas-export.${format}`);
+          toast.success(`Canvas exported successfully as ${format.toUpperCase()}!`, { id: 'export-toast' });
+          addLog(`Export success! Canvas saved as high-res ${format.toUpperCase()}.`);
+        })
+        .catch((error) => {
+          console.error('Error exporting canvas:', error);
+          toast.error("Failed to export canvas.", { id: 'export-toast' });
+          addLog("Export failed.");
+        })
+        .finally(() => {
+          setIsExporting(false);
+        });
+      }, 300);
     }, 100);
   };
 
   // Add default visual from Fields / Palette clicking using live query compiler
-  const handleAddDefaultVisual = async (type: 'kpi' | 'bar' | 'line' | 'pie' | 'table') => {
+  const handleAddDefaultVisual = async (type: 'kpi' | 'bar' | 'stacked_bar' | 'line' | 'pie' | 'table') => {
     if (!selectedDatasetId) {
       toast.error("Please select a dataset first.");
       return;
@@ -1451,6 +1498,18 @@ export default function CanvasPage() {
         } else {
           sql = `SELECT ${dateExpr} AS label, ${buildAggExpr('SUM', primaryMetric)} AS value FROM data GROUP BY 1 ORDER BY 1 ASC LIMIT 30`;
           title = `${primaryMetric} Trend by ${primaryDim}`;
+        }
+      } else if (type === 'stacked_bar') {
+        if (checkedDims.length >= 2) {
+          sql = `SELECT ${getColExpr(checkedDims[0])} AS label, * EXCLUDE (${getColExpr(checkedDims[0])}) FROM (PIVOT data ON ${getColExpr(checkedDims[1])} USING ${buildAggExpr('SUM', primaryMetric)} GROUP BY ${getColExpr(checkedDims[0])}) LIMIT 15`;
+          title = `${primaryMetric} by ${checkedDims[0]} (Stacked by ${checkedDims[1]})`;
+        } else if (checkedMetrics.length > 1) {
+          const metricSelections = checkedMetrics.map(m => `${buildAggExpr('SUM', m)} AS "${m}"`).join(', ');
+          sql = `SELECT ${getColExpr(primaryDim)} AS label, ${metricSelections} FROM data GROUP BY 1 ORDER BY "${checkedMetrics[0]}" DESC LIMIT 15`;
+          title = `Comparison by ${primaryDim}`;
+        } else {
+          sql = `SELECT ${getColExpr(primaryDim)} AS label, ${buildAggExpr('SUM', primaryMetric)} AS value FROM data GROUP BY 1 ORDER BY value DESC LIMIT 15`;
+          title = `${primaryMetric} by ${primaryDim}`;
         }
       } else {
         // Bar/Pie Chart
@@ -1671,6 +1730,34 @@ export default function CanvasPage() {
     }
   };
 
+  // Dynamic number formatting modifier (Right-click format hover actions)
+  const handleWidgetFormatChange = (widgetId: string, formatConfig: NumberFormatConfig) => {
+    setWidgets(prev => prev.map(w => {
+      if (w.id !== widgetId) return w;
+      
+      const updatedWidget = {
+        ...w,
+        numberFormat: formatConfig
+      };
+      
+      if (updatedWidget.type === 'kpi' && updatedWidget.data && updatedWidget.data.length > 0) {
+        const firstRow = updatedWidget.data[0];
+        const numericKey = Object.keys(firstRow).find(k => typeof firstRow[k] === 'number');
+        const rawValue = numericKey ? firstRow[numericKey] : (parseFloat(String(updatedWidget.value).replace(/[^0-9.-]/g, '')) || 0);
+        const metricLabel = updatedWidget.targetMetricName || updatedWidget.yAxisKey || numericKey || '';
+        updatedWidget.value = formatKpiValue(rawValue, metricLabel, updatedWidget.activeAgg || 'SUM', formatConfig);
+      } else if (updatedWidget.type === 'kpi' && updatedWidget.value) {
+        const rawValue = parseFloat(String(updatedWidget.value).replace(/[^0-9.-]/g, ''));
+        if (!isNaN(rawValue)) {
+          const metricLabel = updatedWidget.targetMetricName || updatedWidget.yAxisKey || '';
+          updatedWidget.value = formatKpiValue(rawValue, metricLabel, updatedWidget.activeAgg || 'SUM', formatConfig);
+        }
+      }
+      return updatedWidget;
+    }));
+    addLog(`Updated format configuration to ${formatConfig.type} for visual.`);
+  };
+
   // Tableau-style measure aggregation modifier (Right-click action)
   const handleWidgetAggregationChange = async (widgetId: string, agg: 'SUM' | 'AVG' | 'MIN' | 'MAX' | 'COUNT' | 'VAR_SAMP' | 'PERCENT_CHANGE') => {
     if (!selectedDatasetId) return;
@@ -1731,7 +1818,7 @@ export default function CanvasPage() {
 
         if (widget.type === 'kpi') {
           const kpiVal = queryData[0]?.value ?? queryData[0]?.VALUE ?? 0;
-          value = formatKpiValue(kpiVal, metric, agg);
+          value = formatKpiValue(kpiVal, metric, agg, widget.numberFormat);
           subtext = formatKpiSubtext(metric, agg);
           chartData = [];
         } else if (widget.type === 'pie') {
@@ -2017,6 +2104,13 @@ export default function CanvasPage() {
                 >
                   <BarChart3 className="w-4 h-4 text-emerald-500" />
                   <span>Bar</span>
+                </button>
+                <button 
+                  onClick={() => handleAddDefaultVisual('stacked_bar')}
+                  className="p-2.5 bg-surface border border-border-custom rounded-xl flex flex-col items-center justify-center space-y-1 hover:border-accent-custom/50 transition-all cursor-pointer"
+                >
+                  <BarChart4 className="w-4 h-4 text-cyan-500" />
+                  <span>Stacked</span>
                 </button>
                 <button 
                   onClick={() => handleAddDefaultVisual('line')}
@@ -2657,38 +2751,45 @@ export default function CanvasPage() {
             ) : (
               <div 
                 ref={canvasContainerRef}
-                className={`relative w-full border border-border-custom/30 rounded-2xl bg-surface-2/15 shadow-inner p-4 scrollbar-thin ${
-                  isPresentMode 
-                    ? 'overflow-hidden flex justify-center items-start' 
-                    : 'overflow-auto'
-                }`}
+                className="relative w-full border border-border-custom/30 rounded-2xl bg-surface-2/15 shadow-inner p-4 scrollbar-thin overflow-auto flex flex-col items-start justify-start"
                 style={{ 
-                  height: isFullScreenCanvas ? 'calc(100vh - 140px)' : '650px',
-                  minHeight: isFullScreenCanvas ? 'calc(100vh - 140px)' : '650px'
+                  height: (isFullScreenCanvas || isPresentMode) ? 'calc(100vh - 180px)' : (isResponsive ? '100%' : '650px'),
+                  minHeight: (isFullScreenCanvas || isPresentMode) ? 'calc(100vh - 180px)' : (isResponsive ? 'calc(100vh - 140px)' : '650px')
                 }}
               >
-                {/* Independent high-resolution Canvas Workspace sheet */}
+                {/* Scaled Wrapper to center the scaled absolute layout responsively */}
                 <div 
+                  className="flex items-start justify-start mx-auto"
+                  style={{
+                    height: (!isResponsive && (isFullScreenCanvas || isPresentMode)) ? `${contentHeight * canvasScale}px` : 'auto',
+                    width: (!isResponsive && (isFullScreenCanvas || isPresentMode)) ? `${contentWidth * canvasScale}px` : '100%',
+                    overflow: 'visible'
+                  }}
+                >
+                  {/* Independent high-resolution Canvas Workspace sheet */}
+                  <div 
                   className={`relative transition-all duration-300 ${
-                    isPresentMode 
-                      ? 'bg-transparent border-0 shadow-none' 
-                      : 'bg-surface rounded-xl border border-dashed border-border-custom/80 shadow-md'
+                    isResponsive 
+                      ? 'w-full bg-transparent border-0 shadow-none grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 auto-rows-max' 
+                      : 'bg-surface rounded-xl border border-dashed border-border-custom/80 shadow-md origin-top-left shrink-0'
                   }`}
                   style={{
-                    width: '2400px',
-                    height: '1600px',
-                    backgroundImage: (showGridlines && !isPresentMode) 
+                    width: isResponsive ? '100%' : ((isFullScreenCanvas || isPresentMode) ? `${contentWidth}px` : '2400px'),
+                    height: isResponsive ? 'auto' : ((isFullScreenCanvas || isPresentMode) ? `${contentHeight}px` : '1600px'),
+                    minHeight: isResponsive ? '100%' : ((isFullScreenCanvas || isPresentMode) ? `${contentHeight}px` : '1600px'),
+                    backgroundImage: (showGridlines && !isResponsive) 
                       ? (isDark 
                           ? 'radial-gradient(rgba(255, 255, 255, 0.08) 1.2px, transparent 1.2px)' 
                           : 'radial-gradient(rgba(0, 0, 0, 0.04) 1.2px, transparent 1.2px)')
                       : undefined,
                     backgroundSize: '16px 16px',
-                    transform: (isFullScreenCanvas || isPresentMode) ? `scale(${canvasScale})` : undefined,
-                    transformOrigin: isPresentMode ? 'top center' : 'top left',
+                    transform: (!isResponsive && (isFullScreenCanvas || isPresentMode)) ? `scale(${canvasScale})` : undefined,
+                    transformOrigin: 'top left',
                   }}
                 >
                   <AnimatePresence mode="popLayout">
-                  {widgets.map((widget) => {
+                  {/* Sort widgets logically by Y then X for responsive flow */}
+                  {widgets.slice().sort((a, b) => (a.position?.y ?? 0) - (b.position?.y ?? 0) || (a.position?.x ?? 0) - (b.position?.x ?? 0)).map((widget) => {
                     const isSelected = selectedWidgetId === widget.id;
                     const width = widget.customWidth ?? (widget.type === 'kpi' ? 245 : 375);
                     const height = widget.customHeight ?? (widget.type === 'kpi' ? 120 : 230);
@@ -2715,7 +2816,9 @@ export default function CanvasPage() {
                         exit={{ opacity: 0, scale: 0.9 }}
                         transition={{ type: "spring", stiffness: 220, damping: 22 }}
                         key={widget.id}
-                        className={`bg-surface border rounded-2xl p-4 shadow-sm flex flex-col justify-between absolute overflow-hidden transition-all select-none touch-none ${
+                        className={`bg-surface border rounded-2xl p-4 shadow-sm flex flex-col justify-between overflow-hidden transition-all select-none touch-none ${
+                          isResponsive ? 'relative w-full' : 'absolute'
+                        } ${
                           isPresentMode
                             ? 'border-border-custom/50 shadow-md'
                             : isSelected 
@@ -2723,10 +2826,10 @@ export default function CanvasPage() {
                               : 'border-border-custom hover:border-border-custom/80'
                         }`}
                         style={{
-                          left: `${widget.position?.x ?? 20}px`,
-                          top: `${widget.position?.y ?? 20}px`,
-                          width: `${width}px`,
-                          height: `${height}px`,
+                          left: isResponsive ? 'auto' : `${widget.position?.x ?? 20}px`,
+                          top: isResponsive ? 'auto' : `${widget.position?.y ?? 20}px`,
+                          width: isResponsive ? '100%' : `${width}px`,
+                          height: isResponsive ? `${Math.max(height, 250)}px` : `${height}px`,
                           zIndex: isSelected && !isPresentMode ? 30 : 10
                         }}
                         onClick={() => !isPresentMode && setSelectedWidgetId(widget.id)}
@@ -2938,7 +3041,7 @@ export default function CanvasPage() {
                                 <div 
                                   className="font-bold tracking-tight transition-all leading-none" 
                                   style={{ 
-                                    color: widget.color,
+                                    color: (widget.numberFormat?.negativeStyle === 'red' && (String(kpiData.value).startsWith('-') || String(kpiData.value).startsWith('('))) ? '#EF4444' : widget.color,
                                     fontSize: height > 180 ? '2.5rem' : height > 140 ? '2rem' : width > 200 ? '1.5rem' : '1.25rem'
                                   }}
                                 >
@@ -2965,16 +3068,37 @@ export default function CanvasPage() {
                             </div>
                           )}
 
-                          {/* Type 2: BAR CHART */}
-                          {widget.type === 'bar' && (() => {
+                          {/* Type 2: BAR CHART & STACKED BAR CHART */}
+                          {(widget.type === 'bar' || widget.type === 'stacked_bar') && (() => {
                             const key = widget.xAxisKey || 'label';
                             const valKey = widget.yAxisKey || 'value';
-                            const maxVal = Math.max(...widget.data.map(d => Number(d[valKey]) || 0)) || 1;
+                            
+                            // For stacked bar, get all keys except the label key.
+                            const dataKeys = widget.type === 'stacked_bar' && widget.data.length > 0
+                              ? Object.keys(widget.data[0]).filter(k => k !== key && typeof widget.data[0][k] === 'number')
+                              : [valKey];
+
+                            const maxVal = Math.max(...widget.data.map(d => dataKeys.reduce((sum, k) => sum + (Number(d[k]) || 0), 0))) || 1;
+                            
+                            const paletteColors = [
+                              widget.color || '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#EF4444', '#14B8A6'
+                            ];
+
                             return (
                               <div className="flex flex-col justify-end pt-2 min-h-[40px] w-full" style={{ height: `${height - 90}px` }}>
-                                <div className="flex items-end justify-around h-full border-b border-border-custom/50 pb-1.5 gap-1">
-                                  {widget.data.map((item, idx) => {
-                                    const heightPercent = maxVal ? ((Number(item[valKey]) || 0) / maxVal) * 85 : 0;
+                                <div className="flex h-full w-full">
+                                  {/* Y-axis Ticks */}
+                                  <div className="flex flex-col justify-between text-[7px] text-muted-custom font-mono h-[85%] pr-1.5 border-r border-border-custom/30 select-none pb-1.5 shrink-0 text-right min-w-[36px]">
+                                    <div>{formatKpiValue(maxVal, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg, widget.numberFormat)}</div>
+                                    <div>{formatKpiValue(maxVal / 2, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg, widget.numberFormat)}</div>
+                                    <div>{formatKpiValue(0, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg, widget.numberFormat)}</div>
+                                  </div>
+                                  
+                                  {/* Chart bars */}
+                                  <div className="flex-1 flex items-end justify-around h-full border-b border-border-custom/50 pb-1.5 gap-1 pl-1">
+                                    {widget.data.map((item, idx) => {
+                                      const totalVal = dataKeys.reduce((sum, k) => sum + (Number(item[k]) || 0), 0);
+                                      const heightPercent = maxVal ? (totalVal / maxVal) * 85 : 0;
                                     
                                     const itemLabel = String(item[key]);
                                   const isHighlighted = (() => {
@@ -3018,19 +3142,36 @@ export default function CanvasPage() {
                                       style={{ maxWidth: `${Math.max(20, Math.min(64, (width / widget.data.length) - 8))}px` }}
                                     >
                                       {/* Bar hover label */}
-                                      <div className="absolute -top-7 scale-0 group-hover/bar:scale-100 bg-surface border border-border-custom px-1.5 py-0.5 rounded text-[9px] font-mono shadow z-20 pointer-events-none whitespace-nowrap">
-                                        {_sanitizeLabel(itemLabel)}: {formatKpiValue(item[valKey], widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg)}
+                                      <div className="absolute -top-7 scale-0 group-hover/bar:scale-100 bg-surface border border-border-custom px-1.5 py-0.5 rounded text-[9px] font-mono shadow z-20 pointer-events-none whitespace-nowrap flex flex-col items-center">
+                                        <span>{_sanitizeLabel(itemLabel)}: {formatKpiValue(totalVal, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg, widget.numberFormat)}</span>
+                                        {widget.type === 'stacked_bar' && dataKeys.length > 1 && (
+                                          <div className="flex gap-2 mt-0.5 border-t border-border-custom/50 pt-0.5">
+                                            {dataKeys.map(k => (
+                                              <span key={k} className="text-[8px] text-muted-custom">{_sanitizeLabel(k)}: {formatKpiValue(item[k], k, widget.activeAgg, widget.numberFormat)}</span>
+                                            ))}
+                                          </div>
+                                        )}
                                       </div>
                                       <div 
-                                        className={`w-full rounded-t-sm transition-all duration-300 relative ${
+                                        className={`w-full transition-all duration-300 relative flex flex-col justify-end overflow-hidden rounded-t-sm ${
                                           isHighlighted ? 'opacity-100 ring-2 ring-accent-custom/40' : 'opacity-25 grayscale-50'
                                         }`}
-                                        style={{ 
-                                          height: `${heightPercent}%`,
-                                          backgroundColor: widget.color || '#3B82F6'
-                                        }}
+                                        style={{ height: `${heightPercent}%` }}
                                       >
-                                        <div className="absolute inset-x-0 top-0 h-1/2 bg-white/5 rounded-t-sm"></div>
+                                        {dataKeys.map((k, i) => {
+                                          const val = Number(item[k]) || 0;
+                                          const segPercent = totalVal ? (val / totalVal) * 100 : 0;
+                                          const segColor = paletteColors[i % paletteColors.length];
+                                          return (
+                                            <div 
+                                              key={k}
+                                              className="w-full relative transition-all duration-300 border-b border-black/10 last:border-b-0" 
+                                              style={{ height: `${segPercent}%`, backgroundColor: segColor }}
+                                            >
+                                              <div className="absolute inset-x-0 top-0 h-full bg-white/5"></div>
+                                            </div>
+                                          );
+                                        })}
                                       </div>
                                       <span className="text-[8px] font-mono text-muted-custom mt-1 truncate max-w-full text-center">
                                         {_sanitizeLabel(item[key]).slice(0, 8)}
@@ -3038,6 +3179,7 @@ export default function CanvasPage() {
                                     </div>
                                   );
                                 })}
+                                </div>
                               </div>
                             </div>
                             );
@@ -3066,151 +3208,158 @@ export default function CanvasPage() {
                                   </button>
                                 ))}
                               </div>
-                              
-                              <div className="relative flex-1">
-                                <svg className="w-full h-full" viewBox="0 0 200 100" preserveAspectRatio="none">
-                                  <defs>
-                                    <linearGradient id={`grad-${widget.id}`} x1="0" y1="0" x2="0" y2="1">
-                                      <stop offset="0%" stopColor={widget.color || '#3B82F6'} stopOpacity="0.15" />
-                                      <stop offset="100%" stopColor={widget.color || '#3B82F6'} stopOpacity="0.0" />
-                                    </linearGradient>
-                                  </defs>
+                                                 <div className="relative flex-1">
+                                {(() => {
+                                  const valKey = widget.yAxisKey || 'value';
+                                  if (!widget.data || widget.data.length === 0) {
+                                    return <div className="text-center text-xs text-muted-custom py-8">No data points</div>;
+                                  }
                                   
-                                  {/* Curve path calculator */}
-                                  {(() => {
-                                    const valKey = widget.yAxisKey || 'value';
-                                    if (!widget.data || widget.data.length === 0) {
-                                      return <text x="100" y="50" fill="#94a3b8" fontSize="8" textAnchor="middle" fontFamily="monospace">No data points</text>;
-                                    }
-                                    
-                                    const vals = widget.data.map(d => Number(d[valKey]) || 0);
-                                    const maxVal = Math.max(...vals, 1);
-                                    const minVal = Math.min(...vals, 0); 
-                                    const range = maxVal - minVal || 1;
+                                  const vals = widget.data.map(d => Number(d[valKey]) || 0);
+                                  const maxVal = Math.max(...vals, 1);
+                                  const minVal = Math.min(...vals, 0); 
+                                  const range = maxVal - minVal || 1;
 
-                                    if (widget.data.length === 1) {
-                                      const numVal = vals[0];
-                                      const x = 100;
-                                      const y = 90 - ((numVal - minVal) / range) * 75;
-                                      const labelVal = widget.data[0][widget.xAxisKey || 'label'] || '';
-                                      return (
-                                        <circle
-                                          cx={x}
-                                          cy={y}
-                                          r="5"
-                                          fill={widget.color || '#3B82F6'}
-                                          stroke="#fff"
-                                          strokeWidth="2"
-                                          className="cursor-pointer hover:opacity-80 transition-opacity duration-150"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            const filterCol = widget.targetDimName || widget.xAxisKey || 'label';
-                                            setCustomFilters(prev => {
-                                              const existing = prev.find(f => f.fieldName.toLowerCase() === filterCol.toLowerCase());
-                                              if (existing) {
-                                                return prev.map(f => f.fieldName.toLowerCase() === filterCol.toLowerCase() ? {
-                                                  ...f,
-                                                  selectedValue: f.selectedValue === labelVal ? null : labelVal
-                                                } : f);
-                                              } else {
-                                                const options = Array.from(new Set(widget.data.map(d => String(d[widget.xAxisKey || 'label'] || d[filterCol]))));
-                                                return [...prev, {
-                                                  fieldName: filterCol,
-                                                  category: 'Dimensions',
-                                                  options,
-                                                  selectedValue: labelVal
-                                                }];
-                                              }
+                                  return (
+                                    <div className="flex h-full w-full">
+                                      {/* Y-axis Ticks */}
+                                      <div className="flex flex-col justify-between text-[7px] text-muted-custom font-mono h-[75%] pr-1.5 border-r border-border-custom/30 select-none pb-1.5 mt-2 shrink-0 text-right min-w-[36px]">
+                                        <div>{formatKpiValue(maxVal, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg, widget.numberFormat)}</div>
+                                        <div>{formatKpiValue((maxVal + minVal) / 2, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg, widget.numberFormat)}</div>
+                                        <div>{formatKpiValue(minVal, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg, widget.numberFormat)}</div>
+                                      </div>
+                                      
+                                      <div className="flex-1 relative h-full">
+                                        <svg className="w-full h-full" viewBox="0 0 200 100" preserveAspectRatio="none">
+                                          <defs>
+                                            <linearGradient id={`grad-${widget.id}`} x1="0" y1="0" x2="0" y2="1">
+                                              <stop offset="0%" stopColor={widget.color || '#3B82F6'} stopOpacity="0.15" />
+                                              <stop offset="100%" stopColor={widget.color || '#3B82F6'} stopOpacity="0.0" />
+                                            </linearGradient>
+                                          </defs>
+                                          
+                                          {widget.data.length === 1 ? (() => {
+                                            const numVal = vals[0];
+                                            const x = 100;
+                                            const y = 90 - ((numVal - minVal) / range) * 75;
+                                            const labelVal = widget.data[0][widget.xAxisKey || 'label'] || '';
+                                            return (
+                                              <circle
+                                                cx={x}
+                                                cy={y}
+                                                r="5"
+                                                fill={widget.color || '#3B82F6'}
+                                                stroke="#fff"
+                                                strokeWidth="2"
+                                                className="cursor-pointer hover:opacity-80 transition-opacity duration-150"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  const filterCol = widget.targetDimName || widget.xAxisKey || 'label';
+                                                  setCustomFilters(prev => {
+                                                    const existing = prev.find(f => f.fieldName.toLowerCase() === filterCol.toLowerCase());
+                                                    if (existing) {
+                                                      return prev.map(f => f.fieldName.toLowerCase() === filterCol.toLowerCase() ? {
+                                                        ...f,
+                                                        selectedValue: f.selectedValue === labelVal ? null : labelVal
+                                                      } : f);
+                                                    } else {
+                                                      const options = Array.from(new Set(widget.data.map(d => String(d[widget.xAxisKey || 'label'] || d[filterCol]))));
+                                                      return [...prev, {
+                                                        fieldName: filterCol,
+                                                        category: 'Dimensions',
+                                                        options,
+                                                        selectedValue: labelVal
+                                                      }];
+                                                    }
+                                                  });
+                                                  addLog(`Clicked Line Point: cross-filtered canvas by "${filterCol}" = "${labelVal}"`);
+                                                }}
+                                                onMouseEnter={(e) => {
+                                                  const rect = e.currentTarget.getBoundingClientRect();
+                                                  setActiveHoverTooltip({
+                                                    x: rect.left + window.scrollX + 6,
+                                                    y: rect.top + window.scrollY - 30,
+                                                    content: `${_sanitizeLabel(labelVal)}: ${formatKpiValue(numVal, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg, widget.numberFormat)}`
+                                                  });
+                                                }}
+                                                onMouseLeave={() => setActiveHoverTooltip(null)}
+                                              >
+                                                <title>{`${_sanitizeLabel(labelVal)}: ${formatKpiValue(numVal, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg, widget.numberFormat)}`}</title>
+                                              </circle>
+                                            );
+                                          })() : (() => {
+                                            const segmentWidth = 180 / (widget.data.length - 1 || 1);
+                                            const points = widget.data.map((item, idx) => {
+                                              const x = 10 + idx * segmentWidth;
+                                              const y = 90 - ((vals[idx] - minVal) / range) * 75;
+                                              return { x, y };
                                             });
-                                            addLog(`Clicked Line Point: cross-filtered canvas by "${filterCol}" = "${labelVal}"`);
-                                          }}
-                                          onMouseEnter={(e) => {
-                                            const rect = e.currentTarget.getBoundingClientRect();
-                                            setActiveHoverTooltip({
-                                              x: rect.left + window.scrollX + 6,
-                                              y: rect.top + window.scrollY - 30,
-                                              content: `${_sanitizeLabel(labelVal)}: ${formatKpiValue(numVal, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg)}`
-                                            });
-                                          }}
-                                          onMouseLeave={() => setActiveHoverTooltip(null)}
-                                        >
-                                          <title>{`${_sanitizeLabel(labelVal)}: ${formatKpiValue(numVal, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg)}`}</title>
-                                        </circle>
-                                      );
-                                    }
-
-                                    const segmentWidth = 180 / (widget.data.length - 1 || 1);
-                                    
-                                    const points = widget.data.map((item, idx) => {
-                                      const x = 10 + idx * segmentWidth;
-                                      const y = 90 - ((vals[idx] - minVal) / range) * 75; // map to svg viewbox bounds
-                                      return { x, y };
-                                    });
-
-                                    const pathD = points.reduce((acc, p, idx) => {
-                                      return idx === 0 ? `M ${p.x} ${p.y}` : `${acc} L ${p.x} ${p.y}`;
-                                    }, '');
-
-                                    const areaD = `${pathD} L 190 100 L 10 100 Z`;
-
-                                    return (
-                                      <>
-                                        <path d={areaD} fill={`url(#grad-${widget.id})`} />
-                                        <path d={pathD} fill="none" stroke={widget.color || '#3B82F6'} strokeWidth="2" strokeLinecap="round" />
-                                        {points.map((p, idx) => {
-                                          const item = widget.data[idx];
-                                          const labelVal = item[widget.xAxisKey || 'label'] || '';
-                                          const numVal = vals[idx];
-                                          return (
-                                            <circle 
-                                              key={idx} 
-                                              cx={p.x} 
-                                              cy={p.y} 
-                                              r="6" 
-                                              fill={widget.color || '#3B82F6'} 
-                                              stroke="#fff" 
-                                              strokeWidth="1.5" 
-                                              className="cursor-pointer opacity-0 hover:opacity-100 transition-opacity duration-150"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                const filterCol = widget.targetDimName || widget.xAxisKey || 'label';
-                                                setCustomFilters(prev => {
-                                                  const existing = prev.find(f => f.fieldName.toLowerCase() === filterCol.toLowerCase());
-                                                  if (existing) {
-                                                    return prev.map(f => f.fieldName.toLowerCase() === filterCol.toLowerCase() ? {
-                                                      ...f,
-                                                      selectedValue: f.selectedValue === labelVal ? null : labelVal
-                                                    } : f);
-                                                  } else {
-                                                    const options = Array.from(new Set(widget.data.map(d => String(d[widget.xAxisKey || 'label'] || d[filterCol]))));
-                                                    return [...prev, {
-                                                      fieldName: filterCol,
-                                                      category: 'Dimensions',
-                                                      options,
-                                                      selectedValue: labelVal
-                                                    }];
-                                                  }
-                                                });
-                                                addLog(`Clicked Line Point: cross-filtered canvas by "${filterCol}" = "${labelVal}"`);
-                                              }}
-                                              onMouseEnter={(e) => {
-                                                const rect = e.currentTarget.getBoundingClientRect();
-                                                setActiveHoverTooltip({
-                                                  x: rect.left + window.scrollX + 6,
-                                                  y: rect.top + window.scrollY - 30,
-                                                  content: `${_sanitizeLabel(labelVal)}: ${formatKpiValue(numVal, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg)}`
-                                                });
-                                              }}
-                                              onMouseLeave={() => setActiveHoverTooltip(null)}
-                                            >
-                                              <title>{`${_sanitizeLabel(labelVal)}: ${formatKpiValue(numVal, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg)}`}</title>
-                                            </circle>
-                                          );
-                                        })}
-                                      </>
-                                    );
-                                  })()}
-                                </svg>
+                                            const pathD = points.reduce((acc, p, idx) => {
+                                              return idx === 0 ? `M ${p.x} ${p.y}` : `${acc} L ${p.x} ${p.y}`;
+                                            }, '');
+                                            const areaD = `${pathD} L 190 100 L 10 100 Z`;
+                                            return (
+                                              <>
+                                                <path d={areaD} fill={`url(#grad-${widget.id})`} />
+                                                <path d={pathD} fill="none" stroke={widget.color || '#3B82F6'} strokeWidth="2" strokeLinecap="round" />
+                                                {points.map((p, idx) => {
+                                                  const item = widget.data[idx];
+                                                  const labelVal = item[widget.xAxisKey || 'label'] || '';
+                                                  const numVal = vals[idx];
+                                                  return (
+                                                    <circle 
+                                                      key={idx} 
+                                                      cx={p.x} 
+                                                      cy={p.y} 
+                                                      r="6" 
+                                                      fill={widget.color || '#3B82F6'} 
+                                                      stroke="#fff" 
+                                                      strokeWidth="1.5" 
+                                                      className="cursor-pointer opacity-0 hover:opacity-100 transition-opacity duration-150"
+                                                      onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        const filterCol = widget.targetDimName || widget.xAxisKey || 'label';
+                                                        setCustomFilters(prev => {
+                                                          const existing = prev.find(f => f.fieldName.toLowerCase() === filterCol.toLowerCase());
+                                                          if (existing) {
+                                                            return prev.map(f => f.fieldName.toLowerCase() === filterCol.toLowerCase() ? {
+                                                              ...f,
+                                                              selectedValue: f.selectedValue === labelVal ? null : labelVal
+                                                            } : f);
+                                                          } else {
+                                                            const options = Array.from(new Set(widget.data.map(d => String(d[widget.xAxisKey || 'label'] || d[filterCol]))));
+                                                            return [...prev, {
+                                                              fieldName: filterCol,
+                                                              category: 'Dimensions',
+                                                              options,
+                                                              selectedValue: labelVal
+                                                            }];
+                                                          }
+                                                        });
+                                                        addLog(`Clicked Line Point: cross-filtered canvas by "${filterCol}" = "${labelVal}"`);
+                                                      }}
+                                                      onMouseEnter={(e) => {
+                                                        const rect = e.currentTarget.getBoundingClientRect();
+                                                        setActiveHoverTooltip({
+                                                          x: rect.left + window.scrollX + 6,
+                                                          y: rect.top + window.scrollY - 30,
+                                                          content: `${_sanitizeLabel(labelVal)}: ${formatKpiValue(numVal, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg, widget.numberFormat)}`
+                                                        });
+                                                      }}
+                                                      onMouseLeave={() => setActiveHoverTooltip(null)}
+                                                    >
+                                                      <title>{`${_sanitizeLabel(labelVal)}: ${formatKpiValue(numVal, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg, widget.numberFormat)}`}</title>
+                                                    </circle>
+                                                  );
+                                                })}
+                                              </>
+                                            );
+                                          })()}
+                                        </svg>
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
                               </div>
                               <div className="flex justify-between text-[8px] font-mono text-muted-custom mt-1 border-t border-border-custom/30 pt-0.5 overflow-hidden shrink-0">
                                 {widget.data.map((item, idx) => (
@@ -3291,12 +3440,12 @@ export default function CanvasPage() {
                                             setActiveHoverTooltip({
                                               x: rect.left + window.scrollX + 15,
                                               y: rect.top + window.scrollY - 30,
-                                              content: `${_sanitizeLabel(keyName)}: ${percent.toFixed(1)}% (${formatKpiValue(valNum, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg)})`
+                                              content: `${_sanitizeLabel(keyName)}: ${percent.toFixed(1)}% (${formatKpiValue(valNum, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg, widget.numberFormat)})`
                                             });
                                           }}
                                           onMouseLeave={() => setActiveHoverTooltip(null)}
                                         >
-                                          <title>{`${_sanitizeLabel(keyName)}: ${percent.toFixed(1)}% (${formatKpiValue(valNum, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg)})`}</title>
+                                          <title>{`${_sanitizeLabel(keyName)}: ${percent.toFixed(1)}% (${formatKpiValue(valNum, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg, widget.numberFormat)})`}</title>
                                         </circle>
                                       );
                                     })}
@@ -3354,7 +3503,7 @@ export default function CanvasPage() {
                                       >
                                         <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: sliceColor }}></span>
                                         <span className="truncate max-w-[60px]" title={_sanitizeLabel(keyName)}>{_sanitizeLabel(keyName)}:</span>
-                                        <span className="font-bold text-text-custom">{percent.toFixed(1)}% ({formatKpiValue(valNum, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg)})</span>
+                                        <span className="font-bold text-text-custom">{percent.toFixed(1)}% ({formatKpiValue(valNum, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg, widget.numberFormat)})</span>
                                       </div>
                                     );
                                   })}
@@ -3382,7 +3531,7 @@ export default function CanvasPage() {
                                          const isMetric = fieldsList.some(af => af.name === col && af.category === 'Metrics');
                                          return (
                                            <td key={colIdx} className="p-1.5 truncate text-text-custom max-w-[100px]" title={String(cellVal)}>
-                                             {isMetric ? formatKpiValue(cellVal, col) : String(cellVal)}
+                                             {isMetric ? formatKpiValue(cellVal, col, undefined, widget.numberFormat) : String(cellVal)}
                                            </td>
                                          );
                                        })}
@@ -3427,6 +3576,7 @@ export default function CanvasPage() {
                 </AnimatePresence>
                 </div>
               </div>
+            </div>
             )}
 
             {/* Floating prompt bar bubble for full screen mode */}
@@ -3681,6 +3831,67 @@ export default function CanvasPage() {
                   );
                 });
               })()}
+              
+              <div className="h-px bg-border-custom/30 my-1 w-full" />
+              
+              <div className="relative group">
+                <button
+                  type="button"
+                  className="w-full flex items-center justify-between px-2.5 py-2 hover:bg-surface-2 rounded-lg transition-all text-left cursor-pointer text-muted-custom hover:text-text-custom border-none bg-transparent"
+                >
+                  <span className="flex items-center space-x-1.5">
+                    <Sliders className="w-3.5 h-3.5 text-muted-custom/60" />
+                    <span>Format Value</span>
+                  </span>
+                  <ChevronRight className="w-3.5 h-3.5 text-muted-custom" />
+                </button>
+                <div className="hidden group-hover:block absolute left-[98%] top-0 ml-1 bg-surface/95 backdrop-blur-md border border-border-custom/80 shadow-2xl rounded-2xl p-1.5 min-w-[190px] z-[1002] animate-in fade-in slide-in-from-left-2 duration-100">
+                  {([
+                    { label: 'Automatic', value: 'automatic' },
+                    { label: 'Number (Standard)', value: 'number_standard' },
+                    { label: 'Number (Custom)...', value: 'number_custom' },
+                    { label: 'Currency (Standard)', value: 'currency_standard' },
+                    { label: 'Currency (Custom)...', value: 'currency_custom' },
+                    { label: 'Scientific', value: 'scientific' },
+                    { label: 'Percentage', value: 'percentage' },
+                    { label: 'Fraction', value: 'fraction' },
+                    { label: 'Standard (Custom)...', value: 'standard_custom' }
+                  ] as const).map(fmt => {
+                    const isSelected = (targetWidget?.numberFormat?.type || 'automatic') === fmt.value;
+                    return (
+                      <button
+                        key={fmt.value}
+                        type="button"
+                        onClick={() => {
+                          if (fmt.value.endsWith('_custom')) {
+                            setCustomFormatModalWidgetId(widgetContextMenu.widgetId);
+                            setCustomFormatModalType(fmt.value as 'number_custom' | 'currency_custom' | 'standard_custom');
+                            const current = targetWidget?.numberFormat || { type: fmt.value };
+                            setCustomFormatDecimals(current.decimals ?? 2);
+                            setCustomFormatNegative(current.negativeStyle ?? 'minus');
+                            setCustomFormatPrefix(current.prefix ?? '');
+                            setCustomFormatSuffix(current.suffix ?? '');
+                            setCustomFormatSeparator(current.separator ?? ',');
+                            setCustomFormatUnit(current.unit ?? 'none');
+                            setShowCustomFormatModal(true);
+                          } else {
+                            handleWidgetFormatChange(widgetContextMenu.widgetId, { type: fmt.value });
+                          }
+                          setWidgetContextMenu(null);
+                        }}
+                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg transition-all text-left cursor-pointer border-none bg-transparent ${
+                          isSelected
+                            ? 'bg-accent-custom/10 text-accent-custom font-bold'
+                            : 'hover:bg-surface-2 text-muted-custom hover:text-text-custom'
+                        }`}
+                      >
+                        <span>{fmt.label}</span>
+                        {isSelected && <Check className="w-3 h-3 text-accent-custom" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           </>
         );
@@ -3855,6 +4066,145 @@ export default function CanvasPage() {
                 className="px-4 py-2 rounded-lg text-xs font-semibold bg-red-500 text-white hover:bg-red-600 transition-colors shadow-lg shadow-red-500/20 cursor-pointer border border-transparent"
               >
                 Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 8. CUSTOM FORMAT CONFIGURATION MODAL */}
+      {showCustomFormatModal && (
+        <div className="fixed inset-0 z-[2010] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-[fadeIn_0.15s_ease-out]">
+          <div className="bg-surface border border-border-custom rounded-2xl max-w-sm w-full p-6 shadow-2xl flex flex-col font-sans">
+            <div className="flex items-center space-x-3 text-accent-custom mb-4 border-b border-border-custom/50 pb-3">
+              <div className="p-2 bg-accent-custom/10 rounded-full">
+                <Sliders className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-text-custom">
+                  {customFormatModalType === 'currency_custom' ? 'Currency Formatting (Custom)' : 
+                   customFormatModalType === 'standard_custom' ? 'Standard Numeric (Custom)' : 
+                   'Number Formatting (Custom)'}
+                </h3>
+                <p className="text-[10px] text-muted-custom">Adjust display properties for this visual</p>
+              </div>
+            </div>
+
+            <div className="space-y-4 my-2 text-xs">
+              {/* Decimal places */}
+              <div className="flex items-center justify-between">
+                <label className="font-semibold text-text-custom">Decimal Places</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="10"
+                  value={customFormatDecimals}
+                  onChange={(e) => setCustomFormatDecimals(Math.max(0, parseInt(e.target.value) || 0))}
+                  className="w-20 bg-surface-2 border border-border-custom rounded-lg px-2 py-1 text-center text-text-custom outline-none"
+                />
+              </div>
+
+              {/* Separators */}
+              <div className="flex items-center justify-between">
+                <label className="font-semibold text-text-custom">Thousands Separator</label>
+                <select
+                  value={customFormatSeparator}
+                  onChange={(e) => setCustomFormatSeparator(e.target.value)}
+                  className="w-32 bg-surface-2 border border-border-custom rounded-lg px-2 py-1 text-text-custom outline-none"
+                >
+                  <option value=",">Comma (,)</option>
+                  <option value=".">Dot (.)</option>
+                  <option value=" ">Space ( )</option>
+                  <option value="none">None</option>
+                </select>
+              </div>
+
+              {/* Prefix and Suffix */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="font-semibold text-text-custom block">Prefix</label>
+                  <input
+                    type="text"
+                    value={customFormatPrefix}
+                    onChange={(e) => setCustomFormatPrefix(e.target.value)}
+                    placeholder="e.g. $"
+                    className="w-full bg-surface-2 border border-border-custom rounded-lg px-2 py-1 text-text-custom outline-none"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="font-semibold text-text-custom block">Suffix</label>
+                  <input
+                    type="text"
+                    value={customFormatSuffix}
+                    onChange={(e) => setCustomFormatSuffix(e.target.value)}
+                    placeholder="e.g. %"
+                    className="w-full bg-surface-2 border border-border-custom rounded-lg px-2 py-1 text-text-custom outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Unit scaling */}
+              <div className="flex items-center justify-between">
+                <label className="font-semibold text-text-custom">Display Units</label>
+                <select
+                  value={customFormatUnit}
+                  onChange={(e) => setCustomFormatUnit(e.target.value as any)}
+                  className="w-32 bg-surface-2 border border-border-custom rounded-lg px-2 py-1 text-text-custom outline-none"
+                >
+                  <option value="none">Default (None)</option>
+                  <option value="auto">Auto-detect (K, M, B)</option>
+                  <option value="K">Thousands (K)</option>
+                  <option value="M">Millions (M)</option>
+                  <option value="B">Billions (B)</option>
+                </select>
+              </div>
+
+              {/* Negative format */}
+              <div className="flex items-center justify-between">
+                <label className="font-semibold text-text-custom">Negative Values</label>
+                <select
+                  value={customFormatNegative}
+                  onChange={(e) => setCustomFormatNegative(e.target.value as any)}
+                  className="w-32 bg-surface-2 border border-border-custom rounded-lg px-2 py-1 text-text-custom outline-none"
+                >
+                  <option value="minus">Minus sign (-123)</option>
+                  <option value="parentheses">Parentheses ((123))</option>
+                  <option value="red">Red styled color</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-3 pt-3 border-t border-border-custom/50 mt-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCustomFormatModal(false);
+                  setCustomFormatModalWidgetId(null);
+                }}
+                className="px-4 py-2 rounded-lg text-xs font-semibold text-muted-custom hover:text-text-custom hover:bg-surface-2 transition-colors cursor-pointer border border-transparent"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (customFormatModalWidgetId) {
+                    handleWidgetFormatChange(customFormatModalWidgetId, {
+                      type: customFormatModalType,
+                      decimals: customFormatDecimals,
+                      negativeStyle: customFormatNegative,
+                      prefix: customFormatPrefix,
+                      suffix: customFormatSuffix,
+                      separator: customFormatSeparator,
+                      unit: customFormatUnit
+                    });
+                  }
+                  setShowCustomFormatModal(false);
+                  setCustomFormatModalWidgetId(null);
+                }}
+                className="px-4 py-2 rounded-lg text-xs font-semibold bg-accent-custom text-white hover:bg-accent-custom/90 transition-colors shadow-lg shadow-accent-custom/20 cursor-pointer border border-transparent"
+              >
+                Apply Format
               </button>
             </div>
           </div>

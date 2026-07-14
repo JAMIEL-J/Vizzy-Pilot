@@ -11,6 +11,7 @@ import time
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
+from app.models.dataset_version import DatasetVersion
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sqlmodel import select
@@ -403,11 +404,12 @@ async def create_canvas_calculated_field(
         "Rules:\n"
         "1. Map user terms to exact casing of column names in this dataset schema.\n"
         "2. Keep the SQL formula simple. Use standard DuckDB SQL operators (+, -, *, /).\n"
-        "3. Protect divisions by wrapping the denominator in NULLIF(col, 0) or handling division by zero safely.\n"
-        "4. Wrap all column names in double quotes (e.g. \"Profit\" / NULLIF(\"Sales\", 0)).\n"
-        "5. Classify the resulting field as 'Metrics' (if numeric) or 'Dimensions' (if category/boolean).\n"
-        "6. Standardize the DuckDB datatype (e.g. DOUBLE, VARCHAR, BIGINT).\n"
-        "7. Suggest a clean, readable title for the calculated field (e.g. 'Profit Margin' or 'Sales Increase').\n"
+        "3. Protect divisions by wrapping the denominator in NULLIF(expr, 0) to avoid division by zero.\n"
+        "4. Wrap all column names in double quotes.\n"
+        "5. CRITICAL: For ratio or percentage metrics (e.g. Profit Margin, ROI), you MUST wrap the individual columns in aggregate functions like SUM() before dividing. Example: SUM(\"Profit\") / NULLIF(SUM(\"Sales\"), 0). Do NOT output row-level division for these.\n"
+        "6. Classify the resulting field as 'Metrics' (if numeric) or 'Dimensions' (if category/boolean).\n"
+        "7. Standardize the DuckDB datatype (e.g. DOUBLE, VARCHAR, BIGINT).\n"
+        "8. Suggest a clean, readable title for the calculated field (e.g. 'Profit Margin' or 'Sales Increase').\n"
         "Output strictly valid JSON with no markdown blocks: "
         '{"field_name": "Field Title", "formula_sql": "SQL projection snippet", "category": "Metrics", "dtype": "DOUBLE"}'
     )
@@ -512,5 +514,64 @@ async def create_canvas_calculated_field(
         category=category,
         dtype=dtype,
         schema=schema_response
+    )
+
+@router.delete("/fields/{field_name}", response_model=CanvasSchemaResponse)
+async def delete_canvas_field(
+    dataset_id: UUID,
+    field_name: str,
+    session: DBSession,
+):
+    """
+    Deletes a specific field (e.g. calculated field) from the dataset schema metadata.
+    """
+    latest_version = session.exec(
+        select(DatasetVersion)
+        .where(DatasetVersion.dataset_id == dataset_id)
+        .where(DatasetVersion.status == "success")
+        .order_by(DatasetVersion.created_at.desc())
+    ).first()
+
+    if not latest_version:
+        raise HTTPException(status_code=404, detail="No active dataset version found")
+
+    raw_schema: List[Dict[str, str]] = []
+    if latest_version.schema_metadata:
+        try:
+            raw_schema = json.loads(latest_version.schema_metadata)
+        except Exception:
+            pass
+
+    # Filter out the field to delete
+    new_schema = [col for col in raw_schema if col.get("name") != field_name]
+    
+    if len(new_schema) == len(raw_schema):
+        raise HTTPException(status_code=404, detail=f"Field '{field_name}' not found in schema")
+
+    latest_version.schema_metadata = json.dumps(new_schema)
+    session.add(latest_version)
+    session.commit()
+    session.refresh(latest_version)
+
+    columns = [
+        CanvasColumnSchema(
+            name=col["name"],
+            dtype=col["dtype"],
+            category=col.get("category") or _classify_dtype(col["dtype"]),
+            formula=col.get("formula")
+        )
+        for col in new_schema
+        if "name" in col and "dtype" in col
+    ]
+
+    dataset = session.exec(select(Dataset).where(Dataset.id == dataset_id)).first()
+    dataset_name = dataset.name if dataset else "Dataset"
+
+    return CanvasSchemaResponse(
+        dataset_id=str(dataset_id),
+        version_id=str(latest_version.id),
+        dataset_name=dataset_name,
+        columns=columns,
+        row_count=latest_version.row_count,
     )
 

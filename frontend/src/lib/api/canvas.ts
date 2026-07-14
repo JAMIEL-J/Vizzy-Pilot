@@ -75,11 +75,131 @@ export const canvasService = {
         }>(`/datasets/${datasetId}/canvas/calculate-field`, { prompt });
         return response.data;
     },
+
+    /**
+     * Delete a field from the schema.
+     */
+    deleteField: async (datasetId: string, fieldName: string) => {
+        const response = await apiClient.delete<CanvasSchemaResponse>(`/datasets/${datasetId}/canvas/fields/${encodeURIComponent(fieldName)}`);
+        return response.data;
+    },
 };
 
-// =============================================================================
-// KPI Formatting Utilities
-// =============================================================================
+export interface NumberFormatConfig {
+    type: 'automatic' | 'number_standard' | 'number_custom' | 'currency_standard' | 'currency_custom' | 'scientific' | 'percentage' | 'fraction' | 'standard_custom';
+    decimals?: number;
+    negativeStyle?: 'minus' | 'parentheses' | 'red';
+    prefix?: string;
+    suffix?: string;
+    separator?: ',' | '.' | ' ' | 'none' | string;
+    unit?: 'none' | 'K' | 'M' | 'B' | 'auto';
+}
+
+// Convert decimal values to standard mathematical fraction string
+function decimalToFraction(val: number): string {
+    if (Number.isInteger(val)) return String(val);
+    const absVal = Math.abs(val);
+    const tolerance = 1.0e-9;
+    let h1 = 1, h2 = 0, k1 = 0, k2 = 1;
+    let b = absVal;
+    do {
+        const a = Math.floor(b);
+        const aux = h1; h1 = a * h1 + h2; h2 = aux;
+        const aux2 = k1; k1 = a * k1 + k2; k2 = aux2;
+        b = 1 / (b - a);
+    } while (Math.abs(absVal - h1 / k1) > absVal * tolerance && k1 < 100);
+    
+    const sign = val < 0 ? '-' : '';
+    if (k1 > 100) {
+        return sign + absVal.toFixed(2);
+    }
+    
+    if (h1 > k1) {
+        const whole = Math.floor(h1 / k1);
+        const rem = h1 % k1;
+        if (rem === 0) return `${sign}${whole}`;
+        return `${sign}${whole} ${rem}/${k1}`;
+    }
+    
+    return `${sign}${h1}/${k1}`;
+}
+
+// Convert numbers into scientific notation (e.g. 1.50 × 10⁶)
+function formatScientific(num: number, decimals: number = 2): string {
+    const expStr = num.toExponential(decimals);
+    const [base, exp] = expStr.split('e');
+    const expNum = parseInt(exp, 10);
+    
+    const superscriptMap: Record<string, string> = {
+        '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴',
+        '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹',
+        '-': '⁻', '+': '⁺'
+    };
+    
+    const expSuperscript = String(expNum)
+        .split('')
+        .map(c => superscriptMap[c] || c)
+        .join('');
+        
+    return `${base} × 10${expSuperscript}`;
+}
+
+// Handle customizable number formatting for standard, custom, percentage, and currency types
+function formatCustom(num: number, config: NumberFormatConfig): string {
+    let val = num;
+    
+    if (config.type === 'percentage') {
+        val = val * 100;
+    }
+    
+    const decimals = config.decimals !== undefined ? config.decimals : 2;
+    
+    let unitSuffix = '';
+    if (config.unit && config.unit !== 'none') {
+        let absVal = Math.abs(val);
+        let selectedUnit: string = config.unit;
+        if (selectedUnit === 'auto') {
+            if (absVal >= 1_000_000_000) selectedUnit = 'B';
+            else if (absVal >= 1_000_000) selectedUnit = 'M';
+            else if (absVal >= 1_000) selectedUnit = 'K';
+            else selectedUnit = 'none';
+        }
+        
+        if (selectedUnit === 'B') {
+            val = val / 1_000_000_000;
+            unitSuffix = 'B';
+        } else if (selectedUnit === 'M') {
+            val = val / 1_000_000;
+            unitSuffix = 'M';
+        } else if (selectedUnit === 'K') {
+            val = val / 1_000;
+            unitSuffix = 'K';
+        }
+    }
+    
+    let formattedNum = Math.abs(val).toFixed(decimals);
+    
+    if (config.separator !== 'none') {
+        const parts = formattedNum.split('.');
+        const thousandSeparator = config.separator || ',';
+        const decimalSeparator = thousandSeparator === ',' ? '.' : ',';
+        parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, thousandSeparator);
+        formattedNum = parts.join(decimalSeparator);
+    }
+    
+    const prefix = config.prefix || '';
+    const suffix = (config.suffix || '') + unitSuffix;
+    
+    const isNegative = num < 0;
+    if (isNegative) {
+        if (config.negativeStyle === 'parentheses') {
+            return `(${prefix}${formattedNum}${suffix})`;
+        }
+        return `-${prefix}${formattedNum}${suffix}`;
+    }
+    
+    return `${prefix}${formattedNum}${suffix}`;
+}
 
 /**
  * Auto-detect if a metric label suggests currency values.
@@ -111,25 +231,62 @@ function isPercentageMetric(label: string): boolean {
 
 /**
  * Format a numeric KPI value with professional compact notation.
- * 
- * Examples:
- *   formatKpiValue(2345678, 'Sales')        → '$2.3M'
- *   formatKpiValue(45200, 'Quantity')        → '45.2K'
- *   formatKpiValue(0.156, 'Churn Rate')      → '15.6%'
- *   formatKpiValue(1234567890, 'Revenue')    → '$1.2B'
- *   formatKpiValue(42, 'Count')              → '42'
  */
 export function formatKpiValue(
     value: number | string | null | undefined, 
     metricLabel: string = '',
-    activeAgg?: string
+    activeAgg?: string,
+    formatConfig?: NumberFormatConfig
 ): string {
     if (value === null || value === undefined) return '—';
 
     const num = typeof value === 'string' ? parseFloat(value) : value;
     if (isNaN(num)) return String(value);
 
-    // If counting records, bypass currency rules
+    // Process explicit formatting configurations
+    if (formatConfig && formatConfig.type !== 'automatic') {
+        switch (formatConfig.type) {
+            case 'number_standard':
+                return formatCustom(num, {
+                    type: 'number_standard',
+                    decimals: 2,
+                    separator: ',',
+                    negativeStyle: formatConfig.negativeStyle || 'minus'
+                });
+            case 'number_custom':
+                return formatCustom(num, formatConfig);
+            case 'currency_standard':
+                return formatCustom(num, {
+                    type: 'currency_standard',
+                    decimals: 2,
+                    prefix: '$',
+                    separator: ',',
+                    negativeStyle: formatConfig.negativeStyle || 'minus'
+                });
+            case 'currency_custom':
+                return formatCustom(num, formatConfig);
+            case 'scientific':
+                return formatScientific(num, formatConfig.decimals !== undefined ? formatConfig.decimals : 2);
+            case 'percentage':
+                return formatCustom(num, {
+                    type: 'percentage',
+                    decimals: formatConfig.decimals !== undefined ? formatConfig.decimals : 1,
+                    suffix: '%',
+                    separator: formatConfig.separator || ',',
+                    negativeStyle: formatConfig.negativeStyle || 'minus'
+                });
+            case 'fraction':
+                return decimalToFraction(num);
+            case 'standard_custom':
+                return formatCustom(num, {
+                    ...formatConfig,
+                    prefix: formatConfig.prefix || '',
+                    suffix: formatConfig.suffix || ''
+                });
+        }
+    }
+
+    // Default Automatic Display Logic
     const isCount = activeAgg === 'COUNT';
     const isVar = activeAgg === 'VAR_SAMP';
     const isPercentChange = activeAgg === 'PERCENT_CHANGE';
@@ -137,12 +294,10 @@ export function formatKpiValue(
     const isCurrency = !isCount && !isVar && !isPercentChange && isCurrencyMetric(metricLabel);
     const isPercent = isPercentChange || (!isCount && !isVar && isPercentageMetric(metricLabel));
 
-    // Handle percentage-like ratios (0.0 to 1.0)
     if (isPercent && Math.abs(num) <= 1.0 && !isPercentChange) {
         return `${(num * 100).toFixed(1)}%`;
     }
 
-    // Handle explicit percentages (including those > 100) or PERCENT_CHANGE which is already scaled to 100 by SQL
     if (isPercent) {
         const sign = isPercentChange && num > 0 ? '+' : '';
         return `${sign}${num.toFixed(1)}%`;

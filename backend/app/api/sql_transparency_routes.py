@@ -108,6 +108,8 @@ def _df_to_records_safe(df: pd.DataFrame, max_rows: int) -> tuple[list[dict[str,
     for _, row in df.iterrows():
         clean = {}
         for col, val in row.items():
+            if hasattr(val, "item"):
+                val = val.item()
             if isinstance(val, float) and (np.isnan(val) or np.isinf(val)):
                 clean[col] = None
             else:
