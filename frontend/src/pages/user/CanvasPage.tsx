@@ -1605,13 +1605,13 @@ export default function CanvasPage() {
       const fallbackDate = `(CASE WHEN TRY_CAST(${getColExpr(realDim)} AS DATE) IS NOT NULL THEN TRY_CAST(${getColExpr(realDim)} AS DATE) WHEN TRY_CAST(${getColExpr(realDim)} AS TIMESTAMP) IS NOT NULL THEN CAST(TRY_CAST(${getColExpr(realDim)} AS TIMESTAMP) AS DATE) ELSE NULL END)`;
       
       if (grain === 'year') {
-        grainExpr = `COALESCE(strftime(${fallbackDate}, '%Y'), CAST(regexp_extract(${getColExpr(realDim)}, '\\d{4}') AS VARCHAR))`;
+        grainExpr = `COALESCE(strftime(${fallbackDate}, '%Y'), regexp_extract(CAST(${getColExpr(realDim)} AS VARCHAR), '\\d{4}'))`;
       } else if (grain === 'quarter') {
-        grainExpr = `COALESCE(strftime(${fallbackDate}, '%Y-Q') || CAST(quarter(${fallbackDate}) AS VARCHAR), ${getColExpr(realDim)})`;
+        grainExpr = `COALESCE(strftime(${fallbackDate}, '%Y-Q') || CAST(quarter(${fallbackDate}) AS VARCHAR), CAST(${getColExpr(realDim)} AS VARCHAR))`;
       } else if (grain === 'month') {
-        grainExpr = `COALESCE(strftime(${fallbackDate}, '%Y-%m'), ${getColExpr(realDim)})`;
+        grainExpr = `COALESCE(strftime(${fallbackDate}, '%Y-%m'), CAST(${getColExpr(realDim)} AS VARCHAR))`;
       } else {
-        grainExpr = `COALESCE(CAST(${fallbackDate} AS VARCHAR), ${getColExpr(realDim)})`;
+        grainExpr = `COALESCE(CAST(${fallbackDate} AS VARCHAR), CAST(${getColExpr(realDim)} AS VARCHAR))`;
       }
 
       // Always alias output as label/value for consistent key mapping
@@ -3054,12 +3054,16 @@ export default function CanvasPage() {
                                     if (!widget.data || widget.data.length === 0) {
                                       return <text x="100" y="50" fill="#94a3b8" fontSize="8" textAnchor="middle" fontFamily="monospace">No data points</text>;
                                     }
-                                    const maxVal = Math.max(...widget.data.map(d => Number(d[valKey]) || 0)) || 1;
                                     
+                                    const vals = widget.data.map(d => Number(d[valKey]) || 0);
+                                    const maxVal = Math.max(...vals, 1);
+                                    const minVal = Math.min(...vals, 0); 
+                                    const range = maxVal - minVal || 1;
+
                                     if (widget.data.length === 1) {
-                                      const numVal = Number(widget.data[0][valKey]) || 0;
+                                      const numVal = vals[0];
                                       const x = 100;
-                                      const y = 90 - (numVal / maxVal) * 75;
+                                      const y = 90 - ((numVal - minVal) / range) * 75;
                                       const labelVal = widget.data[0][widget.xAxisKey || 'label'] || '';
                                       return (
                                         <circle
@@ -3069,7 +3073,7 @@ export default function CanvasPage() {
                                           fill={widget.color || '#3B82F6'}
                                           stroke="#fff"
                                           strokeWidth="2"
-                                          className="cursor-pointer hover:scale-125 transition-all duration-150"
+                                          className="cursor-pointer hover:opacity-80 transition-opacity duration-150"
                                           onClick={(e) => {
                                             e.stopPropagation();
                                             const filterCol = widget.targetDimName || widget.xAxisKey || 'label';
@@ -3107,11 +3111,11 @@ export default function CanvasPage() {
                                       );
                                     }
 
-                                    const segmentWidth = 200 / (widget.data.length - 1 || 1);
+                                    const segmentWidth = 180 / (widget.data.length - 1 || 1);
                                     
                                     const points = widget.data.map((item, idx) => {
-                                      const x = idx * segmentWidth;
-                                      const y = 90 - ((Number(item[valKey]) || 0) / maxVal) * 75; // map to svg viewbox bounds
+                                      const x = 10 + idx * segmentWidth;
+                                      const y = 90 - ((vals[idx] - minVal) / range) * 75; // map to svg viewbox bounds
                                       return { x, y };
                                     });
 
@@ -3119,7 +3123,7 @@ export default function CanvasPage() {
                                       return idx === 0 ? `M ${p.x} ${p.y}` : `${acc} L ${p.x} ${p.y}`;
                                     }, '');
 
-                                    const areaD = `${pathD} L 200 100 L 0 100 Z`;
+                                    const areaD = `${pathD} L 190 100 L 10 100 Z`;
 
                                     return (
                                       <>
@@ -3128,7 +3132,7 @@ export default function CanvasPage() {
                                         {points.map((p, idx) => {
                                           const item = widget.data[idx];
                                           const labelVal = item[widget.xAxisKey || 'label'] || '';
-                                          const numVal = item[valKey] || 0;
+                                          const numVal = vals[idx];
                                           return (
                                             <circle 
                                               key={idx} 
@@ -3138,7 +3142,7 @@ export default function CanvasPage() {
                                               fill={widget.color || '#3B82F6'} 
                                               stroke="#fff" 
                                               strokeWidth="1.5" 
-                                              className="cursor-pointer hover:scale-125 transition-all duration-150"
+                                              className="cursor-pointer hover:opacity-80 transition-opacity duration-150"
                                               onClick={(e) => {
                                                 e.stopPropagation();
                                                 const filterCol = widget.targetDimName || widget.xAxisKey || 'label';
