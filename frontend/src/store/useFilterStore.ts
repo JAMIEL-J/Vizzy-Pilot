@@ -644,6 +644,15 @@ const recomputeCharts = (
                     return acc;
                 }, {} as Record<string, { positive: number; negative: number }>);
 
+                const titleText = String(config.title || '').toLowerCase();
+                const topMatch = titleText.match(/\btop\s*(\d+)\b/);
+                const titleLimit = topMatch ? parseInt(topMatch[1]) : null;
+                const originalSeedRows = initialChartData?.[slotId] as any[];
+                const originalLimit = originalSeedRows && originalSeedRows.length > 0 
+                    ? originalSeedRows.length 
+                    : (seedRows.length > 0 ? seedRows.length : null);
+                const limit = titleLimit ?? originalLimit ?? 10;
+
                 const rows = (Object.entries(groupedStacked) as Array<[string, { positive: number; negative: number }]>)
                     .filter(([name]) => name !== 'Unknown')
                     .map(([name, counts]) => ({
@@ -652,7 +661,7 @@ const recomputeCharts = (
                         negative: Math.round(counts.negative * scalingFactor),
                     }))
                     .sort((a, b) => b.positive - a.positive)
-                    .slice(0, 10);
+                    .slice(0, limit);
 
                 charts[slotId] = rows;
                 continue;
@@ -840,7 +849,15 @@ const recomputeCharts = (
                 charts[slotId] = chartData;
             } else {
                 chartData.sort((a, b) => b.value - a.value);
-                charts[slotId] = chartData.slice(0, 10);
+                const titleText = String(config.title || '').toLowerCase();
+                const topMatch = titleText.match(/\btop\s*(\d+)\b/);
+                const titleLimit = topMatch ? parseInt(topMatch[1]) : null;
+                const originalSeedRows = initialChartData?.[slotId] as any[];
+                const originalLimit = originalSeedRows && originalSeedRows.length > 0 
+                    ? originalSeedRows.length 
+                    : (seedRows.length > 0 ? seedRows.length : null);
+                const limit = titleLimit ?? originalLimit ?? 10;
+                charts[slotId] = chartData.slice(0, limit);
             }
         }
     }

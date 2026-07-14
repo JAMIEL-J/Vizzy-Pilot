@@ -43,6 +43,7 @@ interface CanvasWidget {
   targetDimName?: string;
   filterOmitted?: boolean;
   numberFormat?: NumberFormatConfig;
+  limit?: number;
 }
 
 // Initial starter widgets (Starts empty in production for real data generation)
@@ -407,7 +408,7 @@ export default function CanvasPage() {
 
   // Mapper function to transform a backend chart spec to a CanvasWidget shape
   const chartSpecToCanvasWidget = (spec: any, query: string, sql: string, thinking: string[], resultSummary: string): CanvasWidget => {
-    const chart = spec.chart || {};
+    const chart = (spec && spec.chart) ? spec.chart : (spec || {});
     const type = chart.type === 'stacked_bar' || chart.type === 'stacked' ? 'stacked_bar' : (chart.type || 'table');
     
     let data: any[] = [];
@@ -468,6 +469,10 @@ export default function CanvasPage() {
     const widgetColors = ['#0EA5E9', '#10B981', '#8B5CF6', '#F59E0B', '#EC4899', '#14B8A6'];
     const color = widgetColors[Math.floor(Math.random() * widgetColors.length)];
 
+    const titleText = String(chart.title || '').toLowerCase();
+    const topMatch = titleText.match(/\btop\s*(\d+)\b/);
+    const limitVal = topMatch ? parseInt(topMatch[1]) : (data && data.length > 0 ? data.length : undefined);
+
     return {
       id: 'w-' + Date.now(),
       title: chart.title || 'AI Visual',
@@ -484,7 +489,8 @@ export default function CanvasPage() {
       resultSummary: resultSummary,
       position: { x: 32, y: 152 },
       targetMetricName: chart.metric || '',
-      targetDimName: chart.dimension || ''
+      targetDimName: chart.dimension || '',
+      limit: limitVal
     };
   };
 
@@ -812,9 +818,26 @@ export default function CanvasPage() {
           setWidgets(currentWidgets => currentWidgets.map(w => {
             const update = updates.find(u => u.id === w.id);
             if (update && !update.error) {
+              let updatedData = update.data || [];
+
+              // Map SQL label/value results back to Pie's expected { name, val } structure
+              if (w.type === 'pie') {
+                updatedData = updatedData.map((r: any) => ({ name: r.label || r.name, val: r.value || r.val }));
+              }
+
+              // Apply dynamic Top-N slicing
+              const titleText = String(w.title || '').toLowerCase();
+              const topMatch = titleText.match(/\btop\s*(\d+)\b/);
+              const titleLimit = topMatch ? parseInt(topMatch[1]) : null;
+              const limit = titleLimit ?? w.limit;
+
+              if (limit && updatedData.length > limit) {
+                updatedData = updatedData.slice(0, limit);
+              }
+
               const newWidget = {
                 ...w,
-                data: update.data,
+                data: updatedData,
                 filterOmitted: update.filterOmitted
               };
               // If it's a KPI and it re-queried successfully without fallback, update its value dynamically
@@ -1277,7 +1300,12 @@ export default function CanvasPage() {
 
       // 3. Process result
       const outputData = res.assistant_message?.output_data;
-      if (outputData && (outputData.type === 'nl2sql' || outputData.chart)) {
+      const isChart = outputData && (
+        outputData.chart ||
+        outputData.type === 'nl2sql' ||
+        ['bar', 'stacked_bar', 'line', 'pie', 'kpi', 'table'].includes(outputData.type)
+      );
+      if (isChart) {
         const sql = outputData.sql || '';
         const chartSpec = outputData.chart || {};
         const explanation = outputData.explanation || {};
@@ -1800,7 +1828,8 @@ export default function CanvasPage() {
       } else {
         // Bar/Pie — always alias to label/value
         const labelExpr = getColExpr(dimension);
-        sql = `SELECT ${labelExpr} AS label, ${buildAggExpr(agg, metric, '1')} AS value FROM data GROUP BY 1 ORDER BY value DESC LIMIT 15`;
+        const limitVal = widget.limit || 15;
+        sql = `SELECT ${labelExpr} AS label, ${buildAggExpr(agg, metric, '1')} AS value FROM data GROUP BY 1 ORDER BY value DESC LIMIT ${limitVal}`;
         title = agg === 'PERCENT_CHANGE' ? `% Change of ${metric} by ${dimension}` : `${metric} (${agg}) by ${dimension}`;
       }
 
@@ -2196,11 +2225,12 @@ export default function CanvasPage() {
                     fieldsList.map((field) => {
                       const isChecked = checkedFields.includes(field.name);
                       return (
-                        <button
-                          key={field.name} onClick={() => handleFieldToggle(field.name)} draggable="true" onDragStart={(e) => { e.dataTransfer.setData("text/plain", field.name); e.dataTransfer.effectAllowed = "copyMove"; addLog(`Dragging column: "${field.name}". Drop it in the Interactive Canvas Slicers zone to filter!`); }} onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, field: field }); }}
-                          className="w-full flex items-center justify-between p-2 rounded-xl text-xs font-mono transition-all hover:bg-surface-2 border border-transparent cursor-pointer"
+                        <div
+                          key={field.name} draggable="true" onDragStart={(e) => { e.dataTransfer.setData("text/plain", field.name); e.dataTransfer.effectAllowed = "copyMove"; addLog(`Dragging column: "${field.name}". Drop it in the Interactive Canvas Slicers zone to filter!`); }} onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, field: field }); }}
+                          className="w-full flex items-center justify-between p-2 rounded-xl text-xs font-mono transition-all hover:bg-surface-2 border border-transparent group"
                         >
-                          <div className="flex items-center space-x-2.5 min-w-0 group"><GripVertical className="w-3 h-3 text-muted-custom/30 group-hover:text-accent-custom shrink-0 cursor-grab active:cursor-grabbing mr-1 transition-all" />
+                          <div onClick={() => handleFieldToggle(field.name)} className="flex items-center space-x-2.5 min-w-0 cursor-pointer flex-1">
+                            <GripVertical className="w-3 h-3 text-muted-custom/30 group-hover:text-accent-custom shrink-0 cursor-grab active:cursor-grabbing mr-1 transition-all" />
                             <div className={`w-3.5 h-3.5 rounded flex items-center justify-center border transition-all ${
                               isChecked 
                                 ? 'bg-accent-custom border-accent-custom text-white' 
@@ -2212,7 +2242,7 @@ export default function CanvasPage() {
                               {prettifyLabel(field.name)}
                             </span>
                           </div>
-                          <div className="flex items-center space-x-1.5">
+                          <div className="flex items-center space-x-1.5 ml-2">
                             <span className="text-[9px] px-1.5 py-0.5 rounded bg-surface border border-border-custom text-muted-custom font-mono uppercase group-hover:hidden">
                               {field.category.slice(0, 3)}
                             </span>
@@ -2225,7 +2255,7 @@ export default function CanvasPage() {
                               <Trash2 className="w-3 h-3" />
                             </button>
                           </div>
-                        </button>
+                        </div>
                       );
                     })
                   )}
@@ -2816,7 +2846,7 @@ export default function CanvasPage() {
                         exit={{ opacity: 0, scale: 0.9 }}
                         transition={{ type: "spring", stiffness: 220, damping: 22 }}
                         key={widget.id}
-                        className={`bg-surface border rounded-2xl p-4 shadow-sm flex flex-col justify-between overflow-hidden transition-all select-none touch-none ${
+                        className={`bg-surface border rounded-2xl p-4 shadow-sm flex flex-col justify-between overflow-visible transition-all select-none touch-none ${
                           isResponsive ? 'relative w-full' : 'absolute'
                         } ${
                           isPresentMode
@@ -2848,8 +2878,8 @@ export default function CanvasPage() {
                         {/* Upper controls toolbar */}
                         {isPresentMode ? (
                           <div className="flex items-center justify-between mb-2 border-b border-border-custom/30 pb-1.5 text-left">
-                            <div className="flex items-center space-x-1.5 min-w-0">
-                              <span className="text-[10px] font-mono text-text-custom font-bold uppercase tracking-wider truncate" title={widget.title}>
+                            <div className="flex items-center space-x-1.5 min-w-0 flex-1">
+                              <span className="text-[10px] font-mono text-text-custom font-bold uppercase tracking-wider whitespace-normal break-words" title={widget.title}>
                                 {widget.title}
                               </span>
                               {isSlicerMissing && (
@@ -2868,9 +2898,9 @@ export default function CanvasPage() {
                             className="flex items-center justify-between mb-2 border-b border-border-custom/50 pb-1.5 cursor-grab active:cursor-grabbing"
                             title="Click & Drag header to position anywhere on canvas"
                           >
-                            <div className="flex items-center space-x-1.5 min-w-0">
+                            <div className="flex items-center space-x-1.5 min-w-0 flex-1">
                               <Move className="w-3.5 h-3.5 text-accent-custom shrink-0" />
-                              <span className="text-[10px] font-mono text-text-custom font-semibold uppercase tracking-wider truncate max-w-[100px]" title={widget.title}>
+                              <span className="text-[10px] font-mono text-text-custom font-semibold uppercase tracking-wider whitespace-normal break-words" title={widget.title}>
                                 {widget.title}
                               </span>
                               {isSlicerMissing && (
@@ -2918,25 +2948,42 @@ export default function CanvasPage() {
                         {/* PowerBI Style Geometry Adjuster Overlay */}
                         {editingWidgetId === widget.id && (
                           <div 
-                            className="absolute inset-0 bg-surface/98 z-40 p-3 flex flex-col justify-between border border-accent-custom/30 rounded-2xl animate-in fade-in zoom-in-95 duration-150 text-left select-none"
+                            className="absolute inset-0 bg-surface/98 z-40 p-3 flex flex-col justify-between border border-accent-custom/30 rounded-2xl animate-in fade-in zoom-in-95 duration-150 text-left select-none overflow-y-auto"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            <div className="flex items-center justify-between border-b border-border-custom/50 pb-1 mb-1.5">
-                              <div className="text-[9px] font-mono font-bold uppercase tracking-wider text-accent-custom flex items-center space-x-1">
-                                <Settings2 className="w-2.5 h-2.5" />
-                                <span>Geometry Bounds</span>
+                            <div>
+                              <div className="flex items-center justify-between border-b border-border-custom/50 pb-1 mb-2">
+                                <div className="text-[9px] font-mono font-bold uppercase tracking-wider text-accent-custom flex items-center space-x-1">
+                                  <Settings2 className="w-2.5 h-2.5" />
+                                  <span>Visual Properties</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingWidgetId(null)}
+                                  className="text-[9px] font-mono text-accent-custom hover:underline font-bold transition-all"
+                                >
+                                  Done
+                                </button>
                               </div>
-                              <button
-                                type="button"
-                                onClick={() => setEditingWidgetId(null)}
-                                className="text-[9px] font-mono text-accent-custom hover:underline font-bold transition-all"
-                              >
-                                Done
-                              </button>
+
+                              {/* Title Modifier */}
+                              <div className="mb-2">
+                                <span className="text-[8px] text-muted-custom uppercase font-semibold block mb-1">Visual Title</span>
+                                <input
+                                  type="text"
+                                  value={widget.title}
+                                  onChange={(e) => {
+                                    const newTitle = e.target.value;
+                                    setWidgets(prev => prev.map(w => w.id === widget.id ? { ...w, title: newTitle } : w));
+                                  }}
+                                  className="w-full bg-surface-2 border border-border-custom/50 rounded px-1.5 py-0.5 text-[10px] text-text-custom focus:outline-none focus:border-accent-custom font-mono"
+                                  placeholder="Edit title..."
+                                />
+                              </div>
                             </div>
 
                             {/* Control inputs */}
-                            <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
+                            <div className="grid grid-cols-2 gap-2 text-[10px] font-mono mt-1">
                               {/* Position controls */}
                               <div className="space-y-1.5 border-r border-border-custom/30 pr-1.5">
                                 <span className="text-[8px] text-muted-custom uppercase font-semibold">Position</span>
@@ -3047,23 +3094,6 @@ export default function CanvasPage() {
                                 >
                                   {kpiData.value || '—'}
                                 </div>
-                                <p className="text-[10px] font-medium text-muted-custom line-clamp-1 mt-1.5 uppercase tracking-wider">
-                                  {kpiData.subtext}
-                                </p>
-                                {/* Secondary metrics row (from prompt-generated multi-metric KPIs) */}
-                                {widget.data && widget.data.length > 1 && (
-                                  <div className="flex gap-3 mt-2 pt-1.5 border-t border-border-custom/20">
-                                    {widget.data.slice(1, 3).map((m: any, i: number) => (
-                                      <div key={i} className="text-[9px]">
-                                        <span className="text-muted-custom">{m.label || m.key}: </span>
-                                        <span className="font-semibold text-text-custom">
-                                          {typeof m.value === 'number' ? m.value.toLocaleString() : m.value}
-                                          {m.suffix || ''}
-                                        </span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
                               </div>
                             </div>
                           )}
