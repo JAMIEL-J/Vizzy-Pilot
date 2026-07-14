@@ -524,13 +524,7 @@ async def delete_canvas_field(
     """
     Deletes a specific field (e.g. calculated field) from the dataset schema metadata.
     """
-    from app.models.dataset_version import DatasetVersion
-    latest_version = session.exec(
-        select(DatasetVersion)
-        .where(DatasetVersion.dataset_id == dataset_id)
-        .where(DatasetVersion.status == "success")
-        .order_by(DatasetVersion.created_at.desc())
-    ).first()
+    latest_version = get_latest_version(session=session, dataset_id=dataset_id)
 
     if not latest_version:
         raise HTTPException(status_code=404, detail="No active dataset version found")
