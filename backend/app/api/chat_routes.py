@@ -665,6 +665,7 @@ class SendMessageRequest(BaseModel):
     content: str = Field(..., min_length=1, max_length=5000)
     force_deep_analysis: bool = Field(default=False)
     enable_suggestions: bool = Field(default=False)
+    compile_visual_only: bool = Field(default=False)
 
 
 class MessageResponse(BaseModel):
@@ -1044,10 +1045,16 @@ async def send_message(
 
         # Run analysis if dataset is attached
         if has_dataset_attached:
-            # ── Intent Detection (6-type heuristic) ──
-            detected_intent, intent_confidence, intent_label = classify_intent_fast(query_text)
-            is_dashboard = detected_intent == 'dashboard'
-            interpretive_text_mode = (_looks_interpretive_query(query_text) and not _explicitly_requests_visual(query_text))
+            force_nl2sql = getattr(request, "compile_visual_only", False)
+            if force_nl2sql:
+                is_dashboard = False
+                interpretive_text_mode = False
+                is_schema_columns_query = False
+            else:
+                # ── Intent Detection (6-type heuristic) ──
+                detected_intent, intent_confidence, intent_label = classify_intent_fast(query_text)
+                is_dashboard = detected_intent == 'dashboard'
+                interpretive_text_mode = (_looks_interpretive_query(query_text) and not _explicitly_requests_visual(query_text))
 
             if is_schema_columns_query:
                 from app.models.dataset_version import DatasetVersion
@@ -1452,12 +1459,19 @@ async def send_message_stream(
                         # the non-streaming path so a streamed clarification
                         # click is also handled consistently.
                         query_text = _rewrite_clarification_query(request.content)
-                        detected_intent, intent_confidence, intent_label = classify_intent_fast(query_text)
-                        clean_label = intent_label.replace('🎯 ', '').replace('📊 ', '').replace('📈 ', '').replace('🔍 ', '').strip()
-                        await emit_thought(f"Classifying query intent: identified as {clean_label.lower()} ({intent_confidence:.0%} confidence)")
-                        is_dashboard = detected_intent == 'dashboard'
-                        interpretive_text_mode = (_looks_interpretive_query(query_text) and not _explicitly_requests_visual(query_text))
-                        is_schema_columns_query = _is_schema_columns_query(query_text) and not _explicitly_requests_visual(query_text)
+                        
+                        force_nl2sql = getattr(request, "compile_visual_only", False)
+                        if force_nl2sql:
+                            is_dashboard = False
+                            interpretive_text_mode = False
+                            is_schema_columns_query = False
+                        else:
+                            detected_intent, intent_confidence, intent_label = classify_intent_fast(query_text)
+                            clean_label = intent_label.replace('🎯 ', '').replace('📊 ', '').replace('📈 ', '').replace('🔍 ', '').strip()
+                            await emit_thought(f"Classifying query intent: identified as {clean_label.lower()} ({intent_confidence:.0%} confidence)")
+                            is_dashboard = detected_intent == 'dashboard'
+                            interpretive_text_mode = (_looks_interpretive_query(query_text) and not _explicitly_requests_visual(query_text))
+                            is_schema_columns_query = _is_schema_columns_query(query_text) and not _explicitly_requests_visual(query_text)
 
                         if is_schema_columns_query:
                             await emit_thought("Detected schema/column discovery query \u2014 returning column listing")

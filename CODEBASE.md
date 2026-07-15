@@ -6,6 +6,14 @@
 
 ## 📝 Recent Architectural Changes Log
 
+### **Canvas Multi-Chart Types, Session Selection & Schema Alignments (2026-07-15)**
+- **Feature (Expanded Charts & Custom Maps on Canvas)**: Added layout compilation pipelines, Visualization Palette UI buttons, and custom vector SVG rendering models to support `map` (via interactive [CustomGeoMap.tsx](file:///D:/Vizzy%20Redesign/Vizzy%20Redesign/frontend/src/pages/user/CustomGeoMap.tsx)), `scatter` plots, `bubble` matrices, `combo` (dual-axis bar/line) charts, and `hbar` (horizontal progress bar lists) in [CanvasPage.tsx](file:///D:/Vizzy%20Redesign/Vizzy%20Redesign/frontend/src/pages/user/CanvasPage.tsx).
+- **Feature (Multi-Select Chat Session Deletion)**: Implemented interactive checkbox selection controls and batch delete API invocation in [ChatInterface.tsx](file:///D:/Vizzy%20Redesign/Vizzy%20Redesign/frontend/src/pages/user/ChatInterface.tsx#L800) sidebar history.
+- **UI Refinement (KPI Card Borders & Alignment)**: Removed title header horizontal border separators from KPI cards and moved the gradient accent bar to the parent card container level in [CanvasPage.tsx](file:///D:/Vizzy%20Redesign/Vizzy%20Redesign/frontend/src/pages/user/CanvasPage.tsx#L2869) to touch card borders directly. Deleted stray tag brackets to ensure JSX sanity.
+- **Bug Fix (Duplicate path parameter)**: Corrected the compile router path from `"/datasets/{dataset_id}/compile"` to `"/compile"` in [canvas_routes.py](file:///D:/Vizzy%20Redesign/Vizzy%20Redesign/backend/app/api/canvas_routes.py#L588) to resolve FastAPI startup parameter duplication crash.
+- **Bug Fix (Pydantic Name Shadowing)**: Aliased `schema_` to `"schema"` in `CalculateFieldResponse` in [canvas_routes.py](file:///D:/Vizzy%20Redesign/Vizzy%20Redesign/backend/app/api/canvas_routes.py#L342) to fix Pydantic BaseModel attribute shadowing warnings.
+- **Bug Fix (NameError Missing Import)**: Restored `_df_to_records_safe` import in [canvas_routes.py](file:///D:/Vizzy%20Redesign/Vizzy%20Redesign/backend/app/api/canvas_routes.py#L20) to fix runtime execute crash.
+
 ### **Canvas Number Formatting Settings (2026-07-14)**
 - **Feature (Dynamic Formatting Engine)**: Implemented `NumberFormatConfig` schema and customized number formatter supporting Automatic, Standard & Custom Number, Standard & Custom Currency, Scientific notation (e.g. `1.50 × 10⁶`), Fraction (e.g. `1 1/3`), and Custom Standard.
 - **Feature (Context Menu Submenu)**: Added a premium hover-based flyout submenu item "Format Value" to the right-click widget aggregation actions.

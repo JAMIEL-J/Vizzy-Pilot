@@ -10,7 +10,7 @@ import {
     Sparkles, Database, Code2, Check, ArrowUp,
     BarChart3, AlertCircle, X, Plus, MessageSquare,
     PanelLeft, PanelLeftClose, Table as TableIcon, FileText, Wand2, BrainCog, Globe,
-    ChevronDown, ChevronRight, Pin
+    ChevronDown, ChevronRight, Pin, CheckSquare, Trash2
 } from 'lucide-react';
 import { Panel, PanelHeader, Pill, BtnGhost, BtnSecondary, BtnAccent } from '@/components/ui/primitive';
 import RuixenMoonChat from '../../components/ui/ruixen-moon-chat';
@@ -227,6 +227,8 @@ export default function ChatInterface() {
     const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
     const [isArtifactVisible, setIsArtifactVisible] = useState(false);
     const [sessions, setSessions] = useState<ChatSession[]>([]);
+    const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
+    const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([]);
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [historyClock, setHistoryClock] = useState<number>(() => Date.now());
     const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 768 : false);
@@ -423,6 +425,24 @@ export default function ChatInterface() {
             }
         } catch (error) {
             console.error('Failed to delete session:', error);
+        }
+    };
+
+    const handleDeleteSelectedSessions = async () => {
+        if (selectedSessionIds.length === 0) return;
+        if (!confirm(`Are you sure you want to delete the ${selectedSessionIds.length} selected chat sessions?`)) return;
+        try {
+            await Promise.all(selectedSessionIds.map(id => chatService.deleteSession(id)));
+            setSessions(prev => prev.filter(s => !selectedSessionIds.includes(s.id)));
+            if (currentSessionId && selectedSessionIds.includes(currentSessionId)) {
+                setCurrentSessionId(null);
+                setMessages([]);
+                setInitialSuggestions([]);
+            }
+            setSelectedSessionIds([]);
+            setIsMultiSelectMode(false);
+        } catch (error) {
+            console.error('Failed to delete selected sessions:', error);
         }
     };
 
@@ -799,7 +819,7 @@ export default function ChatInterface() {
 
     const renderHistoryList = () => (
         <>
-            <div className="flex items-center justify-between px-3 py-3">
+            <div className="flex items-center justify-between px-3 py-3 border-b border-border/20">
                 <div className="flex items-center gap-2">
                     <button
                         type="button"
@@ -809,16 +829,58 @@ export default function ChatInterface() {
                     >
                         <PanelLeftClose className="h-3.5 w-3.5" />
                     </button>
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Sessions</span>
+                    {!isMultiSelectMode ? (
+                        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Sessions</span>
+                    ) : (
+                        <span className="text-[11px] font-semibold uppercase tracking-wider text-red-500">Select Chats</span>
+                    )}
                 </div>
-                <button
-                    type="button"
-                    onClick={handleNewChat}
-                    className="rounded p-1 text-muted-foreground hover:bg-surface-2 hover:text-foreground"
-                    title="New analysis"
-                >
-                    <Plus className="h-3.5 w-3.5" />
-                </button>
+                <div className="flex items-center gap-1">
+                    {isMultiSelectMode ? (
+                        <>
+                            <button
+                                type="button"
+                                onClick={handleDeleteSelectedSessions}
+                                className="rounded p-1 text-red-500 hover:bg-red-500/10 transition disabled:opacity-40"
+                                title={`Delete selected (${selectedSessionIds.length})`}
+                                disabled={selectedSessionIds.length === 0}
+                            >
+                                <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setIsMultiSelectMode(false);
+                                    setSelectedSessionIds([]);
+                                }}
+                                className="rounded px-1.5 py-0.5 hover:bg-surface-2 text-[10px] font-medium text-muted-foreground transition"
+                            >
+                                Cancel
+                            </button>
+                        </>
+                    ) : (
+                        <>
+                            {sessions.length > 0 && (
+                                <button
+                                    type="button"
+                                    onClick={() => setIsMultiSelectMode(true)}
+                                    className="rounded p-1 text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                                    title="Select multiple sessions"
+                                >
+                                    <CheckSquare className="h-3.5 w-3.5" />
+                                </button>
+                            )}
+                            <button
+                                type="button"
+                                onClick={handleNewChat}
+                                className="rounded p-1 text-muted-foreground hover:bg-surface-2 hover:text-foreground"
+                                title="New analysis"
+                            >
+                                <Plus className="h-3.5 w-3.5" />
+                              </button>
+                        </>
+                    )}
+                </div>
             </div>
             <div className="flex-1 overflow-auto px-2">
                 {[{ label: 'Today', items: groupedSessions.today }, { label: 'Yesterday', items: groupedSessions.yesterday }, { label: 'Previous', items: groupedSessions.previous }].map((group) => {
@@ -826,32 +888,71 @@ export default function ChatInterface() {
                     return (
                         <div key={group.label}>
                             <p className="px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{group.label}</p>
-                            {group.items.map(session => (
-                                <button
-                                    key={session.id}
-                                    type="button"
-                                    className={`group mb-0.5 flex w-full items-start gap-2 rounded-md px-2 py-2 text-left text-[12px] transition ${currentSessionId === session.id ? 'bg-surface-3 text-foreground' : 'text-muted-foreground hover:bg-surface-2 hover:text-foreground'}`}
-                                    onClick={() => loadSession(session.id)}
-                                >
-                                    <MessageSquare className="mt-0.5 h-3 w-3 text-muted-foreground" />
-                                    <div className="min-w-0 flex-1">
-                                        <div className="truncate font-medium">{session.title || 'Untitled Chat'}</div>
-                                        <div className="text-[10.5px] text-muted-foreground">{session.message_count} messages</div>
-                                    </div>
-                                    <span
-                                        role="button"
-                                        tabIndex={0}
-                                        onClick={(e) => handleDeleteSession(e as unknown as React.MouseEvent, session.id)}
-                                        onKeyDown={(e) => {
-                                            if (e.key === 'Enter' || e.key === ' ') handleDeleteSession(e as unknown as React.MouseEvent, session.id);
+                            {group.items.map(session => {
+                                const isSelected = selectedSessionIds.includes(session.id);
+                                return (
+                                    <button
+                                        key={session.id}
+                                        type="button"
+                                        className={`group mb-0.5 flex w-full items-start gap-2 rounded-md px-2 py-2 text-left text-[12px] transition ${
+                                            isMultiSelectMode 
+                                                ? isSelected 
+                                                    ? 'bg-red-500/5 text-foreground border border-red-500/20' 
+                                                    : 'text-muted-foreground hover:bg-surface-2 hover:text-foreground border border-transparent'
+                                                : currentSessionId === session.id 
+                                                    ? 'bg-surface-3 text-foreground border border-transparent' 
+                                                    : 'text-muted-foreground hover:bg-surface-2 hover:text-foreground border border-transparent'
+                                        }`}
+                                        onClick={() => {
+                                            if (isMultiSelectMode) {
+                                                setSelectedSessionIds(prev => 
+                                                    prev.includes(session.id) 
+                                                        ? prev.filter(id => id !== session.id) 
+                                                        : [...prev, session.id]
+                                                );
+                                            } else {
+                                                loadSession(session.id);
+                                            }
                                         }}
-                                        className="rounded p-1 text-muted-foreground opacity-0 hover:bg-red-500/10 hover:text-red-500 group-hover:opacity-100"
-                                        title="Delete session"
                                     >
-                                        <X className="h-3 w-3" />
-                                    </span>
-                                </button>
-                            ))}
+                                        {isMultiSelectMode ? (
+                                            <input
+                                                type="checkbox"
+                                                checked={isSelected}
+                                                onChange={(e) => {
+                                                    e.stopPropagation();
+                                                    setSelectedSessionIds(prev => 
+                                                        prev.includes(session.id) 
+                                                            ? prev.filter(id => id !== session.id) 
+                                                            : [...prev, session.id]
+                                                    );
+                                                }}
+                                                className="mt-0.5 h-3.5 w-3.5 rounded border-border bg-background text-accent-custom focus:ring-accent-custom/20 accent-sky-500 cursor-pointer shrink-0"
+                                            />
+                                        ) : (
+                                            <MessageSquare className="mt-0.5 h-3 w-3 text-muted-foreground shrink-0" />
+                                        )}
+                                        <div className="min-w-0 flex-1">
+                                            <div className="truncate font-medium">{session.title || 'Untitled Chat'}</div>
+                                            <div className="text-[10.5px] text-muted-foreground">{session.message_count} messages</div>
+                                        </div>
+                                        {!isMultiSelectMode && (
+                                            <span
+                                                role="button"
+                                                tabIndex={0}
+                                                onClick={(e) => handleDeleteSession(e as unknown as React.MouseEvent, session.id)}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter' || e.key === ' ') handleDeleteSession(e as unknown as React.MouseEvent, session.id);
+                                                }}
+                                                className="rounded p-1 text-muted-foreground opacity-0 hover:bg-red-500/10 hover:text-red-500 group-hover:opacity-100"
+                                                title="Delete session"
+                                            >
+                                                <X className="h-3 w-3" />
+                                            </span>
+                                        )}
+                                    </button>
+                                );
+                            })}
                         </div>
                     );
                 })}

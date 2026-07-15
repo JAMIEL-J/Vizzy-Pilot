@@ -83,6 +83,23 @@ export const canvasService = {
         const response = await apiClient.delete<CanvasSchemaResponse>(`/datasets/${datasetId}/canvas/fields/${encodeURIComponent(fieldName)}`);
         return response.data;
     },
+
+    // Compile AI Prompt into chart spec directly and statelessly
+    compilePrompt: async (datasetId: string, versionId: string | null, prompt: string, forceDeepAnalysis = false) => {
+        const response = await apiClient.post<{
+            success: boolean;
+            sql: string;
+            chart: any;
+            explanation: any;
+            timing: any;
+            error: string | null;
+        }>(`/datasets/${datasetId}/canvas/compile`, {
+            prompt,
+            version_id: versionId,
+            force_deep_analysis: forceDeepAnalysis
+        });
+        return response.data;
+    },
 };
 
 export interface NumberFormatConfig {

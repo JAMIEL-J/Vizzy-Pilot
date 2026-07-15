@@ -3,6 +3,7 @@ import {
   Sparkles, Grid, Sliders, Play, Trash2, ArrowRight, RotateCcw, LayoutGrid, 
   ChevronRight, ChevronLeft, Plus, Check, Settings2, Download, Eye, FileSpreadsheet,
   Info, BarChart3, BarChart4, PieChart as PieIcon, TrendingUp, HelpCircle, AlertCircle, Maximize2, Minimize2, Move,
+  Globe, ScatterChart, CircleDot, Shuffle, MapPin, Activity,
   Terminal, Code, Cpu, Database, Copy, CheckCheck, Table2, Layers, Undo2, Redo2,
   GripVertical, Filter, ChevronDown, GitBranch, FolderOpen, Save as SaveIcon, Loader2, ArrowRightLeft
 } from 'lucide-react';
@@ -18,12 +19,13 @@ import * as htmlToImage from 'html-to-image';
 import download from 'downloadjs';
 import { VizzyPilotLogoIcon } from '../../components/layout/VizzyLogo';
 import { prettifyLabel } from '../../components/dashboard/dashboard-helpers';
+import { CustomGeoMap } from './CustomGeoMap';
 
 // Define Widget Type for the Canvas with AI logs
 interface CanvasWidget {
   id: string;
   title: string;
-  type: 'kpi' | 'bar' | 'stacked_bar' | 'line' | 'pie' | 'table';
+  type: 'kpi' | 'bar' | 'stacked_bar' | 'line' | 'pie' | 'table' | 'map' | 'scatter' | 'bubble' | 'combo' | 'hbar';
   data: any[];
   width: 'full' | 'half' | 'third';
   value?: string;
@@ -44,6 +46,8 @@ interface CanvasWidget {
   filterOmitted?: boolean;
   numberFormat?: NumberFormatConfig;
   limit?: number;
+  isConfigWarning?: boolean;
+  configWarningMessage?: string;
 }
 
 // Initial starter widgets (Starts empty in production for real data generation)
@@ -1178,7 +1182,207 @@ export default function CanvasPage() {
     return { value: displayValue, subtext: displaySubtext };
   };
 
-  // Field selection auto-visual creation logic (Tableau-style single measure + single dimension filter)
+  const recompileWidget = async (widgetId: string, fields: string[]) => {
+    const targetWidget = widgets.find(w => w.id === widgetId);
+    if (!targetWidget) return;
+
+    const checkedMetrics = fields.filter(f => fieldsList.some(af => af.name === f && af.category === 'Metrics'));
+    const checkedDims = fields.filter(f => fieldsList.some(af => af.name === f && (af.category === 'Dimensions' || af.category === 'Dates')));
+    const isDimOnlyAnalysis = checkedMetrics.length === 0 && checkedDims.length >= 2;
+
+    const primaryMetric = isDimOnlyAnalysis
+      ? checkedDims[1]
+      : (checkedMetrics[0] || fieldsList.find(f => f.category === 'Metrics')?.name || '1');
+    const primaryDim = checkedDims[0] || fieldsList.find(f => f.category === 'Dimensions')?.name || fieldsList.find(f => f.category === 'Dates')?.name || fieldsList[0]?.name;
+
+    const type = targetWidget.type;
+
+    let isConfigWarning = false;
+    let configWarningMessage = '';
+
+    if (type === 'combo' && (checkedMetrics.length < 2 || checkedDims.length < 1)) {
+      isConfigWarning = true;
+      configWarningMessage = 'Combo visual requires 1 Dimension and at least 2 Metrics in the sidebar.';
+    } else if (type === 'scatter' && (checkedMetrics.length < 2 || checkedDims.length < 1)) {
+      isConfigWarning = true;
+      configWarningMessage = 'Scatter chart requires 1 Dimension and at least 2 Metrics.';
+    } else if (type === 'bubble' && (checkedMetrics.length < 3 || checkedDims.length < 1)) {
+      isConfigWarning = true;
+      configWarningMessage = 'Bubble chart requires 1 Dimension and at least 3 Metrics.';
+    } else if (type === 'stacked_bar' && checkedDims.length < 1) {
+      isConfigWarning = true;
+      configWarningMessage = 'Stacked bar requires at least 1 Dimension to pivot on.';
+    } else if (type === 'map' && (checkedMetrics.length < 1 || checkedDims.length < 1)) {
+      isConfigWarning = true;
+      configWarningMessage = 'Map visual requires 1 Geographic Dimension and 1 Metric.';
+    } else if (type === 'hbar' && (checkedMetrics.length < 1 && checkedDims.length < 2)) {
+      isConfigWarning = true;
+      configWarningMessage = 'H-Bar requires at least 1 Dimension and 1 Metric.';
+    } else if (type === 'line' && checkedDims.length < 1) {
+      isConfigWarning = true;
+      configWarningMessage = 'Line chart requires at least 1 temporal or grouping Dimension.';
+    } else if (type === 'bar' && checkedDims.length < 1) {
+      isConfigWarning = true;
+      configWarningMessage = 'Bar chart requires at least 1 Dimension.';
+    } else if (type === 'pie' && checkedDims.length < 1) {
+      isConfigWarning = true;
+      configWarningMessage = 'Donut chart requires at least 1 Dimension.';
+    } else if (type === 'kpi' && checkedMetrics.length < 1 && checkedDims.length < 2) {
+      isConfigWarning = true;
+      configWarningMessage = 'Card visual requires at least 1 Metric to summarize.';
+    }
+
+    if (isConfigWarning) {
+      setWidgets(prev => prev.map(w => w.id === widgetId ? {
+        ...w,
+        title: `${type.toUpperCase()} Visual (Configuration Pending)`,
+        isConfigWarning,
+        configWarningMessage,
+        data: [],
+        sql: '-- Column selections pending',
+        thinking: ['Waiting for correct dimension and metric selections in the left sidebar fields list.']
+      } : w));
+      return;
+    }
+
+    // compile SQL query
+    let sql = '';
+    let title = '';
+    
+    if (type === 'kpi') {
+      sql = isDimOnlyAnalysis
+        ? `SELECT COUNT(${getColExpr(primaryMetric)}) AS value FROM data`
+        : `SELECT ${buildAggExpr('SUM', primaryMetric)} AS value FROM data`;
+      title = isDimOnlyAnalysis ? `Count of ${primaryMetric}` : `Total ${primaryMetric}`;
+    } else if (type === 'table') {
+      const colsToSelect = fields.length > 0 
+        ? fields.map(f => `${getColExpr(f)} AS "${f}"`).join(', ')
+        : fieldsList.slice(0, 4).map(f => `${getColExpr(f.name)} AS "${f.name}"`).join(', ');
+      sql = `SELECT ${colsToSelect} FROM data LIMIT 50`;
+      title = `Dataset Sample Ledger`;
+    } else if (type === 'line') {
+      const fallbackDate = `(CASE WHEN TRY_CAST(${getColExpr(primaryDim)} AS DATE) IS NOT NULL THEN TRY_CAST(${getColExpr(primaryDim)} AS DATE) WHEN TRY_CAST(${getColExpr(primaryDim)} AS TIMESTAMP) IS NOT NULL THEN CAST(TRY_CAST(${getColExpr(primaryDim)} AS TIMESTAMP) AS DATE) ELSE NULL END)`;
+      const dateExpr = fieldsList.some(f => f.name === primaryDim && f.category === 'Dates')
+        ? `COALESCE(strftime(${fallbackDate}, '%Y-%m'), ${getColExpr(primaryDim)})`
+        : `${getColExpr(primaryDim)}`;
+
+      if (isDimOnlyAnalysis) {
+        sql = `SELECT ${dateExpr} AS label, COUNT(${getColExpr(primaryMetric)}) AS value FROM data GROUP BY 1 ORDER BY 1 ASC LIMIT 30`;
+        title = `Count of ${primaryMetric} by ${primaryDim}`;
+      } else if (checkedMetrics.length > 1) {
+        const metricSelections = checkedMetrics.map(m => `${buildAggExpr('SUM', m)} AS "${m}"`).join(', ');
+        sql = `SELECT ${dateExpr} AS label, ${metricSelections} FROM data GROUP BY 1 ORDER BY 1 ASC LIMIT 30`;
+        title = `Metrics Trend by ${primaryDim}`;
+      } else {
+        sql = `SELECT ${dateExpr} AS label, ${buildAggExpr('SUM', primaryMetric)} AS value FROM data GROUP BY 1 ORDER BY 1 ASC LIMIT 30`;
+        title = `${primaryMetric} Trend by ${primaryDim}`;
+      }
+    } else if (type === 'stacked_bar') {
+      if (checkedDims.length >= 2) {
+        sql = `SELECT ${getColExpr(checkedDims[0])} AS label, * EXCLUDE (${getColExpr(checkedDims[0])}) FROM (PIVOT data ON ${getColExpr(checkedDims[1])} USING ${buildAggExpr('SUM', primaryMetric)} GROUP BY ${getColExpr(checkedDims[0])}) LIMIT 15`;
+        title = `${primaryMetric} by ${checkedDims[0]} (Stacked by ${checkedDims[1]})`;
+      } else if (checkedMetrics.length > 1) {
+        const metricSelections = checkedMetrics.map(m => `${buildAggExpr('SUM', m)} AS "${m}"`).join(', ');
+        sql = `SELECT ${getColExpr(primaryDim)} AS label, ${metricSelections} FROM data GROUP BY 1 ORDER BY "${checkedMetrics[0]}" DESC LIMIT 15`;
+        title = `Comparison by ${primaryDim}`;
+      } else {
+        sql = `SELECT ${getColExpr(primaryDim)} AS label, ${buildAggExpr('SUM', primaryMetric)} AS value FROM data GROUP BY 1 ORDER BY value DESC LIMIT 15`;
+        title = `${primaryMetric} by ${primaryDim}`;
+      }
+    } else if (type === 'map') {
+      const geoDim = checkedDims.find(d => ['country', 'state', 'city', 'region', 'postal', 'zip'].some(keyword => d.toLowerCase().includes(keyword))) || primaryDim;
+      sql = `SELECT ${getColExpr(geoDim)} AS label, ${buildAggExpr('SUM', primaryMetric)} AS value FROM data GROUP BY 1 ORDER BY value DESC LIMIT 30`;
+      title = `${primaryMetric} by Geographic Location (${geoDim})`;
+    } else if (type === 'scatter') {
+      const xMetric = checkedMetrics[0] || fieldsList.find(f => f.category === 'Metrics')?.name || '1';
+      const yMetric = checkedMetrics[1] || fieldsList.find(f => f.category === 'Metrics' && f.name !== xMetric)?.name || xMetric;
+      sql = `SELECT ${getColExpr(primaryDim)} AS label, ${buildAggExpr('AVG', xMetric)} AS x_val, ${buildAggExpr('AVG', yMetric)} AS y_val FROM data GROUP BY 1 LIMIT 50`;
+      title = `${yMetric} vs ${xMetric} Correlation by ${primaryDim}`;
+    } else if (type === 'bubble') {
+      const xMetric = checkedMetrics[0] || fieldsList.find(f => f.category === 'Metrics')?.name || '1';
+      const yMetric = checkedMetrics[1] || fieldsList.find(f => f.category === 'Metrics' && f.name !== xMetric)?.name || xMetric;
+      const zMetric = checkedMetrics[2] || fieldsList.find(f => f.category === 'Metrics' && f.name !== xMetric && f.name !== yMetric)?.name || xMetric;
+      sql = `SELECT ${getColExpr(primaryDim)} AS label, ${buildAggExpr('AVG', xMetric)} AS x_val, ${buildAggExpr('AVG', yMetric)} AS y_val, ${buildAggExpr('SUM', zMetric)} AS size_val FROM data GROUP BY 1 LIMIT 50`;
+      title = `${yMetric} vs ${xMetric} Bubble Matrix by ${primaryDim}`;
+    } else if (type === 'combo') {
+      const barMetric = checkedMetrics[0] || fieldsList.find(f => f.category === 'Metrics')?.name || '1';
+      const lineMetric = checkedMetrics[1] || fieldsList.find(f => f.category === 'Metrics' && f.name !== barMetric)?.name || barMetric;
+      sql = `SELECT ${getColExpr(primaryDim)} AS label, ${buildAggExpr('SUM', barMetric)} AS bar_val, ${buildAggExpr('AVG', lineMetric)} AS line_val FROM data GROUP BY 1 ORDER BY bar_val DESC LIMIT 15`;
+      title = `${barMetric} & ${lineMetric} Combo Analysis by ${primaryDim}`;
+    } else if (type === 'hbar') {
+      if (isDimOnlyAnalysis) {
+        sql = `SELECT ${getColExpr(primaryDim)} AS label, COUNT(${getColExpr(primaryMetric)}) AS value FROM data GROUP BY 1 ORDER BY value DESC LIMIT 15`;
+        title = `Count of ${primaryMetric} by ${primaryDim}`;
+      } else {
+        sql = `SELECT ${getColExpr(primaryDim)} AS label, ${buildAggExpr('SUM', primaryMetric)} AS value FROM data GROUP BY 1 ORDER BY value DESC LIMIT 15`;
+        title = `${primaryMetric} Distribution by ${primaryDim}`;
+      }
+    } else {
+      if (isDimOnlyAnalysis) {
+        sql = `SELECT ${getColExpr(primaryDim)} AS label, COUNT(${getColExpr(primaryMetric)}) AS value FROM data GROUP BY 1 ORDER BY value DESC LIMIT 15`;
+        title = `Count of ${primaryMetric} by ${primaryDim}`;
+      } else if (checkedDims.length > 1) {
+        const concatDims = checkedDims.map(d => `COALESCE(CAST(${getColExpr(d)} AS VARCHAR), '')`).join(" || ' - ' || ");
+        sql = `SELECT ${concatDims} AS label, ${buildAggExpr('SUM', primaryMetric)} AS value FROM data GROUP BY ${checkedDims.map(d => getColExpr(d)).join(', ')} ORDER BY value DESC LIMIT 15`;
+        title = `${primaryMetric} by ${checkedDims.join(' & ')}`;
+      } else if (checkedMetrics.length > 1) {
+        const metricSelections = checkedMetrics.map(m => `${buildAggExpr('SUM', m)} AS "${m}"`).join(', ');
+        sql = `SELECT ${getColExpr(primaryDim)} AS label, ${metricSelections} FROM data GROUP BY 1 ORDER BY "${checkedMetrics[0]}" DESC LIMIT 15`;
+        title = `Comparison by ${primaryDim}`;
+      } else {
+        sql = `SELECT ${getColExpr(primaryDim)} AS label, ${buildAggExpr('SUM', primaryMetric)} AS value FROM data GROUP BY 1 ORDER BY value DESC LIMIT 15`;
+        title = `${primaryMetric} by ${primaryDim}`;
+      }
+    }
+
+    try {
+      const sqlResult = await canvasService.executeSql(selectedDatasetId, selectedVersionId || '', sql);
+      if (sqlResult && !sqlResult.error && sqlResult.results) {
+        const queryData = sqlResult.results || [];
+        
+        let value: string | undefined = undefined;
+        let subtext: string | undefined = undefined;
+        let chartData = queryData;
+        let xAxisKey: string | undefined = 'label';
+        let yAxisKey: string | undefined = 'value';
+
+        if (type === 'kpi') {
+          const kpiVal = queryData[0]?.value ?? queryData[0]?.VALUE ?? 0;
+          value = formatKpiValue(kpiVal, primaryMetric, 'SUM');
+          subtext = formatKpiSubtext(primaryMetric, 'SUM');
+          chartData = [];
+        } else if (type === 'pie') {
+          const rowKeys = Object.keys(queryData[0] || {});
+          xAxisKey = rowKeys.find(k => k.toLowerCase() === 'label') || rowKeys[0] || 'name';
+          yAxisKey = rowKeys.find(k => k.toLowerCase() === 'value') || rowKeys[1] || 'val';
+        } else if (type === 'bar' || type === 'line') {
+          const rowKeys = Object.keys(queryData[0] || {});
+          xAxisKey = rowKeys.find(k => k.toLowerCase() === 'label') || rowKeys[0] || 'label';
+          yAxisKey = rowKeys.find(k => k.toLowerCase() === 'value') || rowKeys[1] || 'value';
+        }
+
+        setWidgets(prev => prev.map(w => w.id === widgetId ? {
+          ...w,
+          title,
+          sql,
+          data: chartData,
+          value,
+          subtext,
+          xAxisKey,
+          yAxisKey,
+          isConfigWarning: false,
+          configWarningMessage: '',
+          targetMetricName: type === 'kpi' ? primaryMetric : undefined,
+          targetDimName: type !== 'kpi' ? primaryDim : undefined,
+          thinking: [`Compiled widget successfully targeting SQL query: ${title}`]
+        } : w));
+      }
+    } catch (err) {
+      console.error("Recompiling selected widget failed:", err);
+    }
+  };
+
+  // Field selection auto-visual creation logic (Tableau-style multi-select)
   const handleFieldToggle = (fieldName: string) => {
     const fieldObj = fieldsList.find(f => f.name === fieldName);
     if (!fieldObj) return;
@@ -1187,24 +1391,23 @@ export default function CanvasPage() {
     if (nextChecked.includes(fieldName)) {
       nextChecked = nextChecked.filter(f => f !== fieldName);
     } else {
-      // Filter out existing checked fields of the same category (enforce single metric and single dimension)
-      nextChecked = nextChecked.filter(f => {
-        const activeObj = fieldsList.find(af => af.name === f);
-        return activeObj ? activeObj.category !== fieldObj.category : true;
-      });
       nextChecked.push(fieldName);
     }
     
     setCheckedFields(nextChecked);
     addLog(`PowerBI Fields updated: Active Selection: [${nextChecked.join(', ')}]`);
 
+    if (selectedWidgetId) {
+      recompileWidget(selectedWidgetId, nextChecked);
+    }
+
     // Dynamic Visual generator when selected combination changes
     if (nextChecked.length >= 2) {
-      const metric = nextChecked.find(f => fieldsList.some(af => af.name === f && af.category === 'Metrics'));
-      const dimension = nextChecked.find(f => fieldsList.some(af => af.name === f && af.category === 'Dimensions'));
+      const activeMetrics = nextChecked.filter(f => fieldsList.some(af => af.name === f && af.category === 'Metrics'));
+      const activeDimensions = nextChecked.filter(f => fieldsList.some(af => af.name === f && af.category === 'Dimensions'));
       
-      if (metric && dimension) {
-        addLog(`System suggestions: Compiling dynamic visual matching (${metric} × ${dimension})...`);
+      if (activeMetrics.length > 0 && activeDimensions.length > 0) {
+        addLog(`System suggestions: Compiling dynamic visual matching (${activeMetrics.join(' + ')} × ${activeDimensions.join(' + ')})...`);
       }
     }
   };
@@ -1253,7 +1456,7 @@ export default function CanvasPage() {
     }
   };
 
-  // Rule-based prompt compilation engine replaced with real SSE NL2SQL streaming compiler
+  // Rule-based prompt compilation engine replaced with real stateless Canvas compiler
   const handlePromptSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!promptInput.trim()) return;
@@ -1264,61 +1467,54 @@ export default function CanvasPage() {
 
     setIsCompiling(true);
     setActiveStepIndex(0);
-    setCompilationSteps([]);
+    setCompilationSteps([
+      "Analyzing dataset version...",
+      "Running SQL sandbox parser...",
+      "Executing projection logic...",
+      "Compiling final visualization widget..."
+    ]);
     setCompiledSql('');
     setCompiledResult('');
     addLog(`AI Parsing prompt query: "${promptInput}"`);
 
+    // Use a timer to progress steps dynamically
+    let currentStep = 0;
+    const interval = setInterval(() => {
+      currentStep = Math.min(currentStep + 1, 3);
+      setActiveStepIndex(currentStep);
+    }, 700);
+
     try {
-      // 1. Enforce strict Session Isolation (0% context bleed)
-      // We explicitly create a NEW session for every prompt so the LLM doesn't incorrectly reuse formats or insights from previous widgets
-      addLog("Creating isolated canvas compilation session...");
-      const session = await chatService.createSession(selectedDatasetId, selectedVersionId || undefined, "Canvas Workspace Session");
-      const sessionId = session.id;
-
-      // 2. Stream thoughts and progress
-      const promptQuery = promptInput;
-      const thoughts: string[] = [];
-      
-      const res = await chatService.sendMessageStream(
-        sessionId,
-        promptQuery,
-        (progress) => {
-          // Progress update
-          addLog(`[AI Compiler Progress] ${progress.phase}: ${progress.detail}`);
-        },
-        (thought) => {
-          // Thought update
-          thoughts.push(thought.content);
-          setCompilationSteps([...thoughts]);
-          setActiveStepIndex(thoughts.length - 1);
-          addLog(`[AI Compiler Step] ${thought.content}`);
-        },
-        undefined,
-        { forceDeepAnalysis: true } // Let's enable deep analysis for high-fidelity SQL/insight generation
+      addLog("Executing stateless Canvas prompt compilation...");
+      const res = await canvasService.compilePrompt(
+        selectedDatasetId,
+        selectedVersionId || null,
+        promptInput,
+        true
       );
 
-      // 3. Process result
-      const outputData = res.assistant_message?.output_data;
-      const isChart = outputData && (
-        outputData.chart ||
-        outputData.type === 'nl2sql' ||
-        ['bar', 'stacked_bar', 'line', 'pie', 'kpi', 'table'].includes(outputData.type)
-      );
-      if (isChart) {
-        const sql = outputData.sql || '';
-        const chartSpec = outputData.chart || {};
-        const explanation = outputData.explanation || {};
+      clearInterval(interval);
+      setActiveStepIndex(3);
+
+      if (res.success) {
+        const sql = res.sql || '';
+        const chartSpec = res.chart || {};
+        const explanation = res.explanation || {};
         const summary = explanation.summary || "Generated successfully";
         
         setCompiledSql(sql);
         setCompiledResult(summary);
 
         const newWidget = chartSpecToCanvasWidget(
-          outputData,
-          promptQuery,
+          chartSpec,
+          promptInput,
           sql,
-          thoughts,
+          [
+            "Analyzing dataset version...",
+            "Running SQL sandbox parser...",
+            "Executing projection logic...",
+            "Compiling final visualization widget..."
+          ],
           summary
         );
 
@@ -1333,10 +1529,11 @@ export default function CanvasPage() {
         setSelectedWidgetId(newWidget.id);
         addLog(`SUCCESS: Built dynamic visual component: [${newWidget.title}]`);
       } else {
-        addLog("AI processed request but did not generate a chart. Content: " + res.assistant_message?.content);
+        addLog("AI processed request but did not generate a chart. Error: " + res.error);
         toast.error("Prompt did not result in a queryable chart. Try asking for trends or comparisons.");
       }
     } catch (err: any) {
+      clearInterval(interval);
       console.error(err);
       addLog(`ERROR: Pipeline execution failed: ${err.message || err}`);
       toast.error("Execution failed. Please verify the query and try again.");
@@ -1471,7 +1668,7 @@ export default function CanvasPage() {
   };
 
   // Add default visual from Fields / Palette clicking using live query compiler
-  const handleAddDefaultVisual = async (type: 'kpi' | 'bar' | 'stacked_bar' | 'line' | 'pie' | 'table') => {
+  const handleAddDefaultVisual = async (type: 'kpi' | 'bar' | 'stacked_bar' | 'line' | 'pie' | 'table' | 'map' | 'scatter' | 'bubble' | 'combo' | 'hbar') => {
     if (!selectedDatasetId) {
       toast.error("Please select a dataset first.");
       return;
@@ -1480,6 +1677,67 @@ export default function CanvasPage() {
     // Filter checked fields into metrics and dimensions/dates
     const checkedMetrics = checkedFields.filter(f => fieldsList.some(af => af.name === f && af.category === 'Metrics'));
     const checkedDims = checkedFields.filter(f => fieldsList.some(af => af.name === f && (af.category === 'Dimensions' || af.category === 'Dates')));
+
+    let isConfigWarning = false;
+    let configWarningMessage = '';
+
+    if (type === 'combo' && (checkedMetrics.length < 2 || checkedDims.length < 1)) {
+      isConfigWarning = true;
+      configWarningMessage = 'Combo visual requires 1 Dimension and at least 2 Metrics in the sidebar.';
+    } else if (type === 'scatter' && (checkedMetrics.length < 2 || checkedDims.length < 1)) {
+      isConfigWarning = true;
+      configWarningMessage = 'Scatter chart requires 1 Dimension and at least 2 Metrics.';
+    } else if (type === 'bubble' && (checkedMetrics.length < 3 || checkedDims.length < 1)) {
+      isConfigWarning = true;
+      configWarningMessage = 'Bubble chart requires 1 Dimension and at least 3 Metrics.';
+    } else if (type === 'stacked_bar' && checkedDims.length < 1) {
+      isConfigWarning = true;
+      configWarningMessage = 'Stacked bar requires at least 1 Dimension to pivot on.';
+    } else if (type === 'map' && (checkedMetrics.length < 1 || checkedDims.length < 1)) {
+      isConfigWarning = true;
+      configWarningMessage = 'Map visual requires 1 Geographic Dimension and 1 Metric.';
+    } else if (type === 'hbar' && (checkedMetrics.length < 1 && checkedDims.length < 2)) {
+      isConfigWarning = true;
+      configWarningMessage = 'H-Bar requires at least 1 Dimension and 1 Metric.';
+    } else if (type === 'line' && checkedDims.length < 1) {
+      isConfigWarning = true;
+      configWarningMessage = 'Line chart requires at least 1 temporal or grouping Dimension.';
+    } else if (type === 'bar' && checkedDims.length < 1) {
+      isConfigWarning = true;
+      configWarningMessage = 'Bar chart requires at least 1 Dimension.';
+    } else if (type === 'pie' && checkedDims.length < 1) {
+      isConfigWarning = true;
+      configWarningMessage = 'Donut chart requires at least 1 Dimension.';
+    } else if (type === 'kpi' && checkedMetrics.length < 1 && checkedDims.length < 2) {
+      isConfigWarning = true;
+      configWarningMessage = 'Card visual requires at least 1 Metric to summarize.';
+    }
+
+    if (isConfigWarning) {
+      const widgetColors = ['#0EA5E9', '#10B981', '#8B5CF6', '#F59E0B', '#EC4899', '#14B8A6'];
+      const color = widgetColors[Math.floor(Math.random() * widgetColors.length)];
+      const id = 'w-' + Date.now();
+      const initialPos = { x: 32 + (widgets.length * 64) % 480, y: 152 + (widgets.length * 48) % 300 };
+
+      const placeholderWidget: CanvasWidget = {
+        id,
+        title: `${type.toUpperCase()} Visual (Configuration Pending)`,
+        type,
+        data: [],
+        width: type === 'kpi' ? 'third' as const : 'half' as const,
+        position: initialPos,
+        color,
+        isConfigWarning,
+        configWarningMessage,
+        sql: '-- Column selections pending',
+        thinking: ['Select valid fields in the left pane to initialize this widget.']
+      };
+
+      setWidgets(prev => [...prev, placeholderWidget]);
+      setSelectedWidgetId(id);
+      addLog(`Created empty ${type} template. Select columns in the sidebar to populate.`);
+      return;
+    }
 
     // Detect dimension-only analysis (e.g. Churn vs Contract) to apply COUNT aggregation
     const isDimOnlyAnalysis = checkedMetrics.length === 0 && checkedDims.length >= 2;
@@ -1538,6 +1796,34 @@ export default function CanvasPage() {
         } else {
           sql = `SELECT ${getColExpr(primaryDim)} AS label, ${buildAggExpr('SUM', primaryMetric)} AS value FROM data GROUP BY 1 ORDER BY value DESC LIMIT 15`;
           title = `${primaryMetric} by ${primaryDim}`;
+        }
+      } else if (type === 'map') {
+        const geoDim = checkedDims.find(d => ['country', 'state', 'city', 'region', 'postal', 'zip'].some(keyword => d.toLowerCase().includes(keyword))) || primaryDim;
+        sql = `SELECT ${getColExpr(geoDim)} AS label, ${buildAggExpr('SUM', primaryMetric)} AS value FROM data GROUP BY 1 ORDER BY value DESC LIMIT 30`;
+        title = `${primaryMetric} by Geographic Location (${geoDim})`;
+      } else if (type === 'scatter') {
+        const xMetric = checkedMetrics[0] || fieldsList.find(f => f.category === 'Metrics')?.name || '1';
+        const yMetric = checkedMetrics[1] || fieldsList.find(f => f.category === 'Metrics' && f.name !== xMetric)?.name || xMetric;
+        sql = `SELECT ${getColExpr(primaryDim)} AS label, ${buildAggExpr('AVG', xMetric)} AS x_val, ${buildAggExpr('AVG', yMetric)} AS y_val FROM data GROUP BY 1 LIMIT 50`;
+        title = `${yMetric} vs ${xMetric} Correlation by ${primaryDim}`;
+      } else if (type === 'bubble') {
+        const xMetric = checkedMetrics[0] || fieldsList.find(f => f.category === 'Metrics')?.name || '1';
+        const yMetric = checkedMetrics[1] || fieldsList.find(f => f.category === 'Metrics' && f.name !== xMetric)?.name || xMetric;
+        const zMetric = checkedMetrics[2] || fieldsList.find(f => f.category === 'Metrics' && f.name !== xMetric && f.name !== yMetric)?.name || xMetric;
+        sql = `SELECT ${getColExpr(primaryDim)} AS label, ${buildAggExpr('AVG', xMetric)} AS x_val, ${buildAggExpr('AVG', yMetric)} AS y_val, ${buildAggExpr('SUM', zMetric)} AS size_val FROM data GROUP BY 1 LIMIT 50`;
+        title = `${yMetric} vs ${xMetric} Bubble Matrix by ${primaryDim}`;
+      } else if (type === 'combo') {
+        const barMetric = checkedMetrics[0] || fieldsList.find(f => f.category === 'Metrics')?.name || '1';
+        const lineMetric = checkedMetrics[1] || fieldsList.find(f => f.category === 'Metrics' && f.name !== barMetric)?.name || barMetric;
+        sql = `SELECT ${getColExpr(primaryDim)} AS label, ${buildAggExpr('SUM', barMetric)} AS bar_val, ${buildAggExpr('AVG', lineMetric)} AS line_val FROM data GROUP BY 1 ORDER BY bar_val DESC LIMIT 15`;
+        title = `${barMetric} & ${lineMetric} Combo Analysis by ${primaryDim}`;
+      } else if (type === 'hbar') {
+        if (isDimOnlyAnalysis) {
+          sql = `SELECT ${getColExpr(primaryDim)} AS label, COUNT(${getColExpr(primaryMetric)}) AS value FROM data GROUP BY 1 ORDER BY value DESC LIMIT 15`;
+          title = `Count of ${primaryMetric} by ${primaryDim}`;
+        } else {
+          sql = `SELECT ${getColExpr(primaryDim)} AS label, ${buildAggExpr('SUM', primaryMetric)} AS value FROM data GROUP BY 1 ORDER BY value DESC LIMIT 15`;
+          title = `${primaryMetric} Distribution by ${primaryDim}`;
         }
       } else {
         // Bar/Pie Chart
@@ -2119,56 +2405,94 @@ export default function CanvasPage() {
                 Click a visualization element template to append it directly to the active designing canvas grid.
               </p>
               
-              <div className="grid grid-cols-3 gap-2 pt-1 font-mono text-[10px]">
+              <div className="grid grid-cols-4 gap-2 pt-1 font-mono text-[9px]">
                 <button 
                   onClick={() => handleAddDefaultVisual('kpi')}
-                  className="p-2.5 bg-surface border border-border-custom rounded-xl flex flex-col items-center justify-center space-y-1 hover:border-accent-custom/50 transition-all cursor-pointer"
+                  className="p-1.5 bg-surface border border-border-custom rounded-xl flex flex-col items-center justify-center space-y-1 hover:border-accent-custom/50 transition-all cursor-pointer"
+                  title="Single metric card"
                 >
-                  <Maximize2 className="w-4 h-4 text-accent-custom" />
+                  <Maximize2 className="w-3.5 h-3.5 text-accent-custom" />
                   <span>Card</span>
                 </button>
                 <button 
                   onClick={() => handleAddDefaultVisual('bar')}
-                  className="p-2.5 bg-surface border border-border-custom rounded-xl flex flex-col items-center justify-center space-y-1 hover:border-accent-custom/50 transition-all cursor-pointer"
+                  className="p-1.5 bg-surface border border-border-custom rounded-xl flex flex-col items-center justify-center space-y-1 hover:border-accent-custom/50 transition-all cursor-pointer"
+                  title="Vertical bar chart"
                 >
-                  <BarChart3 className="w-4 h-4 text-emerald-500" />
+                  <BarChart3 className="w-3.5 h-3.5 text-emerald-500" />
                   <span>Bar</span>
                 </button>
                 <button 
-                  onClick={() => handleAddDefaultVisual('stacked_bar')}
-                  className="p-2.5 bg-surface border border-border-custom rounded-xl flex flex-col items-center justify-center space-y-1 hover:border-accent-custom/50 transition-all cursor-pointer"
+                  onClick={() => handleAddDefaultVisual('hbar')}
+                  className="p-1.5 bg-surface border border-border-custom rounded-xl flex flex-col items-center justify-center space-y-1 hover:border-accent-custom/50 transition-all cursor-pointer"
+                  title="Horizontal bar list"
                 >
-                  <BarChart4 className="w-4 h-4 text-cyan-500" />
+                  <MapPin className="w-3.5 h-3.5 text-teal-500" />
+                  <span>H-Bar</span>
+                </button>
+                <button 
+                  onClick={() => handleAddDefaultVisual('stacked_bar')}
+                  className="p-1.5 bg-surface border border-border-custom rounded-xl flex flex-col items-center justify-center space-y-1 hover:border-accent-custom/50 transition-all cursor-pointer"
+                  title="Stacked pivot bar"
+                >
+                  <BarChart4 className="w-3.5 h-3.5 text-cyan-500" />
                   <span>Stacked</span>
                 </button>
                 <button 
                   onClick={() => handleAddDefaultVisual('line')}
-                  className="p-2.5 bg-surface border border-border-custom rounded-xl flex flex-col items-center justify-center space-y-1 hover:border-accent-custom/50 transition-all cursor-pointer"
+                  className="p-1.5 bg-surface border border-border-custom rounded-xl flex flex-col items-center justify-center space-y-1 hover:border-accent-custom/50 transition-all cursor-pointer"
+                  title="Chronological trend line"
                 >
-                  <TrendingUp className="w-4 h-4 text-purple-500" />
+                  <TrendingUp className="w-3.5 h-3.5 text-purple-500" />
                   <span>Line</span>
                 </button>
                 <button 
                   onClick={() => handleAddDefaultVisual('pie')}
-                  className="p-2.5 bg-surface border border-border-custom rounded-xl flex flex-col items-center justify-center space-y-1 hover:border-accent-custom/50 transition-all cursor-pointer"
+                  className="p-1.5 bg-surface border border-border-custom rounded-xl flex flex-col items-center justify-center space-y-1 hover:border-accent-custom/50 transition-all cursor-pointer"
+                  title="Segment distribution donut"
                 >
-                  <PieIcon className="w-4 h-4 text-pink-500" />
+                  <PieIcon className="w-3.5 h-3.5 text-pink-500" />
                   <span>Donut</span>
                 </button>
                 <button 
-                  onClick={() => handleAddDefaultVisual('table')}
-                  className="p-2.5 bg-surface border border-border-custom rounded-xl flex flex-col items-center justify-center space-y-1 hover:border-accent-custom/50 transition-all cursor-pointer"
+                  onClick={() => handleAddDefaultVisual('map')}
+                  className="p-1.5 bg-surface border border-border-custom rounded-xl flex flex-col items-center justify-center space-y-1 hover:border-accent-custom/50 transition-all cursor-pointer"
+                  title="Geographic regional bubbles"
                 >
-                  <FileSpreadsheet className="w-4 h-4 text-blue-500" />
-                  <span>Table</span>
+                  <Globe className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Map</span>
                 </button>
                 <button 
-                  onClick={() => addLog('Advanced Gauges and Targets unlocked in Pro Tier.')}
-                  className="p-2.5 bg-surface border border-border-custom/50 rounded-xl flex flex-col items-center justify-center space-y-1 opacity-50 cursor-not-allowed"
-                  title="Requires Pro Tier licensing"
+                  onClick={() => handleAddDefaultVisual('scatter')}
+                  className="p-1.5 bg-surface border border-border-custom rounded-xl flex flex-col items-center justify-center space-y-1 hover:border-accent-custom/50 transition-all cursor-pointer"
+                  title="Metric variables correlation"
                 >
-                  <Settings2 className="w-4 h-4 text-muted-custom" />
-                  <span>Gauge</span>
+                  <Activity className="w-3.5 h-3.5 text-indigo-500" />
+                  <span>Scatter</span>
+                </button>
+                <button 
+                  onClick={() => handleAddDefaultVisual('bubble')}
+                  className="p-1.5 bg-surface border border-border-custom rounded-xl flex flex-col items-center justify-center space-y-1 hover:border-accent-custom/50 transition-all cursor-pointer"
+                  title="3-variable matrix bubble chart"
+                >
+                  <CircleDot className="w-3.5 h-3.5 text-violet-500" />
+                  <span>Bubble</span>
+                </button>
+                <button 
+                  onClick={() => handleAddDefaultVisual('combo')}
+                  className="p-1.5 bg-surface border border-border-custom rounded-xl flex flex-col items-center justify-center space-y-1 hover:border-accent-custom/50 transition-all cursor-pointer"
+                  title="Bar & Line dual axis"
+                >
+                  <Shuffle className="w-3.5 h-3.5 text-orange-500" />
+                  <span>Combo</span>
+                </button>
+                <button 
+                  onClick={() => handleAddDefaultVisual('table')}
+                  className="p-1.5 bg-surface border border-border-custom rounded-xl flex flex-col items-center justify-center space-y-1 hover:border-accent-custom/50 transition-all cursor-pointer"
+                  title="Data ledger spreadsheet"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-blue-500" />
+                  <span>Table</span>
                 </button>
               </div>
             </div>
@@ -2243,17 +2567,9 @@ export default function CanvasPage() {
                             </span>
                           </div>
                           <div className="flex items-center space-x-1.5 ml-2">
-                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-surface border border-border-custom text-muted-custom font-mono uppercase group-hover:hidden">
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-surface border border-border-custom text-muted-custom font-mono uppercase">
                               {field.category.slice(0, 3)}
                             </span>
-                            <button
-                              type="button"
-                              onClick={(e) => handleDeleteField(field.name, e)}
-                              className="hidden group-hover:flex p-1 hover:bg-red-500/10 hover:text-red-500 text-muted-custom rounded transition-colors cursor-pointer"
-                              title="Delete field"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </button>
                           </div>
                         </div>
                       );
@@ -2846,7 +3162,7 @@ export default function CanvasPage() {
                         exit={{ opacity: 0, scale: 0.9 }}
                         transition={{ type: "spring", stiffness: 220, damping: 22 }}
                         key={widget.id}
-                        className={`bg-surface border rounded-2xl p-4 shadow-sm flex flex-col justify-between overflow-visible transition-all select-none touch-none ${
+                        className={`group bg-surface border rounded-2xl p-4 shadow-sm flex flex-col justify-between overflow-visible transition-all select-none touch-none ${
                           isResponsive ? 'relative w-full' : 'absolute'
                         } ${
                           isPresentMode
@@ -2875,16 +3191,23 @@ export default function CanvasPage() {
                           });
                         }}
                       >
+                        {/* Accent gradient bar for KPI cards */}
+                        {widget.type === 'kpi' && (
+                          <div 
+                            className="absolute top-0 left-0 w-1 h-full rounded-l-2xl opacity-80 pointer-events-none"
+                            style={{ background: `linear-gradient(180deg, ${widget.color}, ${widget.color}44)` }}
+                          />
+                        )}
                         {/* Upper controls toolbar */}
                         {isPresentMode ? (
-                          <div className="flex items-center justify-between mb-2 border-b border-border-custom/30 pb-1.5 text-left">
+                          <div className={`flex items-center justify-between mb-2 pb-1.5 text-left ${widget.type === 'kpi' ? '' : 'border-b border-border-custom/30'}`}>
                             <div className="flex items-center space-x-1.5 min-w-0 flex-1">
                               <span className="text-[10px] font-mono text-text-custom font-bold uppercase tracking-wider whitespace-normal break-words" title={widget.title}>
                                 {widget.title}
                               </span>
                               {isSlicerMissing && (
                                 <div className="group relative flex items-center">
-                                  <AlertCircle className="w-3 h-3 text-amber-500/80" />
+                                  <AlertCircle className="w-3.5 h-3.5 text-amber-500/80" />
                                   <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1 hidden group-hover:block w-max max-w-[200px] bg-surface-3 text-text-custom text-[9px] px-2 py-1 rounded shadow-md border border-border-custom z-50 whitespace-normal">
                                     Static Snapshot: Field not available on this chart.
                                   </div>
@@ -2895,7 +3218,7 @@ export default function CanvasPage() {
                         ) : (
                           <div 
                             onPointerDown={(e) => handleDragStart(e, widget.id)}
-                            className="flex items-center justify-between mb-2 border-b border-border-custom/50 pb-1.5 cursor-grab active:cursor-grabbing"
+                            className={`flex items-center justify-between mb-1.5 pb-1 cursor-grab active:cursor-grabbing ${widget.type === 'kpi' ? '' : 'border-b border-border-custom/50'}`}
                             title="Click & Drag header to position anywhere on canvas"
                           >
                             <div className="flex items-center space-x-1.5 min-w-0 flex-1">
@@ -2928,7 +3251,7 @@ export default function CanvasPage() {
                                 }`}
                                 title="Format size and positioning bounds"
                               >
-                                <Settings2 className="w-3 h-3" />
+                                <Settings2 className="w-3.5 h-3.5" />
                               </button>
                               <button
                                 type="button"
@@ -2939,11 +3262,12 @@ export default function CanvasPage() {
                                 className="p-1 hover:bg-red-500/10 border border-red-500/20 text-red-500 rounded-md transition-all cursor-pointer z-20"
                                 title="Delete component"
                               >
-                                <Trash2 className="w-3 h-3" />
+                                <Trash2 className="w-3.5 h-3.5" />
                               </button>
                             </div>
                           </div>
                         )}
+
 
                         {/* PowerBI Style Geometry Adjuster Overlay */}
                         {editingWidgetId === widget.id && (
@@ -3074,22 +3398,28 @@ export default function CanvasPage() {
                         )}
 
                         {/* CORE CONTENT BY TYPE */}
-                        <div className="flex-1 py-1">
+                        <div className="flex-1 py-1 relative">
+                          
+                          {widget.isConfigWarning ? (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center border border-dashed border-amber-500/20 bg-amber-500/5 rounded-2xl space-y-1.5 select-none" style={{ height: `${height - 50}px` }}>
+                              <AlertCircle className="w-5 h-5 text-amber-500 animate-pulse shrink-0" />
+                              <div className="text-[10px] font-mono font-bold text-text-custom">Setup Required</div>
+                              <div className="text-[8.5px] font-mono text-muted-custom max-w-[90%] leading-relaxed">
+                                {widget.configWarningMessage}
+                              </div>
+                            </div>
+                          ) : (
+                            <>
                           
                           {/* Type 1: KPI */}
                           {widget.type === 'kpi' && (
-                            <div className={`flex flex-col justify-center h-full text-left relative overflow-hidden transition-opacity duration-300 ${isSlicerMissing ? 'opacity-50' : ''}`} style={{ height: `${height - 50}px` }}>
-                              {/* Accent gradient bar */}
-                              <div 
-                                className="absolute top-0 left-0 w-1 h-full rounded-r-full opacity-80"
-                                style={{ background: `linear-gradient(180deg, ${widget.color}, ${widget.color}44)` }}
-                              />
-                              <div className="pl-3">
+                            <div className={`flex flex-col justify-center h-full text-left relative overflow-hidden transition-opacity duration-300 ${isSlicerMissing ? 'opacity-50' : ''}`} style={{ height: `${height - 40}px` }}>
+                              <div className="pl-4 pr-2">
                                 <div 
                                   className="font-bold tracking-tight transition-all leading-none" 
                                   style={{ 
                                     color: (widget.numberFormat?.negativeStyle === 'red' && (String(kpiData.value).startsWith('-') || String(kpiData.value).startsWith('('))) ? '#EF4444' : widget.color,
-                                    fontSize: height > 180 ? '2.5rem' : height > 140 ? '2rem' : width > 200 ? '1.5rem' : '1.25rem'
+                                    fontSize: height > 180 ? '2.5rem' : height > 140 ? '2rem' : width > 200 ? '1.75rem' : '1.4rem'
                                   }}
                                 >
                                   {kpiData.value || '—'}
@@ -3542,50 +3872,216 @@ export default function CanvasPage() {
                             );
                           })()}
 
-                          {/* Type 5: TABLE */}
-                          {widget.type === 'table' && (
-                            <div className="flex flex-col justify-start pt-1 min-h-[40px] w-full overflow-auto text-[9px] font-mono" style={{ height: `${height - 90}px` }}>
-                              <table className="w-full text-left border-collapse">
-                                <thead>
-                                  <tr className="border-b border-border-custom bg-surface-2/40">
-                                    {widget.data.length > 0 && Object.keys(widget.data[0]).slice(0, 4).map((col, idx) => (
-                                      <th key={idx} className="p-1.5 font-bold uppercase tracking-wider text-muted-custom truncate">{col}</th>
-                                    ))}
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {widget.data.slice(0, 5).map((row, rowIdx) => (
-                                    <tr key={rowIdx} className="border-b border-border-custom/50 hover:bg-surface-2/20">
-                                      {Object.keys(row).slice(0, 4).map((col, colIdx) => {
-                                         const cellVal = row[col];
-                                         const isMetric = fieldsList.some(af => af.name === col && af.category === 'Metrics');
-                                         return (
-                                           <td key={colIdx} className="p-1.5 truncate text-text-custom max-w-[100px]" title={String(cellVal)}>
-                                             {isMetric ? formatKpiValue(cellVal, col, undefined, widget.numberFormat) : String(cellVal)}
-                                           </td>
-                                         );
-                                       })}
-                                    </tr>
-                                  ))}
-                                  {widget.data.length > 5 && (
-                                    <tr>
-                                      <td colSpan={4} className="p-1 text-center text-muted-custom italic">
-                                        + {widget.data.length - 5} more rows
-                                      </td>
-                                    </tr>
-                                  )}
-                                </tbody>
-                              </table>
+                          {/* Type 6: MAP */}
+                          {widget.type === 'map' && (
+                            <div className="w-full h-full relative" style={{ height: `${height - 90}px` }}>
+                              <CustomGeoMap 
+                                data={widget.data} 
+                                isDark={isDark} 
+                                color={widget.color}
+                                formatConfig={widget.numberFormat}
+                              />
                             </div>
+                          )}
+
+                          {/* Type 7: SCATTER */}
+                          {widget.type === 'scatter' && (() => {
+                            const data = widget.data || [];
+                            const xVals = data.map(d => Number(d.x_val) || 0);
+                            const yVals = data.map(d => Number(d.y_val) || 0);
+                            const maxX = Math.max(...xVals, 1);
+                            const minX = Math.min(...xVals, 0);
+                            const maxY = Math.max(...yVals, 1);
+                            const minY = Math.min(...yVals, 0);
+                            const rangeX = maxX - minX || 1;
+                            const rangeY = maxY - minY || 1;
+                            return (
+                              <div className="flex h-full w-full pb-1" style={{ height: `${height - 90}px` }}>
+                                <div className="flex flex-col justify-between text-[7px] text-muted-custom font-mono h-[85%] pr-1.5 border-r border-border-custom/30 select-none pb-1.5 shrink-0 text-right min-w-[36px] mt-1">
+                                  <div>{formatKpiValue(maxY, 'y_val', widget.activeAgg, widget.numberFormat)}</div>
+                                  <div>{formatKpiValue((maxY + minY) / 2, 'y_val', widget.activeAgg, widget.numberFormat)}</div>
+                                  <div>{formatKpiValue(minY, 'y_val', widget.activeAgg, widget.numberFormat)}</div>
+                                </div>
+                                <div className="flex-1 flex flex-col justify-between h-full relative pl-1.5">
+                                  <div className="flex-1 relative border-b border-border-custom/50">
+                                    {data.map((item, idx) => {
+                                      const xVal = Number(item.x_val) || 0;
+                                      const yVal = Number(item.y_val) || 0;
+                                      const xPercent = ((xVal - minX) / rangeX) * 90;
+                                      const yPercent = ((yVal - minY) / rangeY) * 85;
+                                      return (
+                                        <div 
+                                          key={idx} 
+                                          className="absolute w-2.5 h-2.5 rounded-full border border-white shadow-xs cursor-pointer hover:scale-125 transition-transform"
+                                          style={{ 
+                                            left: `${xPercent + 5}%`, 
+                                            bottom: `${yPercent + 5}%`,
+                                            backgroundColor: widget.color || '#3B82F6'
+                                          }}
+                                          title={`${item.label}: X=${xVal.toFixed(1)}, Y=${yVal.toFixed(1)}`}
+                                        />
+                                      );
+                                    })}
+                                  </div>
+                                  <div className="flex justify-between text-[7px] text-muted-custom font-mono pt-1 select-none w-[90%] mx-auto">
+                                    <span>{formatKpiValue(minX, 'x_val', widget.activeAgg, widget.numberFormat)}</span>
+                                    <span>{formatKpiValue(maxX, 'x_val', widget.activeAgg, widget.numberFormat)}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })()}
+
+                          {/* Type 8: BUBBLE */}
+                          {widget.type === 'bubble' && (() => {
+                            const data = widget.data || [];
+                            const xVals = data.map(d => Number(d.x_val) || 0);
+                            const yVals = data.map(d => Number(d.y_val) || 0);
+                            const zVals = data.map(d => Number(d.size_val) || 0);
+                            const maxX = Math.max(...xVals, 1);
+                            const minX = Math.min(...xVals, 0);
+                            const maxY = Math.max(...yVals, 1);
+                            const minY = Math.min(...yVals, 0);
+                            const maxZ = Math.max(...zVals, 1);
+                            const rangeX = maxX - minX || 1;
+                            const rangeY = maxY - minY || 1;
+                            return (
+                              <div className="flex h-full w-full pb-1" style={{ height: `${height - 90}px` }}>
+                                <div className="flex flex-col justify-between text-[7px] text-muted-custom font-mono h-[85%] pr-1.5 border-r border-border-custom/30 select-none pb-1.5 shrink-0 text-right min-w-[36px] mt-1">
+                                  <div>{formatKpiValue(maxY, 'y_val', widget.activeAgg, widget.numberFormat)}</div>
+                                  <div>{formatKpiValue((maxY + minY) / 2, 'y_val', widget.activeAgg, widget.numberFormat)}</div>
+                                  <div>{formatKpiValue(minY, 'y_val', widget.activeAgg, widget.numberFormat)}</div>
+                                </div>
+                                <div className="flex-1 flex flex-col justify-between h-full relative pl-1.5">
+                                  <div className="flex-1 relative border-b border-border-custom/50">
+                                    {data.map((item, idx) => {
+                                      const xVal = Number(item.x_val) || 0;
+                                      const yVal = Number(item.y_val) || 0;
+                                      const zVal = Number(item.size_val) || 0;
+                                      const xPercent = ((xVal - minX) / rangeX) * 90;
+                                      const yPercent = ((yVal - minY) / rangeY) * 85;
+                                      const size = maxZ ? 6 + (zVal / maxZ) * 16 : 8;
+                                      return (
+                                        <div 
+                                          key={idx} 
+                                          className="absolute rounded-full border border-white shadow-md cursor-pointer hover:scale-110 transition-transform opacity-75"
+                                          style={{ 
+                                            left: `${xPercent + 5}%`, 
+                                            bottom: `${yPercent + 5}%`,
+                                            width: `${size}px`,
+                                            height: `${size}px`,
+                                            backgroundColor: widget.color || '#3B82F6',
+                                            transform: 'translate(-50%, 50%)'
+                                          }}
+                                          title={`${item.label}: X=${xVal.toFixed(1)}, Y=${yVal.toFixed(1)}, Size=${zVal.toFixed(1)}`}
+                                        />
+                                      );
+                                    })}
+                                  </div>
+                                  <div className="flex justify-between text-[7px] text-muted-custom font-mono pt-1 select-none w-[90%] mx-auto">
+                                    <span>{formatKpiValue(minX, 'x_val', widget.activeAgg, widget.numberFormat)}</span>
+                                    <span>{formatKpiValue(maxX, 'x_val', widget.activeAgg, widget.numberFormat)}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })()}
+
+                          {/* Type 9: COMBO */}
+                          {widget.type === 'combo' && (() => {
+                            const data = widget.data || [];
+                            const barVals = data.map(d => Number(d.bar_val) || 0);
+                            const lineVals = data.map(d => Number(d.line_val) || 0);
+                            const maxBar = Math.max(...barVals, 1);
+                            const maxLine = Math.max(...lineVals, 1);
+                            const minLine = Math.min(...lineVals, 0);
+                            const rangeLine = maxLine - minLine || 1;
+                            return (
+                              <div className="flex h-full w-full pb-1" style={{ height: `${height - 90}px` }}>
+                                <div className="flex flex-col justify-between text-[7px] text-muted-custom font-mono h-[85%] pr-1.5 border-r border-border-custom/30 select-none pb-1.5 mt-1 shrink-0 text-right min-w-[36px]">
+                                  <div>{formatKpiValue(maxBar, 'bar_val', widget.activeAgg, widget.numberFormat)}</div>
+                                  <div>{formatKpiValue(maxBar / 2, 'bar_val', widget.activeAgg, widget.numberFormat)}</div>
+                                  <div>0</div>
+                                </div>
+                                <div className="flex-1 flex flex-col justify-between h-full relative pl-1.5">
+                                  <div className="flex-1 relative border-b border-border-custom/50 flex items-end justify-around gap-1.5">
+                                    {data.map((item, idx) => {
+                                      const barVal = Number(item.bar_val) || 0;
+                                      const barHeight = maxBar ? (barVal / maxBar) * 80 : 0;
+                                      return (
+                                        <div 
+                                          key={idx}
+                                          className="w-4 rounded-t-xs hover:opacity-85 transition-opacity"
+                                          style={{ 
+                                            height: `${barHeight}%`, 
+                                            backgroundColor: widget.color || '#3B82F6',
+                                            opacity: 0.7
+                                          }}
+                                          title={`${item.label}: Bar=${barVal}`}
+                                        />
+                                      );
+                                    })}
+                                    {data.length > 1 && (
+                                      <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
+                                        <path 
+                                          d={data.map((item, idx) => {
+                                            const lineVal = Number(item.line_val) || 0;
+                                            const x = (idx / (data.length - 1)) * 90 + 5;
+                                            const y = 90 - ((lineVal - minLine) / rangeLine) * 75;
+                                            return `${idx === 0 ? 'M' : 'L'} ${x} ${y}`;
+                                          }).join(' ')}
+                                          fill="none" 
+                                          stroke="#10B981" 
+                                          strokeWidth="2" 
+                                        />
+                                      </svg>
+                                    )}
+                                  </div>
+                                  <div className="flex justify-between text-[7px] text-muted-custom font-mono pt-1 select-none w-full">
+                                    <span className="truncate max-w-[45%]">{String(data[0]?.label || '')}</span>
+                                    <span className="truncate max-w-[45%]">{String(data[data.length - 1]?.label || '')}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })()}
+
+                          {/* Type 10: HBAR */}
+                          {widget.type === 'hbar' && (() => {
+                            const valKey = widget.yAxisKey || 'value';
+                            const key = widget.xAxisKey || 'label';
+                            const maxVal = Math.max(...widget.data.map(d => Number(d[valKey]) || 0)) || 1;
+                            return (
+                              <div className="flex flex-col justify-start space-y-2.5 overflow-y-auto w-full pr-1.5" style={{ height: `${height - 90}px` }}>
+                                {widget.data.map((item, idx) => {
+                                  const val = Number(item[valKey]) || 0;
+                                  const widthPercent = maxVal ? (val / maxVal) * 80 : 0;
+                                  return (
+                                    <div key={idx} className="flex flex-col space-y-1">
+                                      <div className="flex items-center justify-between text-[9px] font-mono text-muted-custom">
+                                        <span className="truncate max-w-[70%] font-medium">{String(item[key])}</span>
+                                        <span>{formatKpiValue(val, widget.targetMetricName || valKey, widget.activeAgg, widget.numberFormat)}</span>
+                                      </div>
+                                      <div className="w-full bg-surface-2 rounded-full h-2 relative overflow-hidden border border-border-custom/30">
+                                        <div 
+                                          className="h-full rounded-full transition-all duration-300"
+                                          style={{ 
+                                            width: `${widthPercent}%`,
+                                            background: widget.color || '#3B82F6'
+                                          }}
+                                        />
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })()}
+                            </>
                           )}
 
                         </div>
 
-                        {/* Lower tag stamp */}
-                        <div className="flex items-center justify-between text-[8px] font-mono text-muted-custom mt-1.5 pt-1 border-t border-border-custom/30">
-                          <span className="text-accent-custom font-bold">● Free-form Draggable</span>
-                          <span>{widget.type.toUpperCase()} Visual</span>
-                        </div>
 
                         {/* Drag-resize handle on bottom-right corner (PowerBI Style) */}
                         {isSelected && !isPresentMode && (

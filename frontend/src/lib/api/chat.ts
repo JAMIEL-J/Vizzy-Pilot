@@ -92,7 +92,7 @@ export const chatService = {
         onProgress: (progress: { step: number; total: number; phase: string; detail: string; query_index?: number; query_total?: number }) => void,
         onThought?: (thought: { id: number; content: string; timestamp: string; duration_ms?: number }) => void,
         signal?: AbortSignal,
-        options?: { forceDeepAnalysis?: boolean; enableSuggestions?: boolean }
+        options?: { forceDeepAnalysis?: boolean; enableSuggestions?: boolean; compileVisualOnly?: boolean }
     ): Promise<{ user_message: ChatMessage; assistant_message: ChatMessage }> => {
         const token = localStorage.getItem('access_token');
         const headers: Record<string, string> = {
@@ -109,7 +109,8 @@ export const chatService = {
             body: JSON.stringify({
                 content,
                 force_deep_analysis: options?.forceDeepAnalysis ?? false,
-                enable_suggestions: options?.enableSuggestions ?? false
+                enable_suggestions: options?.enableSuggestions ?? false,
+                compile_visual_only: options?.compileVisualOnly ?? false
             }),
             signal
         });

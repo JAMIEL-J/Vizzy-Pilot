@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel import select
 
 from app.api.deps import DBSession, AuthenticatedUser
@@ -26,6 +26,7 @@ from app.core.logger import get_logger
 from app.models.dataset import Dataset
 from app.services.dataset_version_service import get_latest_version
 from app.services.security.sandbox import execute_sandboxed, QueryExecutionError
+import sqlglot
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -62,7 +63,7 @@ class CanvasSchemaResponse(BaseModel):
     version_id: str
     dataset_name: str
     columns: List[CanvasColumnSchema]
-    row_count: Optional[int] = None
+    row_count: int
 
 
 # =============================================================================
@@ -346,7 +347,7 @@ class CalculateFieldResponse(BaseModel):
     formula_sql: str
     category: str
     dtype: str
-    schema: CanvasSchemaResponse
+    schema_: CanvasSchemaResponse = Field(..., alias="schema")
 
 
 @router.post(
@@ -512,7 +513,7 @@ async def create_canvas_calculated_field(
         formula_sql=formula_sql,
         category=category,
         dtype=dtype,
-        schema=schema_response
+        schema_=schema_response
     )
 
 @router.delete("/fields/{field_name}", response_model=CanvasSchemaResponse)
@@ -568,4 +569,124 @@ async def delete_canvas_field(
         columns=columns,
         row_count=latest_version.row_count,
     )
+
+
+class CanvasCompileRequest(BaseModel):
+    """Stateless compilation payload for Canvas prompt compiler."""
+    prompt: str
+    version_id: Optional[UUID] = None
+    force_deep_analysis: bool = False
+
+
+class CanvasCompileResponse(BaseModel):
+    """Result from stateless Canvas prompt compilation."""
+    success: bool
+    sql: str
+    chart: Dict[str, Any]
+    explanation: Dict[str, Any]
+    timing: Dict[str, Any]
+    error: Optional[str] = None
+
+
+@router.post(
+    "/compile",
+    response_model=CanvasCompileResponse,
+    summary="Compile a prompt query to SQL and chart spec statelessly for the Canvas UI",
+)
+async def compile_canvas_prompt(
+    dataset_id: UUID,
+    request: CanvasCompileRequest,
+    session: DBSession,
+    current_user: AuthenticatedUser,
+) -> CanvasCompileResponse:
+    """
+    Compile a prompt directly into a queryable chart specification and SQL query
+    without creating or polluting any conversational chat history sessions.
+    """
+    from app.api.deps import verify_dataset_owner
+    from app.models.dataset_version import DatasetVersion
+    from app.services.analytics.db_engine import DBEngine
+    from app.services.analytics.executor import Executor
+    from app.services.visualization.nl2sql_chart_builder import build_chart_from_nl2sql
+    from app.services.analytics.table_resolver import resolve_table_name_from_version
+    from app.core.storage import get_duckdb_path
+    import pandas as pd
+
+    await verify_dataset_owner(
+        dataset_id=dataset_id,
+        session=session,
+        current_user=current_user,
+    )
+
+    if request.version_id:
+        version = session.get(DatasetVersion, request.version_id)
+    else:
+        version = get_latest_version(session=session, dataset_id=dataset_id)
+
+    if not version:
+        raise HTTPException(status_code=404, detail="Dataset version not found")
+
+    table_name = resolve_table_name_from_version(version)
+    duckdb_path = get_duckdb_path(version.dataset_id, version.id)
+
+    db_engine = None
+    try:
+        if duckdb_path.exists():
+            db_engine = DBEngine(db_path=str(duckdb_path), read_only=True)
+            db_engine._lock_down_read_con()
+        else:
+            data_path = version.cleaned_reference or version.source_reference
+            db_engine = DBEngine()
+            try:
+                await db_engine.load_csv(table_name, data_path)
+            except Exception as csv_err:
+                logger.warning(f"Direct CSV load failed, falling back to Pandas: {csv_err}")
+                df = pd.read_csv(data_path)
+                await db_engine.load_dataframe(table_name, df)
+
+        executor = Executor()
+        nl2sql_result = await executor.run_query(
+            user_query=request.prompt,
+            db=db_engine,
+            table_name=table_name,
+            force_deep_analysis=request.force_deep_analysis
+        )
+    except Exception as e:
+        logger.warning(f"Stateless Canvas compiler execution error: {e}")
+        return CanvasCompileResponse(
+            success=False,
+            sql="",
+            chart={},
+            explanation={},
+            timing={},
+            error=str(e)
+        )
+    finally:
+        if db_engine is not None:
+            db_engine.close()
+
+    if nl2sql_result and nl2sql_result.get("success"):
+        chart_output = build_chart_from_nl2sql(nl2sql_result)
+        chart_spec = chart_output.get("chart", {})
+        explanation = chart_output.get("explanation", {})
+        timing = nl2sql_result.get("timing", {})
+
+        return CanvasCompileResponse(
+            success=True,
+            sql=nl2sql_result.get("sql", ""),
+            chart=chart_spec,
+            explanation=explanation,
+            timing=timing
+        )
+    else:
+        err_msg = nl2sql_result.get("error") if nl2sql_result else "Unknown compilation failure"
+        return CanvasCompileResponse(
+            success=False,
+            sql="",
+            chart={},
+            explanation={},
+            timing={},
+            error=err_msg
+        )
+
 
