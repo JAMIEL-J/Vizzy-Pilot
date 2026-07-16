@@ -42,7 +42,6 @@ const WORLD_ALIAS: Record<string, string> = {
 
 interface GeoDataPoint {
   label: string;
-  value: number;
   [key: string]: any;
 }
 
@@ -51,13 +50,17 @@ interface CustomGeoMapProps {
   isDark?: boolean;
   color?: string;
   formatConfig?: any;
+  targetMetricName?: string;
+  isFullScreen?: boolean;
 }
 
 export const CustomGeoMap: React.FC<CustomGeoMapProps> = ({ 
   data = [], 
   isDark = true, 
   color = '#3B82F6',
-  formatConfig 
+  formatConfig,
+  targetMetricName,
+  isFullScreen = false
 }) => {
   const [features, setFeatures] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -69,11 +72,20 @@ export const CustomGeoMap: React.FC<CustomGeoMapProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 500, height: 280 });
 
+  // Dynamic detection of all active metrics inside queryData
+  const metricKeys = useMemo(() => {
+    if (data.length === 0) return ['value'];
+    const keys = Object.keys(data[0]);
+    return keys.filter(k => k !== 'label' && k !== 'name' && typeof data[0][k] === 'number');
+  }, [data]);
+
+  const primaryMetricKey = metricKeys[0] || 'value';
+
   const [tooltip, setTooltip] = useState<{
     x: number;
     y: number;
     title: string;
-    value: number;
+    metrics: Record<string, number>;
     visible: boolean;
   } | null>(null);
 
@@ -83,7 +95,6 @@ export const CustomGeoMap: React.FC<CustomGeoMapProps> = ({
     const observer = new ResizeObserver((entries) => {
       if (entries[0]) {
         const { width, height } = entries[0].contentRect;
-        // Keep a minimum ratio safety
         setDimensions({
           width: Math.max(width, 100),
           height: Math.max(height, 100)
@@ -97,7 +108,7 @@ export const CustomGeoMap: React.FC<CustomGeoMapProps> = ({
   // Auto-detect Map Type
   const mapType = useMemo(() => {
     if (data.length === 0) return 'world';
-    const names = data.map(d => String(d.label).trim().toUpperCase());
+    const names = data.map(d => String(d.label || d.name || '').trim().toUpperCase());
     const usKeys = Object.keys(US_ABBREV_TO_FULL);
     const usStateNames = Object.values(US_ABBREV_TO_FULL).map(s => s.toUpperCase());
     
@@ -138,7 +149,6 @@ export const CustomGeoMap: React.FC<CustomGeoMapProps> = ({
     
     let minLon = 180, maxLon = -180, minLat = 90, maxLat = -90;
     
-    // Ignore extreme/off-limit coordinates for neat cropping
     features.forEach(f => {
       const process = (coords: any) => {
         if (typeof coords[0] === 'number') {
@@ -197,29 +207,42 @@ export const CustomGeoMap: React.FC<CustomGeoMapProps> = ({
     return '';
   };
 
-  // Match visual row to geographic features
+  // Match visual row to geographic features and gather all metric keys
   const dataMap = useMemo(() => {
-    const map = new Map<string, number>();
+    const map = new Map<string, Record<string, number>>();
     data.forEach(d => {
-      const cleanLabel = String(d.label).toLowerCase().trim();
-      map.set(cleanLabel, Number(d.value) || 0);
+      const cleanLabel = String(d.label || d.name || '').toLowerCase().trim();
+      const metricsObj: Record<string, number> = {};
+      metricKeys.forEach(k => {
+        metricsObj[k] = Number(d[k]) || 0;
+      });
+      map.set(cleanLabel, metricsObj);
       
-      // Map country codes & abbreviations
-      if (US_ABBREV_TO_FULL[d.label.toUpperCase()]) {
-        map.set(US_ABBREV_TO_FULL[d.label.toUpperCase()].toLowerCase(), Number(d.value) || 0);
+      const abbrevKey = String(d.label || d.name || '').toUpperCase();
+      if (US_ABBREV_TO_FULL[abbrevKey]) {
+        map.set(US_ABBREV_TO_FULL[abbrevKey].toLowerCase(), metricsObj);
       }
       if (WORLD_ALIAS[cleanLabel]) {
-        map.set(WORLD_ALIAS[cleanLabel].toLowerCase(), Number(d.value) || 0);
+        map.set(WORLD_ALIAS[cleanLabel].toLowerCase(), metricsObj);
       }
     });
     return map;
-  }, [data]);
+  }, [data, metricKeys]);
 
-  const maxVal = useMemo(() => Math.max(...data.map(d => Number(d.value) || 0), 1), [data]);
+  const maxVal = useMemo(() => {
+    const vals = data.map(d => Number(d[primaryMetricKey]) || 0);
+    return Math.max(...vals, 1);
+  }, [data, primaryMetricKey]);
+
+  // Clean metric names from DB aliases (like "value") to the actual metrics selected
+  const cleanMetricLabel = (mKey: string) => {
+    const rawName = (mKey === 'value' && targetMetricName) ? targetMetricName : mKey;
+    return rawName.replace(/[_\-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  };
 
   // Drag pan handlers
   const handlePointerDown = (e: React.PointerEvent) => {
-    if (e.button !== 0) return; // Left click only
+    if (e.button !== 0) return;
     setIsDragging(true);
     dragStart.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -237,24 +260,6 @@ export const CustomGeoMap: React.FC<CustomGeoMapProps> = ({
     setIsDragging(false);
     e.currentTarget.releasePointerCapture(e.pointerId);
   };
-
-  if (loading) {
-    return (
-      <div className="w-full h-full flex flex-col items-center justify-center space-y-2 text-muted-custom">
-        <Loader2 className="w-6 h-6 animate-spin text-accent-custom" />
-        <span className="text-[10px] font-mono">Drawing vector coordinates...</span>
-      </div>
-    );
-  }
-
-  if (features.length === 0) {
-    return (
-      <div className="w-full h-full flex flex-col items-center justify-center space-y-1.5 text-muted-custom text-center">
-        <AlertCircle className="w-5 h-5 text-red-400" />
-        <span className="text-[10px] font-mono font-bold">Failed to load geography</span>
-      </div>
-    );
-  }
 
   return (
     <div 
@@ -298,19 +303,16 @@ export const CustomGeoMap: React.FC<CustomGeoMapProps> = ({
           className="w-full h-full block"
           style={{ width: '100%', height: '100%' }}
         >
-          {/* Visual enhancements filters */}
           <defs>
             <filter id="premium-shadow" x="-10%" y="-10%" width="120%" height="120%">
               <feDropShadow dx="0" dy="2" stdDeviation="3" floodColor="#000000" floodOpacity="0.25" />
             </filter>
             
-            {/* Holographic background map grid lines pattern */}
             <pattern id="grid-pattern" width="20" height="20" patternUnits="userSpaceOnUse">
               <path d="M 20 0 L 0 0 0 20" fill="none" stroke={isDark ? '#374151' : '#E5E7EB'} strokeWidth="0.5" opacity="0.15" />
             </pattern>
           </defs>
 
-          {/* Background Grid Pattern */}
           <rect width="100%" height="100%" fill="url(#grid-pattern)" />
 
           <g 
@@ -322,12 +324,12 @@ export const CustomGeoMap: React.FC<CustomGeoMapProps> = ({
           >
             {features.map((feature, idx) => {
               const name = feature.properties?.name || feature.properties?.STATE_NAME || '';
-              const val = dataMap.get(name.toLowerCase()) || 0;
+              const metricsObj = dataMap.get(name.toLowerCase());
+              const val = metricsObj ? metricsObj[primaryMetricKey] : 0;
               const pathData = getPathData(feature.geometry, dimensions.width, dimensions.height);
               
               if (!pathData) return null;
 
-              // Color choropleth calculation
               const intensity = maxVal ? val / maxVal : 0;
               const fill = val > 0 
                 ? `${color}${Math.floor(40 + intensity * 215).toString(16).padStart(2, '0')}`
@@ -351,7 +353,7 @@ export const CustomGeoMap: React.FC<CustomGeoMapProps> = ({
                         x: rect.left - containerRect.left + rect.width / 2,
                         y: rect.top - containerRect.top - 8,
                         title: name,
-                        value: val,
+                        metrics: metricsObj || { [primaryMetricKey]: 0 },
                         visible: true
                       });
                     }
@@ -371,17 +373,26 @@ export const CustomGeoMap: React.FC<CustomGeoMapProps> = ({
             initial={{ opacity: 0, scale: 0.9, y: 4 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.9 }}
-            className="absolute pointer-events-none z-30 bg-surface/90 border border-border-custom backdrop-blur-md px-3 py-2 rounded-xl shadow-xl font-mono text-[10px] text-text-custom flex flex-col space-y-0.5"
+            className={`absolute pointer-events-none z-30 bg-surface/95 border backdrop-blur-md shadow-2xl flex flex-col ${
+              isFullScreen 
+                ? 'px-4 py-2.5 rounded-2xl border-accent-custom/50 border-2 text-[12px] space-y-1' 
+                : 'px-3 py-2 rounded-xl border-border-custom text-[9px] space-y-0.5 font-mono'
+            } text-text-custom`}
             style={{ 
               left: `${tooltip.x}px`, 
               top: `${tooltip.y}px`,
               transform: 'translate(-50%, -100%)'
             }}
           >
-            <span className="font-bold text-text-custom truncate max-w-[140px]">{tooltip.title}</span>
-            <span className="font-semibold text-accent-custom">
-              {formatKpiValue(tooltip.value, undefined, undefined, formatConfig)}
-            </span>
+            <span className={`font-bold text-text-custom border-b border-border-custom/50 pb-0.5 truncate ${isFullScreen ? 'mb-2 text-[13px] max-w-[200px]' : 'mb-1.5 text-[9px] max-w-[140px]'}`}>{tooltip.title}</span>
+            {Object.keys(tooltip.metrics).map(mKey => {
+              const displayLabel = cleanMetricLabel(mKey);
+              return (
+                <span key={mKey} className="font-semibold text-accent-custom whitespace-nowrap">
+                  {displayLabel}: {formatKpiValue(tooltip.metrics[mKey], mKey, undefined, formatConfig)}
+                </span>
+              );
+            })}
           </motion.div>
         )}
       </AnimatePresence>

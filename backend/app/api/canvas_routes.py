@@ -178,25 +178,47 @@ def _inject_filters_into_sql(sql: str, filters: list, schema_columns: list = Non
     # Parse the original query directly so we inject into the actual base table or CTE where columns exist
     parsed = sqlglot.parse_one(sql, read="duckdb")
     for f in filters:
-        col = getattr(f, "fieldName", None)
-        if col is None and isinstance(f, dict):
-            col = f.get("fieldName")
-        val = getattr(f, "selectedValue", None)
-        if val is None and isinstance(f, dict):
-            val = f.get("selectedValue")
-            
-        if not col or val is None:
-            continue
+      col = getattr(f, "fieldName", None)
+      if col is None and isinstance(f, dict):
+          col = f.get("fieldName")
+      val = getattr(f, "selectedValue", None)
+      if val is None and isinstance(f, dict):
+          val = f.get("selectedValue")
+          
+      if not col or val is None:
+          continue
 
-        # If this is a calculated field, use its formula instead of the alias
-        col_expr = f'({formula_map[col]})' if col in formula_map else f'"{col}"'
-            
-        if isinstance(val, str):
-            val_escaped = val.replace("'", "''")
-            condition = f"{col_expr} = '{val_escaped}'"
-        else:
-            condition = f"{col_expr} = {val}"
-        parsed = parsed.where(condition, append=True)
+      # Resolve fuzzy matches against schema column names to prevent aliasing Binder Errors (e.g. "segment" -> "customer_segment")
+      resolved_col = col
+      if schema_columns:
+          schema_names = []
+          for c in schema_columns:
+              if isinstance(c, dict) and "name" in c:
+                  schema_names.append(c["name"])
+              elif isinstance(c, str):
+                  schema_names.append(c)
+
+          # 1. Case-insensitive exact match
+          matched = next((name for name in schema_names if name.lower() == col.lower()), None)
+          # 2. Suffix match (e.g., "segment" matches "customer_segment")
+          if not matched:
+              matched = next((name for name in schema_names if name.lower().endswith(f"_{col.lower()}")), None)
+          # 3. Substring match
+          if not matched:
+              matched = next((name for name in schema_names if col.lower() in name.lower()), None)
+
+          if matched:
+              resolved_col = matched
+
+      # If this is a calculated field, use its formula instead of the alias
+      col_expr = f'({formula_map[resolved_col]})' if resolved_col in formula_map else f'"{resolved_col}"'
+          
+      if isinstance(val, str):
+          val_escaped = str(val).replace("'", "''")
+          condition = f"{col_expr} = '{val_escaped}'"
+      else:
+          condition = f"{col_expr} = {val}"
+      parsed = parsed.where(condition, append=True)
     return parsed.sql(dialect="duckdb")
 
 
@@ -395,7 +417,11 @@ async def create_canvas_calculated_field(
         except Exception:
             pass
 
-    columns_str = ", ".join([f'"{col["name"]}" ({col["dtype"]})' for col in raw_schema if "name" in col])
+    columns_str = ", ".join([
+        f'"{col["name"]}" ({col["dtype"]})'
+        for col in raw_schema
+        if "name" in col and not col.get("is_calculated", False)
+    ])
 
     # 3. Call AI client to detect/infer formula
     system_prompt = (
@@ -410,6 +436,7 @@ async def create_canvas_calculated_field(
         "6. Classify the resulting field as 'Metrics' (if numeric) or 'Dimensions' (if category/boolean).\n"
         "7. Standardize the DuckDB datatype (e.g. DOUBLE, VARCHAR, BIGINT).\n"
         "8. Suggest a clean, readable title for the calculated field (e.g. 'Profit Margin' or 'Sales Increase').\n"
+        "9. CRITICAL: You MUST ONLY reference column names listed in the user prompt's 'Dataset Columns'. Do NOT hallucinate or assume columns that are not in the schema. If the calculation is impossible with the given columns, return a fallback SQL constant like '1' or '0', or map to the closest semantic match in the schema, but NEVER reference a column name that does not exist in the schema list.\n"
         "Output strictly valid JSON with no markdown blocks: "
         '{"field_name": "Field Title", "formula_sql": "SQL projection snippet", "category": "Metrics", "dtype": "DOUBLE"}'
     )
@@ -513,7 +540,7 @@ async def create_canvas_calculated_field(
         formula_sql=formula_sql,
         category=category,
         dtype=dtype,
-        schema_=schema_response
+        schema=schema_response
     )
 
 @router.delete("/fields/{field_name}", response_model=CanvasSchemaResponse)

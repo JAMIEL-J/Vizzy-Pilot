@@ -2,8 +2,8 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   Sparkles, Grid, Sliders, Play, Trash2, ArrowRight, RotateCcw, LayoutGrid, 
   ChevronRight, ChevronLeft, Plus, Check, Settings2, Download, Eye, FileSpreadsheet,
-  Info, BarChart3, BarChart4, PieChart as PieIcon, TrendingUp, HelpCircle, AlertCircle, Maximize2, Minimize2, Move,
-  Globe, ScatterChart, CircleDot, Shuffle, MapPin, Activity,
+  Info, BarChart3, BarChart4, PieChart as PieIcon, TrendingUp, HelpCircle, AlertCircle, Maximize2, Minimize2, Move, Percent,
+  Globe, ScatterChart, CircleDot, Shuffle, MapPin, Activity, DollarSign, ShoppingCart, Users, Box,
   Terminal, Code, Cpu, Database, Copy, CheckCheck, Table2, Layers, Undo2, Redo2,
   GripVertical, Filter, ChevronDown, GitBranch, FolderOpen, Save as SaveIcon, Loader2, ArrowRightLeft
 } from 'lucide-react';
@@ -21,11 +21,114 @@ import { VizzyPilotLogoIcon } from '../../components/layout/VizzyLogo';
 import { prettifyLabel } from '../../components/dashboard/dashboard-helpers';
 import { CustomGeoMap } from './CustomGeoMap';
 
+// AIPromptBarProps interface and React.memo component definition to avoid page-wide keydown re-renders
+interface AIPromptBarProps {
+  onSubmit: (prompt: string) => void;
+  isCompiling: boolean;
+  suggestions: string[];
+  placeholder?: string;
+  isFullScreen?: boolean;
+  showSuggestions?: boolean;
+}
+
+const AIPromptBar: React.FC<AIPromptBarProps> = React.memo(({
+  onSubmit,
+  isCompiling,
+  suggestions,
+  placeholder = "Prompt AI to construct and organize widgets on your canvas...",
+  isFullScreen = false,
+  showSuggestions = true
+}) => {
+  const [value, setValue] = useState('');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!value.trim() || isCompiling) return;
+    onSubmit(value);
+    setValue('');
+  };
+
+  return (
+    <div className="space-y-4 w-full">
+      <form onSubmit={handleSubmit} className="relative">
+        <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
+          <VizzyPilotLogoIcon size={18} className="text-accent-custom animate-pulse" />
+        </div>
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={placeholder}
+          className={
+            isFullScreen
+              ? "w-full bg-surface border border-border-custom hover:border-border-custom/80 focus:border-accent-custom/50 rounded-xl py-3 pl-11 pr-32 text-xs font-mono shadow-inner focus:outline-none transition-all placeholder:text-muted-custom"
+              : "w-full bg-surface border border-border-custom hover:border-border-custom/80 focus:border-accent-custom/50 rounded-2xl py-3.5 pl-11 pr-32 text-xs font-mono shadow-xs focus:outline-none transition-all placeholder:text-muted-custom"
+          }
+          disabled={isCompiling}
+        />
+        <div className={isFullScreen ? "absolute right-2 inset-y-1.5 flex items-center space-x-1.5" : "absolute right-2.5 inset-y-2 flex items-center space-x-1.5"}>
+          {value && (
+            <button 
+              type="button" 
+              onClick={() => setValue('')}
+              className="text-[10px] font-mono text-muted-custom hover:text-text-custom px-1 cursor-pointer"
+            >
+              Clear
+            </button>
+          )}
+          <button
+            type="submit"
+            disabled={isCompiling}
+            className={
+              isFullScreen
+                ? "px-3 h-full bg-accent-custom hover:opacity-90 disabled:opacity-50 text-white text-[11px] font-mono font-medium rounded-lg flex items-center space-x-1 cursor-pointer transition-all shadow-xs"
+                : "px-4 h-full bg-accent-custom hover:opacity-90 disabled:opacity-50 text-white text-xs font-mono font-medium rounded-xl flex items-center space-x-1 cursor-pointer transition-all shadow-xs"
+            }
+          >
+            {isCompiling ? (
+              <>
+                <RotateCcw className={isFullScreen ? "w-3.5 h-3.5 animate-spin" : "w-3 h-3 animate-spin"} />
+                <span>Compiling...</span>
+              </>
+            ) : (
+              <>
+                <Play className={isFullScreen ? "w-3.5 h-3.5 fill-current" : "w-3 h-3 fill-current"} />
+                <span>Compile</span>
+              </>
+            )}
+          </button>
+        </div>
+      </form>
+
+      {/* Suggestion pills */}
+      {showSuggestions && (
+        <div className="flex flex-wrap items-center gap-2">
+          {!isFullScreen && <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-muted-custom">AI Templates:</span>}
+          {suggestions.map((sug, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => setValue(sug)}
+              className={
+                isFullScreen
+                  ? "px-2 py-1 bg-surface-2 hover:bg-border-custom/20 border border-border-custom/30 rounded-full text-[9px] font-mono text-muted-custom hover:text-text-custom transition-all cursor-pointer truncate max-w-[200px]"
+                  : "px-2.5 py-1 bg-surface hover:bg-border-custom/20 border border-border-custom rounded-full text-[9px] font-mono text-muted-custom hover:text-text-custom transition-all cursor-pointer truncate max-w-[240px]"
+              }
+            >
+              {sug}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+});
+
 // Define Widget Type for the Canvas with AI logs
 interface CanvasWidget {
   id: string;
   title: string;
-  type: 'kpi' | 'bar' | 'stacked_bar' | 'line' | 'pie' | 'table' | 'map' | 'scatter' | 'bubble' | 'combo' | 'hbar';
+  type: 'kpi' | 'bar' | 'stacked_bar' | 'line' | 'pie' | 'donut' | 'table' | 'map' | 'scatter' | 'bubble' | 'combo' | 'hbar';
   data: any[];
   width: 'full' | 'half' | 'third';
   value?: string;
@@ -63,6 +166,37 @@ const PROMPT_SUGGESTIONS = [
   'Build a pie chart representing segment share: Enterprise 45%, Mid-Market 35%, SMB 20%'
 ];
 
+const getKpiIcon = (metricName: string, color: string) => {
+  const lower = String(metricName).toLowerCase();
+  let Icon = Activity;
+  if (lower.includes('sale') || lower.includes('revenue') || lower.includes('profit') || lower.includes('cost') || lower.includes('price') || lower.includes('amount')) {
+    Icon = DollarSign;
+  } else if (lower.includes('order') || lower.includes('transaction') || lower.includes('deal') || lower.includes('count')) {
+    Icon = ShoppingCart;
+  } else if (lower.includes('rate') || lower.includes('margin') || lower.includes('pct') || lower.includes('growth')) {
+    Icon = TrendingUp;
+  } else if (lower.includes('percent')) {
+    Icon = Percent;
+  } else if (lower.includes('user') || lower.includes('customer') || lower.includes('client') || lower.includes('visitor')) {
+    Icon = Users;
+  } else if (lower.includes('product') || lower.includes('item') || lower.includes('stock')) {
+    Icon = Box;
+  }
+
+  return (
+    <div 
+      className="p-2 rounded-lg border flex items-center justify-center shrink-0 shadow-md relative overflow-hidden group-hover/kpi:scale-105 transition-transform duration-300"
+      style={{ backgroundColor: `${color}12`, borderColor: `${color}25` }}
+    >
+      <div 
+        className="absolute inset-0 blur-md opacity-25"
+        style={{ backgroundColor: color }}
+      />
+      <Icon className="w-4 h-4 relative z-10" style={{ color }} />
+    </div>
+  );
+};
+
 export default function CanvasPage() {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
@@ -84,8 +218,15 @@ export default function CanvasPage() {
     localStorage.setItem('vizzy_canvas_widgets', JSON.stringify(widgets));
   }, [widgets]);
 
-  const [promptInput, setPromptInput] = useState('');
   const [selectedWidgetId, setSelectedWidgetId] = useState<string | null>(null);
+  const [selectedWidgetIds, setSelectedWidgetIds] = useState<string[]>([]);
+  const [selectionBox, setSelectionBox] = useState<{ startX: number; startY: number; currentX: number; currentY: number; active: boolean } | null>(null);
+  const selectedWidgetIdsRef = useRef<string[]>([]);
+
+  useEffect(() => {
+    selectedWidgetIdsRef.current = selectedWidgetIds;
+  }, [selectedWidgetIds]);
+
   const [isCompiling, setIsCompiling] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
   const [checkedFields, setCheckedFields] = useState<string[]>([]);
@@ -110,8 +251,27 @@ export default function CanvasPage() {
   const [deleteDashboardId, setDeleteDashboardId] = useState<string | null>(null);
   const [showDeleteFieldModal, setShowDeleteFieldModal] = useState(false);
   const [deleteFieldId, setDeleteFieldId] = useState<string | null>(null);
-  const [saveDashboardName, setSaveDashboardName] = useState('');
+  const [saveDashboardName, setSaveDashboardName] = useState(() => localStorage.getItem('vizzy_last_loaded_dashboard_name') || '');
+  const [loadedDashboardId, setLoadedDashboardId] = useState<string | null>(() => localStorage.getItem('vizzy_last_loaded_dashboard_id'));
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState<boolean>(false);
   const [geoFilters, setGeoFilters] = useState<Record<string, string[]>>({});
+
+  // Persist loaded layout details to survive page refreshes
+  useEffect(() => {
+    if (loadedDashboardId) {
+      localStorage.setItem('vizzy_last_loaded_dashboard_id', loadedDashboardId);
+    } else {
+      localStorage.removeItem('vizzy_last_loaded_dashboard_id');
+    }
+  }, [loadedDashboardId]);
+
+  useEffect(() => {
+    if (saveDashboardName) {
+      localStorage.setItem('vizzy_last_loaded_dashboard_name', saveDashboardName);
+    } else {
+      localStorage.removeItem('vizzy_last_loaded_dashboard_name');
+    }
+  }, [saveDashboardName]);
 
   // Number Formatting Custom Modal States
   const [showCustomFormatModal, setShowCustomFormatModal] = useState(false);
@@ -161,6 +321,28 @@ export default function CanvasPage() {
   // Function to case column names
   const _humanizeLabel = (str: string) => {
     return str.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  };
+
+  const beautifyTitle = (rawTitle: string): string => {
+    if (!rawTitle) return '';
+    return rawTitle
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, c => c.toUpperCase())
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
+  const isDateColumn = (colName: string) => {
+    const colObj = fieldsList.find(f => f.name === colName);
+    if (!colObj) return false;
+    const typeLower = colObj.type.toLowerCase();
+    const nameLower = colObj.name.toLowerCase();
+    return colObj.category === 'Dates' || 
+           typeLower.includes('date') || 
+           typeLower.includes('timestamp') || 
+           typeLower.includes('time') || 
+           nameLower.includes('date') || 
+           nameLower.includes('time');
   };
 
   const getColExpr = (colName: string) => {
@@ -425,18 +607,29 @@ export default function CanvasPage() {
       const kpiVal = chart.data?.value;
       const kpiLabel = chart.data?.label || chart.title || '';
       const suffix = chart.data?.suffix || '';
+      const rows = chart.data?.rows || [];
       
-      // Use professional compact notation with auto-currency detection
-      if (suffix === '%') {
-        value = typeof kpiVal === 'number' ? `${kpiVal.toFixed(1)}%` : String(kpiVal || '0') + '%';
+      const formattedMetricVal = suffix === '%'
+        ? (typeof kpiVal === 'number' ? `${kpiVal.toFixed(1)}%` : String(kpiVal || '0') + '%')
+        : formatKpiValue(kpiVal, kpiLabel, 'SUM');
+
+      if (rows.length > 0) {
+        data = rows;
+        const firstRow = rows[0];
+        const hasLabel = firstRow.label !== undefined && firstRow.label !== null;
+        if (hasLabel) {
+          value = String(firstRow.label);
+          subtext = `${prettifyLabel(kpiLabel)}: ${formattedMetricVal}`;
+        } else {
+          value = formattedMetricVal;
+          subtext = kpiLabel || 'Total';
+        }
       } else {
-        value = formatKpiValue(kpiVal, kpiLabel, 'SUM');
-      }
-      subtext = kpiLabel || 'Total';
-      
-      // If backend provides secondary metrics, store for enhanced rendering
-      if (chart.data?.metrics && chart.data.metrics.length > 1) {
-        data = chart.data.metrics;
+        value = formattedMetricVal;
+        subtext = kpiLabel || 'Total';
+        if (chart.data?.metrics && chart.data.metrics.length > 1) {
+          data = chart.data.metrics;
+        }
       }
     } else if (type === 'bar' || type === 'stacked_bar') {
       data = chart.data?.rows || [];
@@ -544,12 +737,40 @@ export default function CanvasPage() {
     };
   }, []);
 
+  // Debounced auto-save effect
+  useEffect(() => {
+    if (!autoSaveEnabled || !loadedDashboardId || widgets.length === 0) return;
+
+    const timer = setTimeout(async () => {
+      try {
+        const configObj = {
+          type: 'canvas',
+          widgets,
+          gridSnap,
+          showGridlines,
+          selectedDatasetId,
+          selectedVersionId
+        };
+        const payload = {
+          name: saveDashboardName || "My Vizzy Canvas",
+          config: configObj
+        };
+        await apiClient.patch(`/dashboards/${loadedDashboardId}`, payload);
+        addLog(`Auto-saved layout changes to "${saveDashboardName}".`);
+      } catch (err) {
+        console.error("Auto save failed:", err);
+      }
+    }, 2000); // 2 second delay debounce
+
+    return () => clearTimeout(timer);
+  }, [widgets, gridSnap, showGridlines, autoSaveEnabled, loadedDashboardId, saveDashboardName, selectedDatasetId, selectedVersionId]);
+
   const handleSaveDashboard = () => {
     if (widgets.length === 0) {
       toast.error("Canvas is empty. Add some widgets first!");
       return;
     }
-    setSaveDashboardName("My Vizzy Canvas");
+    setSaveDashboardName(saveDashboardName || "My Vizzy Canvas");
     setShowSaveModal(true);
   };
 
@@ -579,13 +800,42 @@ export default function CanvasPage() {
         is_public: false
       };
 
-      await apiClient.post('/dashboards', payload);
+      const res = await apiClient.post('/dashboards', payload);
+      if (res.data && res.data.id) {
+        setLoadedDashboardId(res.data.id);
+      }
       toast.success("Dashboard layout saved successfully!");
       addLog(`SUCCESS: Saved dashboard layout: "${saveDashboardName}"`);
       setShowSaveModal(false);
     } catch (err: any) {
       console.error(err);
       toast.error("Failed to save dashboard layout.");
+    }
+  };
+
+  const executeSaveDashboardOverride = async () => {
+    if (!loadedDashboardId) return;
+    try {
+      const configObj = {
+        type: 'canvas',
+        widgets,
+        gridSnap,
+        showGridlines,
+        selectedDatasetId,
+        selectedVersionId
+      };
+      
+      const payload = {
+        name: saveDashboardName || "My Vizzy Canvas",
+        config: configObj
+      };
+
+      await apiClient.patch(`/dashboards/${loadedDashboardId}`, payload);
+      toast.success("Dashboard layout updated successfully!");
+      addLog(`SUCCESS: Updated layout changes for "${saveDashboardName || 'Dashboard'}"`);
+    } catch (err: any) {
+      console.error(err);
+      toast.error("Failed to update dashboard layout.");
     }
   };
 
@@ -598,6 +848,8 @@ export default function CanvasPage() {
         setWidgets(db.config.widgets || []);
         setGridSnap(db.config.gridSnap ?? true);
         setShowGridlines(db.config.showGridlines ?? true);
+        setLoadedDashboardId(db.id);
+        setSaveDashboardName(db.name);
         if (db.config.selectedDatasetId) {
           handleDatasetChange(db.config.selectedDatasetId, true, db.config.selectedVersionId);
         }
@@ -658,6 +910,7 @@ export default function CanvasPage() {
   const widgetsRef = useRef(widgets);
   const fieldsListRef = useRef(fieldsList);
   const checkedFieldsRef = useRef(checkedFields);
+  const hasDraggedRef = useRef(false);
 
   const canvasContainerRef = useRef<HTMLDivElement>(null);
 
@@ -788,88 +1041,96 @@ export default function CanvasPage() {
   useEffect(() => {
     if (!selectedDatasetId) return;
 
-    setWidgets(prevWidgets => {
-      const updatableWidgets = prevWidgets.filter(w => w.sql);
-      if (updatableWidgets.length === 0) return prevWidgets;
+    const updatableWidgets = widgets.filter(w => w.sql);
+    if (updatableWidgets.length === 0) return;
 
-      const activeFilters = customFilters.filter(f => f.selectedValue !== null);
-      
-      const executeAll = async () => {
-        try {
-          const promises = updatableWidgets.map(async (w) => {
-            try {
-              const res = await canvasService.executeSql(
-                selectedDatasetId, 
-                selectedVersionId || '', 
-                w.sql || '', 
-                activeFilters
-              );
-              return {
-                id: w.id,
-                data: res.results,
-                error: res.error,
-                filterOmitted: res.filter_omitted,
-                isKpi: w.type === 'kpi'
-              };
-            } catch (e) {
-              console.error(`Failed to requery widget ${w.id}`, e);
-              return { id: w.id, data: w.data, error: 'Failed', filterOmitted: true, isKpi: w.type === 'kpi' };
+    const activeFilters = customFilters.filter(f => f.selectedValue !== null);
+    
+    const executeAll = async () => {
+      try {
+        const promises = updatableWidgets.map(async (w) => {
+          try {
+            const res = await canvasService.executeSql(
+              selectedDatasetId, 
+              selectedVersionId || '', 
+              w.sql || '', 
+              activeFilters
+            );
+            return {
+              id: w.id,
+              data: res.results,
+              error: res.error,
+              filterOmitted: res.filter_omitted,
+              isKpi: w.type === 'kpi'
+            };
+          } catch (e) {
+            console.error(`Failed to requery widget ${w.id}`, e);
+            return { id: w.id, data: w.data, error: 'Failed', filterOmitted: true, isKpi: w.type === 'kpi' };
+          }
+        });
+
+        const updates = await Promise.all(promises);
+        
+        setWidgets(currentWidgets => currentWidgets.map(w => {
+          const update = updates.find(u => u.id === w.id);
+          if (update && !update.error) {
+            let updatedData = update.data || [];
+
+            // Map SQL label/value results back to Pie/Donut's expected { name, val } structure
+            if (w.type === 'pie' || w.type === 'donut') {
+              updatedData = updatedData.map((r: any) => ({ name: r.label || r.name, val: r.value || r.val }));
             }
-          });
 
-          const updates = await Promise.all(promises);
-          
-          setWidgets(currentWidgets => currentWidgets.map(w => {
-            const update = updates.find(u => u.id === w.id);
-            if (update && !update.error) {
-              let updatedData = update.data || [];
+            // Apply dynamic Top-N slicing
+            const titleText = String(w.title || '').toLowerCase();
+            const topMatch = titleText.match(/\btop\s*(\d+)\b/);
+            const titleLimit = topMatch ? parseInt(topMatch[1]) : null;
+            const limit = titleLimit ?? w.limit;
 
-              // Map SQL label/value results back to Pie's expected { name, val } structure
-              if (w.type === 'pie') {
-                updatedData = updatedData.map((r: any) => ({ name: r.label || r.name, val: r.value || r.val }));
-              }
-
-              // Apply dynamic Top-N slicing
-              const titleText = String(w.title || '').toLowerCase();
-              const topMatch = titleText.match(/\btop\s*(\d+)\b/);
-              const titleLimit = topMatch ? parseInt(topMatch[1]) : null;
-              const limit = titleLimit ?? w.limit;
-
-              if (limit && updatedData.length > limit) {
-                updatedData = updatedData.slice(0, limit);
-              }
-
-              const newWidget = {
-                ...w,
-                data: updatedData,
-                filterOmitted: update.filterOmitted
-              };
-              // If it's a KPI and it re-queried successfully without fallback, update its value dynamically
-              if (update.isKpi && update.data && update.data.length > 0) {
-                const firstRow = update.data[0];
-                const numericKey = Object.keys(firstRow).find(k => typeof firstRow[k] === 'number');
-                if (numericKey) {
-                   const rawValue = firstRow[numericKey];
-                   const metricLabel = w.targetMetricName || w.yAxisKey || numericKey;
-                   newWidget.value = formatKpiValue(rawValue, metricLabel, w.activeAgg || 'SUM', w.numberFormat);
-                }
-              }
-              return newWidget;
+            if (limit && updatedData.length > limit) {
+              updatedData = updatedData.slice(0, limit);
             }
-            return w;
-          }));
-        } catch (err) {
-          console.error('Cross-filter re-query failed', err);
-        }
-      };
 
-      // Fire async execution without blocking state
-      executeAll();
+            const newWidget = {
+              ...w,
+              data: updatedData,
+              filterOmitted: update.filterOmitted
+            };
+            // If it's a KPI and it re-queried successfully without fallback, update its value dynamically
+            if (update.isKpi && update.data && update.data.length > 0) {
+              const firstRow = update.data[0];
+              const numericKey = Object.keys(firstRow).find(k => typeof firstRow[k] === 'number');
+              if (numericKey) {
+                 const rawValue = firstRow[numericKey];
+                 const metricLabel = w.targetMetricName || w.yAxisKey || numericKey;
+                 newWidget.value = formatKpiValue(rawValue, metricLabel, w.activeAgg || 'SUM', w.numberFormat);
+              }
+            }
+            return newWidget;
+          }
+          return w;
+        }));
+      } catch (err) {
+        console.error('Cross-filter re-query failed', err);
+      }
+    };
 
-      return prevWidgets;
-    });
+    // Fire async execution directly from effect body
+    executeAll();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customFilters, selectedDatasetId, selectedVersionId]);
+
+  // Sync fields checklist with selected widget's fields
+  useEffect(() => {
+    if (selectedWidgetId) {
+      const widget = widgets.find(w => w.id === selectedWidgetId);
+      if (widget) {
+        const metrics = widget.targetMetricName ? widget.targetMetricName.split(',').map(s => s.trim()) : [];
+        const dims = widget.targetDimName ? widget.targetDimName.split(',').map(s => s.trim()) : [];
+        setCheckedFields([...dims, ...metrics]);
+      }
+    }
+  }, [selectedWidgetId, widgets]);
 
   // Bind Ctrl+Z / Ctrl+Y and Mac Cmd counterpart shortcuts
   useEffect(() => {
@@ -909,6 +1170,49 @@ export default function CanvasPage() {
         e.preventDefault();
         handleRedo();
       }
+
+      // Keyboard nudge navigation for moving selected charts
+      const isArrow = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key);
+      if (isArrow && selectedWidgetIdsRef.current.length > 0) {
+        e.preventDefault();
+        const step = e.shiftKey ? 16 : 4;
+        let deltaX = 0;
+        let deltaY = 0;
+        if (e.key === 'ArrowUp') deltaY = -step;
+        if (e.key === 'ArrowDown') deltaY = step;
+        if (e.key === 'ArrowLeft') deltaX = -step;
+        if (e.key === 'ArrowRight') deltaX = step;
+
+        const startWidgets = [...widgetsRef.current];
+        
+        setWidgets(prev => {
+          return prev.map(w => {
+            if (selectedWidgetIdsRef.current.includes(w.id)) {
+              const width = w.customWidth ?? (w.type === 'kpi' ? 245 : 375);
+              const height = w.customHeight ?? (w.type === 'kpi' ? 120 : 230);
+              const px = w.position?.x ?? 16;
+              const py = w.position?.y ?? 16;
+              let newX = px + deltaX;
+              let newY = py + deltaY;
+              newX = Math.max(0, Math.min(newX, 2400 - width));
+              newY = Math.max(0, Math.min(newY, 1600 - height));
+              return { ...w, position: { x: newX, y: newY } };
+            }
+            return w;
+          });
+        });
+
+        // Add movement step to history state
+        setPast(prev => [
+          ...prev,
+          {
+            widgets: startWidgets,
+            fieldsList: fieldsListRef.current,
+            checkedFields: checkedFieldsRef.current
+          }
+        ]);
+        setFuture([]);
+      }
     };
     
     window.addEventListener('keydown', handleKeyDown);
@@ -930,52 +1234,93 @@ export default function CanvasPage() {
     const widget = widgets.find(w => w.id === widgetId);
     if (!widget) return;
     
-    setSelectedWidgetId(widgetId);
+    // Ensure this widget is selected. If not, make it the single selection (unless Shift key is held).
+    let activeIds = [...selectedWidgetIdsRef.current];
+    if (!activeIds.includes(widgetId)) {
+      if (e.shiftKey) {
+        activeIds = [...activeIds, widgetId];
+      } else {
+        activeIds = [widgetId];
+      }
+      setSelectedWidgetIds(activeIds);
+      setSelectedWidgetId(widgetId);
+    }
     
     const dragStartWidgets = [...widgetsRef.current];
     const startX = e.clientX;
     const startY = e.clientY;
-    const initialX = widget.position?.x ?? 16;
-    const initialY = widget.position?.y ?? 16;
     
-    const width = widget.customWidth ?? (widget.type === 'kpi' ? 245 : 375);
-    const height = widget.customHeight ?? (widget.type === 'kpi' ? 120 : 230);
+    // Cache starting coordinates for all active selected widgets
+    const initialPositions = activeIds.map(id => {
+      const w = widgetsRef.current.find(item => item.id === id);
+      return {
+        id,
+        initialX: w?.position?.x ?? 16,
+        initialY: w?.position?.y ?? 16,
+        width: w?.customWidth ?? (w?.type === 'kpi' ? 245 : 375),
+        height: w?.customHeight ?? (w?.type === 'kpi' ? 120 : 230)
+      };
+    });
     
     const handlePointerMove = (moveEvent: PointerEvent) => {
       const deltaX = moveEvent.clientX - startX;
       const deltaY = moveEvent.clientY - startY;
       
-      let newX = initialX + deltaX;
-      let newY = initialY + deltaY;
-      
-      if (gridSnap) {
-        newX = Math.round(newX / 16) * 16;
-        newY = Math.round(newY / 16) * 16;
-      }
-      
-      // Boundaries to prevent dragging completely off the large independent design stage
-      newX = Math.max(0, Math.min(newX, 2400 - width));
-      newY = Math.max(0, Math.min(newY, 1600 - height));
-      
-      setWidgets(prev => prev.map(w => w.id === widgetId ? {
-        ...w,
-        position: { x: newX, y: newY }
-      } : w));
+      // Update DOM styles directly in real-time for high-sensitivity and buttery smooth rendering
+      initialPositions.forEach(pos => {
+        const el = document.getElementById(`widget-card-${pos.id}`);
+        if (el) {
+          let newX = pos.initialX + deltaX;
+          let newY = pos.initialY + deltaY;
+          if (gridSnap) {
+            newX = Math.round(newX / 16) * 16;
+            newY = Math.round(newY / 16) * 16;
+          }
+          newX = Math.max(0, Math.min(newX, 2400 - pos.width));
+          newY = Math.max(0, Math.min(newY, 1600 - pos.height));
+          
+          el.style.left = `${newX}px`;
+          el.style.top = `${newY}px`;
+        }
+      });
     };
     
-    const handlePointerUp = () => {
+    const handlePointerUp = (upEvent: PointerEvent) => {
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', handlePointerUp);
 
-      // Check if position actually changed
-      const currentWidgets = widgetsRef.current;
-      const widgetBefore = dragStartWidgets.find(w => w.id === widgetId);
-      const widgetAfter = currentWidgets.find(w => w.id === widgetId);
+      const deltaX = upEvent.clientX - startX;
+      const deltaY = upEvent.clientY - startY;
 
-      if (widgetBefore && widgetAfter && (
-        widgetBefore.position?.x !== widgetAfter.position?.x ||
-        widgetBefore.position?.y !== widgetAfter.position?.y
-      )) {
+      // Commit final locations to state on pointerup
+      setWidgets(prev => prev.map(w => {
+        if (activeIds.includes(w.id)) {
+          const pos = initialPositions.find(p => p.id === w.id);
+          if (pos) {
+            let newX = pos.initialX + deltaX;
+            let newY = pos.initialY + deltaY;
+            if (gridSnap) {
+              newX = Math.round(newX / 16) * 16;
+              newY = Math.round(newY / 16) * 16;
+            }
+            newX = Math.max(0, Math.min(newX, 2400 - pos.width));
+            newY = Math.max(0, Math.min(newY, 1600 - pos.height));
+            return {
+              ...w,
+              position: { x: newX, y: newY }
+            };
+          }
+        }
+        return w;
+      }));
+
+      const anyMoved = initialPositions.some(pos => {
+        const deltaXFinal = upEvent.clientX - startX;
+        const deltaYFinal = upEvent.clientY - startY;
+        return deltaXFinal !== 0 || deltaYFinal !== 0;
+      });
+
+      if (anyMoved) {
         setPast(prev => [
           ...prev,
           {
@@ -985,7 +1330,7 @@ export default function CanvasPage() {
           }
         ]);
         setFuture([]); // Clear future stack
-        addLog(`Moved component "${widgetAfter.title}" to position (${widgetAfter.position?.x}px, ${widgetAfter.position?.y}px).`);
+        addLog(`Moved ${activeIds.length} component(s) on the canvas.`);
       }
     };
     
@@ -1054,6 +1399,114 @@ export default function CanvasPage() {
         setFuture([]); // Clear future stack
         addLog(`Resized component "${widgetAfter.title}" to ${widgetAfter.customWidth}x${widgetAfter.customHeight}px.`);
       }
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+  };
+
+  // Selection box dragging logic on the canvas sheet background
+  const handleCanvasPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    // Only drag on left click and not in responsive mode
+    if (e.button !== 0 || isResponsive) return;
+    
+    // Skip if user clicks inside any widget, button, selector, or inputs
+    const target = e.target as HTMLElement;
+    if (target.closest('.canvas-widget') || target.closest('button') || target.closest('select') || target.closest('input')) {
+      return;
+    }
+
+    hasDraggedRef.current = false;
+    const currentTarget = e.currentTarget;
+    currentTarget.setPointerCapture(e.pointerId);
+
+    const rect = currentTarget.getBoundingClientRect();
+    const startX = (e.clientX - rect.left) / (canvasScale || 1);
+    const startY = (e.clientY - rect.top) / (canvasScale || 1);
+
+    setSelectionBox({
+      startX,
+      startY,
+      currentX: startX,
+      currentY: startY,
+      active: true
+    });
+
+    // Clear previous selections if shift key is not pressed
+    if (!e.shiftKey) {
+      setSelectedWidgetIds([]);
+      setSelectedWidgetId(null);
+      setCheckedFields([]);
+    }
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      if (!rect) return;
+      const currentX = (moveEvent.clientX - rect.left) / (canvasScale || 1);
+      const currentY = (moveEvent.clientY - rect.top) / (canvasScale || 1);
+
+      if (Math.abs(currentX - startX) > 3 || Math.abs(currentY - startY) > 3) {
+        hasDraggedRef.current = true;
+      }
+
+      setSelectionBox(prev => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          currentX,
+          currentY
+        };
+      });
+
+      // Calculate intersection bounding box in canvas relative space
+      const boxStartX = Math.min(startX, currentX);
+      const boxEndX = Math.max(startX, currentX);
+      const boxStartY = Math.min(startY, currentY);
+      const boxEndY = Math.max(startY, currentY);
+
+      // Detect widgets inside the selection rectangle boundary
+      const intersectingIds: string[] = [];
+      widgetsRef.current.forEach(widget => {
+        const w = widget.customWidth ?? (widget.type === 'kpi' ? 245 : 375);
+        const h = widget.customHeight ?? (widget.type === 'kpi' ? 120 : 230);
+        const wx = widget.position?.x ?? 16;
+        const wy = widget.position?.y ?? 16;
+        const wEndX = wx + w;
+        const wEndY = wy + h;
+
+        const intersects = !(wx > boxEndX || wEndX < boxStartX || wy > boxEndY || wEndY < boxStartY);
+        if (intersects) {
+          intersectingIds.push(widget.id);
+        }
+      });
+
+      setSelectedWidgetIds(prev => {
+        if (moveEvent.shiftKey) {
+          const combined = new Set([...prev, ...intersectingIds]);
+          return Array.from(combined);
+        }
+        return intersectingIds;
+      });
+    };
+
+    const handlePointerUp = (upEvent: PointerEvent) => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      
+      try {
+        currentTarget.releasePointerCapture(upEvent.pointerId);
+      } catch (err) {
+        console.error("Failed to release pointer capture:", err);
+      }
+      
+      setSelectionBox(null);
+
+      // Sync primary selected widget to console on release
+      setSelectedWidgetIds(finalIds => {
+        if (finalIds.length > 0) {
+          setSelectedWidgetId(finalIds[0]);
+        }
+        return finalIds;
+      });
     };
 
     window.addEventListener('pointermove', handlePointerMove);
@@ -1172,6 +1625,40 @@ export default function CanvasPage() {
   const getDisplayKPI = (widget: CanvasWidget) => {
     let displayValue = widget.value ?? '';
     let displaySubtext = widget.subtext ?? '';
+    let extraDetails: { label: string; value: string }[] = [];
+
+    if (widget.data && widget.data.length > 0) {
+      const firstRow = widget.data[0];
+      const keys = Object.keys(firstRow);
+      const numericKey = keys.find(k => k.toLowerCase() === 'value') || keys.find(k => typeof firstRow[k] === 'number');
+      const labelKey = keys.find(k => k.toLowerCase() === 'label');
+
+      // 1. Capture dimension label if present (e.g., California) and map to target dim name
+      if (labelKey) {
+        const labelVal = firstRow[labelKey];
+        if (labelVal !== undefined && labelVal !== null) {
+          const dimLabel = widget.targetDimName ? prettifyLabel(widget.targetDimName.split(',')[0]) : 'Top Entity';
+          extraDetails.push({ label: dimLabel, value: String(labelVal) });
+        }
+      }
+
+      // 2. Capture other non-technical metrics/dimensions
+      keys.forEach(k => {
+        const kLower = k.toLowerCase();
+        const isTechnical = ['key', 'is percentage', 'format type', 'ispercentage', 'formattype', 'dtype', 'type', 'color', 'id'].includes(kLower);
+        
+        if (k !== numericKey && kLower !== 'value' && kLower !== 'label' && !isTechnical) {
+          const val = firstRow[k];
+          if (val !== undefined && val !== null) {
+            const formattedVal = typeof val === 'number' 
+              ? formatKpiValue(val, k, undefined, widget.numberFormat)
+              : String(val);
+            const displayLabel = k.replace(/[_\-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+            extraDetails.push({ label: displayLabel, value: formattedVal });
+          }
+        }
+      });
+    }
 
     const activeFilters = customFilters.filter(f => f.selectedValue !== null);
     if (activeFilters.length > 0) {
@@ -1179,7 +1666,7 @@ export default function CanvasPage() {
       displaySubtext = `${widget.subtext || ''} (Filtered by: ${filterDesc})`;
     }
 
-    return { value: displayValue, subtext: displaySubtext };
+    return { value: displayValue, subtext: displaySubtext, extraDetails };
   };
 
   const recompileWidget = async (widgetId: string, fields: string[]) => {
@@ -1250,9 +1737,17 @@ export default function CanvasPage() {
     let title = '';
     
     if (type === 'kpi') {
-      sql = isDimOnlyAnalysis
-        ? `SELECT COUNT(${getColExpr(primaryMetric)}) AS value FROM data`
-        : `SELECT ${buildAggExpr('SUM', primaryMetric)} AS value FROM data`;
+      const extraCols = checkedFields
+        .filter(f => f !== primaryMetric)
+        .map(f => {
+          const isMetric = fieldsList.some(af => af.name === f && af.category === 'Metrics');
+          return isMetric ? `${buildAggExpr('SUM', f)} AS "${f}"` : `ANY_VALUE(${getColExpr(f)}) AS "${f}"`;
+        });
+      const selection = [
+        isDimOnlyAnalysis ? `COUNT(${getColExpr(primaryMetric)}) AS value` : `${buildAggExpr('SUM', primaryMetric)} AS value`,
+        ...extraCols
+      ].join(', ');
+      sql = `SELECT ${selection} FROM data`;
       title = isDimOnlyAnalysis ? `Count of ${primaryMetric}` : `Total ${primaryMetric}`;
     } else if (type === 'table') {
       const colsToSelect = fields.length > 0 
@@ -1262,9 +1757,9 @@ export default function CanvasPage() {
       title = `Dataset Sample Ledger`;
     } else if (type === 'line') {
       const fallbackDate = `(CASE WHEN TRY_CAST(${getColExpr(primaryDim)} AS DATE) IS NOT NULL THEN TRY_CAST(${getColExpr(primaryDim)} AS DATE) WHEN TRY_CAST(${getColExpr(primaryDim)} AS TIMESTAMP) IS NOT NULL THEN CAST(TRY_CAST(${getColExpr(primaryDim)} AS TIMESTAMP) AS DATE) ELSE NULL END)`;
-      const dateExpr = fieldsList.some(f => f.name === primaryDim && f.category === 'Dates')
-        ? `COALESCE(strftime(${fallbackDate}, '%Y-%m'), ${getColExpr(primaryDim)})`
-        : `${getColExpr(primaryDim)}`;
+      const dateExpr = isDateColumn(primaryDim)
+        ? `COALESCE(strftime(${fallbackDate}, '%Y-%m'), CAST(${getColExpr(primaryDim)} AS VARCHAR))`
+        : `CAST(${getColExpr(primaryDim)} AS VARCHAR)`;
 
       if (isDimOnlyAnalysis) {
         sql = `SELECT ${dateExpr} AS label, COUNT(${getColExpr(primaryMetric)}) AS value FROM data GROUP BY 1 ORDER BY 1 ASC LIMIT 30`;
@@ -1291,8 +1786,14 @@ export default function CanvasPage() {
       }
     } else if (type === 'map') {
       const geoDim = checkedDims.find(d => ['country', 'state', 'city', 'region', 'postal', 'zip'].some(keyword => d.toLowerCase().includes(keyword))) || primaryDim;
-      sql = `SELECT ${getColExpr(geoDim)} AS label, ${buildAggExpr('SUM', primaryMetric)} AS value FROM data GROUP BY 1 ORDER BY value DESC LIMIT 30`;
-      title = `${primaryMetric} by Geographic Location (${geoDim})`;
+      if (checkedMetrics.length > 1) {
+        const metricSelections = checkedMetrics.map(m => `${buildAggExpr('SUM', m)} AS "${m}"`).join(', ');
+        sql = `SELECT ${getColExpr(geoDim)} AS label, ${metricSelections} FROM data GROUP BY 1 LIMIT 100`;
+        title = `Metrics by Geographic Location (${geoDim})`;
+      } else {
+        sql = `SELECT ${getColExpr(geoDim)} AS label, ${buildAggExpr('SUM', primaryMetric)} AS value FROM data GROUP BY 1 ORDER BY value DESC LIMIT 30`;
+        title = `${primaryMetric} by Geographic Location (${geoDim})`;
+      }
     } else if (type === 'scatter') {
       const xMetric = checkedMetrics[0] || fieldsList.find(f => f.category === 'Metrics')?.name || '1';
       const yMetric = checkedMetrics[1] || fieldsList.find(f => f.category === 'Metrics' && f.name !== xMetric)?.name || xMetric;
@@ -1347,9 +1848,17 @@ export default function CanvasPage() {
         let yAxisKey: string | undefined = 'value';
 
         if (type === 'kpi') {
-          const kpiVal = queryData[0]?.value ?? queryData[0]?.VALUE ?? 0;
-          value = formatKpiValue(kpiVal, primaryMetric, 'SUM');
-          subtext = formatKpiSubtext(primaryMetric, 'SUM');
+          const firstRow = queryData[0] || {};
+          const hasLabel = firstRow.label !== undefined && firstRow.label !== null;
+          const kpiVal = firstRow.value ?? firstRow.VALUE ?? 0;
+          
+          if (hasLabel) {
+            value = String(firstRow.label);
+            subtext = `${prettifyLabel(primaryMetric)}: ${formatKpiValue(kpiVal, primaryMetric, 'SUM')}`;
+          } else {
+            value = formatKpiValue(kpiVal, primaryMetric, 'SUM');
+            subtext = formatKpiSubtext(primaryMetric, 'SUM');
+          }
           chartData = [];
         } else if (type === 'pie') {
           const rowKeys = Object.keys(queryData[0] || {});
@@ -1363,7 +1872,7 @@ export default function CanvasPage() {
 
         setWidgets(prev => prev.map(w => w.id === widgetId ? {
           ...w,
-          title,
+          title: beautifyTitle(title),
           sql,
           data: chartData,
           value,
@@ -1372,7 +1881,7 @@ export default function CanvasPage() {
           yAxisKey,
           isConfigWarning: false,
           configWarningMessage: '',
-          targetMetricName: type === 'kpi' ? primaryMetric : undefined,
+          targetMetricName: checkedMetrics.length > 0 ? checkedMetrics.join(', ') : primaryMetric,
           targetDimName: type !== 'kpi' ? primaryDim : undefined,
           thinking: [`Compiled widget successfully targeting SQL query: ${title}`]
         } : w));
@@ -1457,9 +1966,8 @@ export default function CanvasPage() {
   };
 
   // Rule-based prompt compilation engine replaced with real stateless Canvas compiler
-  const handlePromptSubmit = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!promptInput.trim()) return;
+  const handleAIPromptSubmit = async (promptText: string) => {
+    if (!promptText.trim()) return;
     if (!selectedDatasetId) {
       toast.error("Please select a dataset first.");
       return;
@@ -1475,7 +1983,7 @@ export default function CanvasPage() {
     ]);
     setCompiledSql('');
     setCompiledResult('');
-    addLog(`AI Parsing prompt query: "${promptInput}"`);
+    addLog(`AI Parsing prompt query: "${promptText}"`);
 
     // Use a timer to progress steps dynamically
     let currentStep = 0;
@@ -1489,8 +1997,8 @@ export default function CanvasPage() {
       const res = await canvasService.compilePrompt(
         selectedDatasetId,
         selectedVersionId || null,
-        promptInput,
-        true
+        promptText,
+        false
       );
 
       clearInterval(interval);
@@ -1499,15 +2007,15 @@ export default function CanvasPage() {
       if (res.success) {
         const sql = res.sql || '';
         const chartSpec = res.chart || {};
-        const explanation = res.explanation || {};
-        const summary = explanation.summary || "Generated successfully";
+        const rowsCount = chartSpec.chart?.data?.rows?.length || chartSpec.chart?.data?.series?.length || 0;
+        const sqlExecutionSummary = `Executed successfully: ${rowsCount} records retrieved.`;
         
         setCompiledSql(sql);
-        setCompiledResult(summary);
+        setCompiledResult(sqlExecutionSummary);
 
         const newWidget = chartSpecToCanvasWidget(
           chartSpec,
-          promptInput,
+          promptText,
           sql,
           [
             "Analyzing dataset version...",
@@ -1515,7 +2023,7 @@ export default function CanvasPage() {
             "Executing projection logic...",
             "Compiling final visualization widget..."
           ],
-          summary
+          sqlExecutionSummary
         );
 
         // Adjust position dynamically
@@ -1540,7 +2048,6 @@ export default function CanvasPage() {
     } finally {
       setIsCompiling(false);
       setActiveStepIndex(-1);
-      setPromptInput('');
     }
   };
 
@@ -1668,7 +2175,7 @@ export default function CanvasPage() {
   };
 
   // Add default visual from Fields / Palette clicking using live query compiler
-  const handleAddDefaultVisual = async (type: 'kpi' | 'bar' | 'stacked_bar' | 'line' | 'pie' | 'table' | 'map' | 'scatter' | 'bubble' | 'combo' | 'hbar') => {
+  const handleAddDefaultVisual = async (type: 'kpi' | 'bar' | 'stacked_bar' | 'line' | 'pie' | 'donut' | 'table' | 'map' | 'scatter' | 'bubble' | 'combo' | 'hbar') => {
     if (!selectedDatasetId) {
       toast.error("Please select a dataset first.");
       return;
@@ -1705,9 +2212,9 @@ export default function CanvasPage() {
     } else if (type === 'bar' && checkedDims.length < 1) {
       isConfigWarning = true;
       configWarningMessage = 'Bar chart requires at least 1 Dimension.';
-    } else if (type === 'pie' && checkedDims.length < 1) {
+    } else if ((type === 'pie' || type === 'donut') && checkedDims.length < 1) {
       isConfigWarning = true;
-      configWarningMessage = 'Donut chart requires at least 1 Dimension.';
+      configWarningMessage = 'Pie/Donut chart requires at least 1 Dimension.';
     } else if (type === 'kpi' && checkedMetrics.length < 1 && checkedDims.length < 2) {
       isConfigWarning = true;
       configWarningMessage = 'Card visual requires at least 1 Metric to summarize.';
@@ -1756,9 +2263,17 @@ export default function CanvasPage() {
       let title = '';
       
       if (type === 'kpi') {
-        sql = isDimOnlyAnalysis
-          ? `SELECT COUNT(${getColExpr(primaryMetric)}) AS value FROM data`
-          : `SELECT ${buildAggExpr('SUM', primaryMetric)} AS value FROM data`;
+        const extraCols = checkedFields
+          .filter(f => f !== primaryMetric)
+          .map(f => {
+            const isMetric = fieldsList.some(af => af.name === f && af.category === 'Metrics');
+            return isMetric ? `${buildAggExpr('SUM', f)} AS "${f}"` : `ANY_VALUE(${getColExpr(f)}) AS "${f}"`;
+          });
+        const selection = [
+          isDimOnlyAnalysis ? `COUNT(${getColExpr(primaryMetric)}) AS value` : `${buildAggExpr('SUM', primaryMetric)} AS value`,
+          ...extraCols
+        ].join(', ');
+        sql = `SELECT ${selection} FROM data`;
         title = isDimOnlyAnalysis ? `Count of ${primaryMetric}` : `Total ${primaryMetric}`;
       } else if (type === 'table') {
         // Table renders the checked columns in order, or slices first 4 from dataset
@@ -1769,9 +2284,9 @@ export default function CanvasPage() {
         title = `Dataset Sample Ledger`;
       } else if (type === 'line') {
         const fallbackDate = `(CASE WHEN TRY_CAST(${getColExpr(primaryDim)} AS DATE) IS NOT NULL THEN TRY_CAST(${getColExpr(primaryDim)} AS DATE) WHEN TRY_CAST(${getColExpr(primaryDim)} AS TIMESTAMP) IS NOT NULL THEN CAST(TRY_CAST(${getColExpr(primaryDim)} AS TIMESTAMP) AS DATE) ELSE NULL END)`;
-        const dateExpr = fieldsList.some(f => f.name === primaryDim && f.category === 'Dates')
-          ? `COALESCE(strftime(${fallbackDate}, '%Y-%m'), ${getColExpr(primaryDim)})`
-          : `${getColExpr(primaryDim)}`;
+        const dateExpr = isDateColumn(primaryDim)
+          ? `COALESCE(strftime(${fallbackDate}, '%Y-%m'), CAST(${getColExpr(primaryDim)} AS VARCHAR))`
+          : `CAST(${getColExpr(primaryDim)} AS VARCHAR)`;
 
         if (isDimOnlyAnalysis) {
           sql = `SELECT ${dateExpr} AS label, COUNT(${getColExpr(primaryMetric)}) AS value FROM data GROUP BY 1 ORDER BY 1 ASC LIMIT 30`;
@@ -1799,8 +2314,14 @@ export default function CanvasPage() {
         }
       } else if (type === 'map') {
         const geoDim = checkedDims.find(d => ['country', 'state', 'city', 'region', 'postal', 'zip'].some(keyword => d.toLowerCase().includes(keyword))) || primaryDim;
-        sql = `SELECT ${getColExpr(geoDim)} AS label, ${buildAggExpr('SUM', primaryMetric)} AS value FROM data GROUP BY 1 ORDER BY value DESC LIMIT 30`;
-        title = `${primaryMetric} by Geographic Location (${geoDim})`;
+        if (checkedMetrics.length > 1) {
+          const metricSelections = checkedMetrics.map(m => `${buildAggExpr('SUM', m)} AS "${m}"`).join(', ');
+          sql = `SELECT ${getColExpr(geoDim)} AS label, ${metricSelections} FROM data GROUP BY 1 LIMIT 100`;
+          title = `Metrics by Geographic Location (${geoDim})`;
+        } else {
+          sql = `SELECT ${getColExpr(geoDim)} AS label, ${buildAggExpr('SUM', primaryMetric)} AS value FROM data GROUP BY 1 ORDER BY value DESC LIMIT 30`;
+          title = `${primaryMetric} by Geographic Location (${geoDim})`;
+        }
       } else if (type === 'scatter') {
         const xMetric = checkedMetrics[0] || fieldsList.find(f => f.category === 'Metrics')?.name || '1';
         const yMetric = checkedMetrics[1] || fieldsList.find(f => f.category === 'Metrics' && f.name !== xMetric)?.name || xMetric;
@@ -1864,11 +2385,19 @@ export default function CanvasPage() {
         let yAxisKey: string | undefined = 'value';
 
         if (type === 'kpi') {
-          const kpiVal = queryData[0]?.value ?? queryData[0]?.VALUE ?? 0;
-          value = formatKpiValue(kpiVal, primaryMetric, 'SUM');
-          subtext = formatKpiSubtext(primaryMetric, 'SUM');
+          const firstRow = queryData[0] || {};
+          const hasLabel = firstRow.label !== undefined && firstRow.label !== null;
+          const kpiVal = firstRow.value ?? firstRow.VALUE ?? 0;
+          
+          if (hasLabel) {
+            value = String(firstRow.label);
+            subtext = `${prettifyLabel(primaryMetric)}: ${formatKpiValue(kpiVal, primaryMetric, 'SUM')}`;
+          } else {
+            value = formatKpiValue(kpiVal, primaryMetric, 'SUM');
+            subtext = formatKpiSubtext(primaryMetric, 'SUM');
+          }
           chartData = [];
-        } else if (type === 'pie') {
+        } else if (type === 'pie' || type === 'donut') {
           const rowKeys = Object.keys(queryData[0] || {});
           xAxisKey = rowKeys.find(k => k.toLowerCase() === 'label') || rowKeys[0] || 'name';
           yAxisKey = rowKeys.find(k => k.toLowerCase() === 'value') || rowKeys[1] || 'val';
@@ -1898,7 +2427,7 @@ export default function CanvasPage() {
 
         const newWidget: CanvasWidget = {
           id,
-          title,
+          title: beautifyTitle(title),
           type: type as any,
           width: type === 'kpi' ? 'third' : 'half',
           value,
@@ -2016,7 +2545,14 @@ export default function CanvasPage() {
 
       // Always alias output as label/value for consistent key mapping
       const currentAgg = widget.activeAgg || 'SUM';
-      const sql = `SELECT ${grainExpr} AS label, ${buildAggExpr(currentAgg, realMetric)} AS value FROM data GROUP BY 1 ORDER BY 1 ASC LIMIT 50`;
+      const metrics = realMetric.split(',').map(s => s.trim());
+      let sql = '';
+      if (metrics.length > 1) {
+        const metricSelections = metrics.map(m => `${buildAggExpr(currentAgg, m, '1')} AS "${m}"`).join(', ');
+        sql = `SELECT ${grainExpr} AS label, ${metricSelections} FROM data GROUP BY 1 ORDER BY 1 ASC LIMIT 50`;
+      } else {
+        sql = `SELECT ${grainExpr} AS label, ${buildAggExpr(currentAgg, realMetric)} AS value FROM data GROUP BY 1 ORDER BY 1 ASC LIMIT 50`;
+      }
       
       addLog(`Executing Canvas grain query: ${sql}`);
       const sqlResult = await canvasService.executeSql(selectedDatasetId, selectedVersionId || '', sql);
@@ -2029,7 +2565,7 @@ export default function CanvasPage() {
           sql: sql,
           activeGrain: grain,
           xAxisKey: 'label',
-          yAxisKey: 'value'
+          yAxisKey: metrics.length > 1 ? (w.yAxisKey || metrics[0]) : 'value'
         } : w));
         addLog(`SUCCESS: Re-grained trend chart [${widget.title}] to ${grain}.`);
       } else {
@@ -2083,40 +2619,68 @@ export default function CanvasPage() {
 
     try {
       // Resolve REAL column names (not aliased keys) for SQL generation
-      const metric = widget.targetMetricName || fieldsList.find(f => f.category === 'Metrics')?.name || '1';
+      const metrics = widget.targetMetricName 
+        ? widget.targetMetricName.split(',').map(s => s.trim()) 
+        : [fieldsList.find(f => f.category === 'Metrics')?.name || '1'];
       const dimension = widget.targetDimName || fieldsList.find(f => f.category === 'Dimensions')?.name || 'label';
       
       let sql = '';
       let title = '';
 
       if (widget.type === 'kpi') {
+        const metric = metrics[0];
         sql = `SELECT ${buildAggExpr(agg, metric)} AS value FROM data`;
         title = agg === 'PERCENT_CHANGE' ? `% Change of ${metric}` : `${agg.charAt(0) + agg.slice(1).toLowerCase()} of ${metric}`;
-      } else if (widget.type === 'line') {
-        // If trend line, respect the active time grain
-        const grain = widget.activeGrain || 'month';
-        const fallbackDate = `(CASE WHEN TRY_CAST(${getColExpr(dimension)} AS DATE) IS NOT NULL THEN TRY_CAST(${getColExpr(dimension)} AS DATE) WHEN TRY_CAST(${getColExpr(dimension)} AS TIMESTAMP) IS NOT NULL THEN CAST(TRY_CAST(${getColExpr(dimension)} AS TIMESTAMP) AS DATE) ELSE NULL END)`;
-        
-        let grainExpr = '';
-        if (grain === 'year') {
-          grainExpr = `COALESCE(strftime(${fallbackDate}, '%Y'), CAST(regexp_extract(${getColExpr(dimension)}, '\\d{4}') AS VARCHAR))`;
-        } else if (grain === 'quarter') {
-          grainExpr = `COALESCE(strftime(${fallbackDate}, '%Y-Q') || CAST(quarter(${fallbackDate}) AS VARCHAR), CAST(${getColExpr(dimension)} AS VARCHAR))`;
-        } else if (grain === 'month') {
-          grainExpr = `COALESCE(strftime(${fallbackDate}, '%Y-%m'), CAST(${getColExpr(dimension)} AS VARCHAR))`;
-        } else {
-          grainExpr = `COALESCE(CAST(${fallbackDate} AS VARCHAR), CAST(${getColExpr(dimension)} AS VARCHAR))`;
-        }
-        
-        // Always alias to label/value for consistent key mapping
-        sql = `SELECT ${grainExpr} AS label, ${buildAggExpr(agg, metric, '1')} AS value FROM data GROUP BY 1 ORDER BY 1 ASC LIMIT 50`;
-        title = agg === 'PERCENT_CHANGE' ? `% Change of ${metric} by ${dimension}` : `${metric} (${agg}) Trend by ${dimension}`;
-      } else {
-        // Bar/Pie — always alias to label/value
+      } else if (metrics.length > 1) {
         const labelExpr = getColExpr(dimension);
-        const limitVal = widget.limit || 15;
-        sql = `SELECT ${labelExpr} AS label, ${buildAggExpr(agg, metric, '1')} AS value FROM data GROUP BY 1 ORDER BY value DESC LIMIT ${limitVal}`;
-        title = agg === 'PERCENT_CHANGE' ? `% Change of ${metric} by ${dimension}` : `${metric} (${agg}) by ${dimension}`;
+        const metricSelections = metrics.map(m => `${buildAggExpr(agg, m, '1')} AS "${m}"`).join(', ');
+        
+        if (widget.type === 'line') {
+          const grain = widget.activeGrain || 'month';
+          const fallbackDate = `(CASE WHEN TRY_CAST(${getColExpr(dimension)} AS DATE) IS NOT NULL THEN TRY_CAST(${getColExpr(dimension)} AS DATE) WHEN TRY_CAST(${getColExpr(dimension)} AS TIMESTAMP) IS NOT NULL THEN CAST(TRY_CAST(${getColExpr(dimension)} AS TIMESTAMP) AS DATE) ELSE NULL END)`;
+          
+          let grainExpr = '';
+          if (grain === 'year') {
+            grainExpr = `COALESCE(strftime(${fallbackDate}, '%Y'), CAST(regexp_extract(${getColExpr(dimension)}, '\\d{4}') AS VARCHAR))`;
+          } else if (grain === 'quarter') {
+            grainExpr = `COALESCE(strftime(${fallbackDate}, '%Y-Q') || CAST(quarter(${fallbackDate}) AS VARCHAR), CAST(${getColExpr(dimension)} AS VARCHAR))`;
+          } else if (grain === 'month') {
+            grainExpr = `COALESCE(strftime(${fallbackDate}, '%Y-%m'), CAST(${getColExpr(dimension)} AS VARCHAR))`;
+          } else {
+            grainExpr = `COALESCE(CAST(${fallbackDate} AS VARCHAR), CAST(${getColExpr(dimension)} AS VARCHAR))`;
+          }
+          sql = `SELECT ${grainExpr} AS label, ${metricSelections} FROM data GROUP BY 1 ORDER BY 1 ASC LIMIT 50`;
+          title = `Metrics (${agg}) Trend by ${dimension}`;
+        } else {
+          const limitVal = widget.limit || 15;
+          sql = `SELECT ${labelExpr} AS label, ${metricSelections} FROM data GROUP BY 1 ORDER BY "${metrics[0]}" DESC LIMIT ${limitVal}`;
+          title = `Comparison (${agg}) by ${dimension}`;
+        }
+      } else {
+        const metric = metrics[0];
+        const labelExpr = getColExpr(dimension);
+        
+        if (widget.type === 'line') {
+          const grain = widget.activeGrain || 'month';
+          const fallbackDate = `(CASE WHEN TRY_CAST(${getColExpr(dimension)} AS DATE) IS NOT NULL THEN TRY_CAST(${getColExpr(dimension)} AS DATE) WHEN TRY_CAST(${getColExpr(dimension)} AS TIMESTAMP) IS NOT NULL THEN CAST(TRY_CAST(${getColExpr(dimension)} AS TIMESTAMP) AS DATE) ELSE NULL END)`;
+          
+          let grainExpr = '';
+          if (grain === 'year') {
+            grainExpr = `COALESCE(strftime(${fallbackDate}, '%Y'), CAST(regexp_extract(${getColExpr(dimension)}, '\\d{4}') AS VARCHAR))`;
+          } else if (grain === 'quarter') {
+            grainExpr = `COALESCE(strftime(${fallbackDate}, '%Y-Q') || CAST(quarter(${fallbackDate}) AS VARCHAR), CAST(${getColExpr(dimension)} AS VARCHAR))`;
+          } else if (grain === 'month') {
+            grainExpr = `COALESCE(strftime(${fallbackDate}, '%Y-%m'), CAST(${getColExpr(dimension)} AS VARCHAR))`;
+          } else {
+            grainExpr = `COALESCE(CAST(${fallbackDate} AS VARCHAR), CAST(${getColExpr(dimension)} AS VARCHAR))`;
+          }
+          sql = `SELECT ${grainExpr} AS label, ${buildAggExpr(agg, metric, '1')} AS value FROM data GROUP BY 1 ORDER BY 1 ASC LIMIT 50`;
+          title = agg === 'PERCENT_CHANGE' ? `% Change of ${metric} by ${dimension}` : `${metric} (${agg}) Trend by ${dimension}`;
+        } else {
+          const limitVal = widget.limit || 15;
+          sql = `SELECT ${labelExpr} AS label, ${buildAggExpr(agg, metric, '1')} AS value FROM data GROUP BY 1 ORDER BY value DESC LIMIT ${limitVal}`;
+          title = agg === 'PERCENT_CHANGE' ? `% Change of ${metric} by ${dimension}` : `${metric} (${agg}) by ${dimension}`;
+        }
       }
 
       addLog(`Executing Canvas aggregation query: ${sql}`);
@@ -2133,14 +2697,15 @@ export default function CanvasPage() {
 
         if (widget.type === 'kpi') {
           const kpiVal = queryData[0]?.value ?? queryData[0]?.VALUE ?? 0;
-          value = formatKpiValue(kpiVal, metric, agg, widget.numberFormat);
-          subtext = formatKpiSubtext(metric, agg);
+          value = formatKpiValue(kpiVal, metrics[0], agg, widget.numberFormat);
+          subtext = formatKpiSubtext(metrics[0], agg);
           chartData = [];
-        } else if (widget.type === 'pie') {
-          // Remap SQL label/value to pie's expected name/val keys
+        } else if (widget.type === 'pie' || widget.type === 'donut') {
           chartData = queryData.map((r: any) => ({ name: r.label, val: r.value }));
           updatedXKey = 'name';
           updatedYKey = 'val';
+        } else {
+          updatedYKey = metrics.length > 1 ? metrics[0] : 'value';
         }
 
         setWidgets(prev => prev.map(w => w.id === widgetId ? {
@@ -2148,7 +2713,7 @@ export default function CanvasPage() {
           data: chartData,
           value,
           subtext,
-          title,
+          title: beautifyTitle(title),
           sql: sql,
           activeAgg: agg,
           xAxisKey: updatedXKey,
@@ -2318,14 +2883,60 @@ export default function CanvasPage() {
 
           <span className="text-muted-custom/30 px-1">|</span>
 
-          <button 
-            onClick={handleSaveDashboard}
-            className="h-9 px-3.5 text-[11px] font-semibold bg-surface hover:bg-surface-2 border border-border-custom text-text-custom hover:text-accent-custom hover:border-accent-custom/55 rounded-full flex items-center space-x-1.5 transition-all cursor-pointer shadow-xs"
-            title="Save layout configuration to the database"
-          >
-            <SaveIcon className="w-3.5 h-3.5 text-accent-custom" />
-            <span>Save Layout</span>
-          </button>
+          <div className="relative group/save flex items-center z-40">
+            {loadedDashboardId ? (
+              <button 
+                onClick={executeSaveDashboardOverride}
+                className="h-9 px-3 text-[11px] font-semibold bg-surface hover:bg-surface-2 border border-border-custom text-text-custom hover:text-accent-custom hover:border-accent-custom/55 rounded-l-full flex items-center space-x-1.5 transition-all cursor-pointer shadow-xs border-r-0"
+                title="Override and save changes in existing layout"
+              >
+                <SaveIcon className="w-3.5 h-3.5 text-accent-custom" />
+                <span>Save</span>
+              </button>
+            ) : (
+              <button 
+                onClick={handleSaveDashboard}
+                className="h-9 px-3.5 text-[11px] font-semibold bg-surface hover:bg-surface-2 border border-border-custom text-text-custom hover:text-accent-custom hover:border-accent-custom/55 rounded-l-full flex items-center space-x-1.5 transition-all cursor-pointer shadow-xs border-r-0"
+                title="Save layout configuration to the database"
+              >
+                <SaveIcon className="w-3.5 h-3.5 text-accent-custom" />
+                <span>Save Layout</span>
+              </button>
+            )}
+            
+            <button 
+              className="h-9 px-2 bg-surface hover:bg-surface-2 border border-border-custom text-text-custom hover:text-accent-custom hover:border-accent-custom/55 rounded-r-full flex items-center justify-center transition-all cursor-pointer shadow-xs"
+            >
+              <ChevronDown className="w-3 h-3 text-muted-custom" />
+            </button>
+            
+            <div className="absolute left-0 top-full mt-2 w-44 bg-surface border border-border-custom rounded-xl shadow-xl opacity-0 invisible group-hover/save:opacity-100 group-hover/save:visible transition-all z-50 flex flex-col p-1.5 font-mono text-[11px]">
+              {loadedDashboardId && (
+                <button 
+                  onClick={handleSaveDashboard} 
+                  className="w-full text-left px-3 py-2 hover:bg-surface-2 rounded-lg text-text-custom transition-colors cursor-pointer flex items-center justify-between"
+                >
+                  <span>Save As New...</span>
+                </button>
+              )}
+              <button 
+                onClick={() => {
+                  if (!loadedDashboardId) {
+                    toast.error("Please save the dashboard once before enabling auto-save.");
+                    return;
+                  }
+                  setAutoSaveEnabled(!autoSaveEnabled);
+                  toast.success(autoSaveEnabled ? "Auto-save disabled." : "Auto-save enabled!");
+                }} 
+                className="w-full text-left px-3 py-2 hover:bg-surface-2 rounded-lg text-text-custom transition-colors cursor-pointer flex items-center justify-between"
+              >
+                <span>Auto-Save</span>
+                <span className={`text-[9px] px-1.5 py-0.5 rounded font-mono ${autoSaveEnabled ? 'bg-emerald-500/20 text-emerald-400' : 'bg-muted-custom/20 text-muted-custom'}`}>
+                  {autoSaveEnabled ? 'ON' : 'OFF'}
+                </span>
+              </button>
+            </div>
+          </div>
 
           <button 
             onClick={fetchDashboards}
@@ -2449,9 +3060,19 @@ export default function CanvasPage() {
                 <button 
                   onClick={() => handleAddDefaultVisual('pie')}
                   className="p-1.5 bg-surface border border-border-custom rounded-xl flex flex-col items-center justify-center space-y-1 hover:border-accent-custom/50 transition-all cursor-pointer"
-                  title="Segment distribution donut"
+                  title="Segment distribution pie"
                 >
                   <PieIcon className="w-3.5 h-3.5 text-pink-500" />
+                  <span>Pie</span>
+                </button>
+                <button 
+                  onClick={() => handleAddDefaultVisual('donut')}
+                  className="p-1.5 bg-surface border border-border-custom rounded-xl flex flex-col items-center justify-center space-y-1 hover:border-accent-custom/50 transition-all cursor-pointer"
+                  title="Segment distribution donut"
+                >
+                  <div className="w-3.5 h-3.5 border-2 border-pink-500 rounded-full flex items-center justify-center">
+                    <div className="w-1 h-1 bg-surface rounded-full" />
+                  </div>
                   <span>Donut</span>
                 </button>
                 <button 
@@ -2504,6 +3125,18 @@ export default function CanvasPage() {
                    <Grid className="w-3.5 h-3.5 text-accent-custom" />
                    <span>Fields & Properties</span>
                  </h3>
+                 {selectedWidgetId && (
+                   <button
+                     onClick={() => {
+                       setSelectedWidgetId(null);
+                       setCheckedFields([]);
+                       addLog("Deselected active visual. Ready to build a new one.");
+                     }}
+                     className="text-[9px] font-mono text-accent-custom hover:text-accent-custom/80 transition-colors uppercase tracking-wider font-semibold cursor-pointer border border-accent-custom/20 rounded px-1.5 py-0.5 bg-accent-custom/5"
+                   >
+                     New / Clear
+                   </button>
+                 )}
                </div>
                
                {/* Inline AI Calculated Field Input Bar */}
@@ -2627,62 +3260,13 @@ export default function CanvasPage() {
           <div className="space-y-4">
             
             {/* Form */}
-            <form onSubmit={handlePromptSubmit} className="relative">
-              <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
-                <VizzyPilotLogoIcon size={18} className="text-accent-custom animate-pulse" />
-              </div>
-              <input
-                type="text"
-                value={promptInput}
-                onChange={(e) => setPromptInput(e.target.value)}
-                placeholder="Prompt AI to construct and organize widgets on your canvas... (e.g. 'Add a line chart showing trend')"
-                className="w-full bg-surface border border-border-custom hover:border-border-custom/80 focus:border-accent-custom/50 rounded-2xl py-3.5 pl-11 pr-32 text-xs font-mono shadow-xs focus:outline-none transition-all placeholder:text-muted-custom"
-                disabled={isCompiling}
-              />
-              <div className="absolute right-2.5 inset-y-2 flex items-center space-x-1.5">
-                {promptInput && (
-                  <button 
-                    type="button" 
-                    onClick={() => setPromptInput('')}
-                    className="text-[10px] font-mono text-muted-custom hover:text-text-custom px-1"
-                  >
-                    Clear
-                  </button>
-                )}
-                <button
-                  type="submit"
-                  disabled={isCompiling}
-                  className="px-4 h-full bg-accent-custom hover:opacity-90 disabled:opacity-50 text-white text-xs font-mono font-medium rounded-xl flex items-center space-x-1 cursor-pointer transition-all shadow-xs"
-                >
-                  {isCompiling ? (
-                    <>
-                      <RotateCcw className="w-3 h-3 animate-spin" />
-                      <span>Compiling...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Play className="w-3 h-3 fill-current" />
-                      <span>Compile</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
-
-            {/* Suggestion pills */}
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-muted-custom">AI Templates:</span>
-              {PROMPT_SUGGESTIONS.map((sug, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => setPromptInput(sug)}
-                  className="px-2.5 py-1 bg-surface-2 hover:bg-border-custom/20 border border-border-custom/30 rounded-full text-[10px] font-mono text-muted-custom hover:text-text-custom transition-all cursor-pointer truncate max-w-xs"
-                >
-                  {sug}
-                </button>
-              ))}
-            </div>
+            <AIPromptBar 
+              onSubmit={handleAIPromptSubmit} 
+              isCompiling={isCompiling} 
+              suggestions={PROMPT_SUGGESTIONS} 
+              placeholder="Prompt AI to construct and organize widgets on your canvas... (e.g. 'Add a line chart showing trend')"
+              isFullScreen={false}
+            />
 
             {/* Live AI SQL & Logic Compilation Console (Always visible & context-aware!) */}
             {showSqlViewer && (
@@ -3114,7 +3698,19 @@ export default function CanvasPage() {
                 >
                   {/* Independent high-resolution Canvas Workspace sheet */}
                   <div 
-                  className={`relative transition-all duration-300 ${
+                    onPointerDown={handleCanvasPointerDown}
+                    onClick={(e) => {
+                      if (hasDraggedRef.current) {
+                        hasDraggedRef.current = false;
+                        return;
+                      }
+                      if (e.target === e.currentTarget) {
+                        setSelectedWidgetId(null);
+                        setSelectedWidgetIds([]);
+                        setCheckedFields([]);
+                      }
+                    }}
+                    className={`relative ${isResponsive ? 'transition-all duration-300' : ''} ${
                     isResponsive 
                       ? 'w-full bg-transparent border-0 shadow-none grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 auto-rows-max' 
                       : 'bg-surface rounded-xl border border-dashed border-border-custom/80 shadow-md origin-top-left shrink-0'
@@ -3129,19 +3725,22 @@ export default function CanvasPage() {
                           : 'radial-gradient(rgba(0, 0, 0, 0.04) 1.2px, transparent 1.2px)')
                       : undefined,
                     backgroundSize: '16px 16px',
-                    transform: (!isResponsive && (isFullScreenCanvas || isPresentMode)) ? `scale(${canvasScale})` : undefined,
+                    transform: (!isResponsive && (isFullScreenCanvas || isPresentMode)) ? `scale(${canvasScale})` : 'translateZ(0)',
                     transformOrigin: 'top left',
+                    willChange: 'transform'
                   }}
                 >
                   <AnimatePresence mode="popLayout">
                   {/* Sort widgets logically by Y then X for responsive flow */}
                   {widgets.slice().sort((a, b) => (a.position?.y ?? 0) - (b.position?.y ?? 0) || (a.position?.x ?? 0) - (b.position?.x ?? 0)).map((widget) => {
-                    const isSelected = selectedWidgetId === widget.id;
+                    const isSelected = selectedWidgetIds.includes(widget.id) || selectedWidgetId === widget.id;
                     const width = widget.customWidth ?? (widget.type === 'kpi' ? 245 : 375);
                     const height = widget.customHeight ?? (widget.type === 'kpi' ? 120 : 230);
 
                     // Compute dynamic KPI values
-                    const kpiData = widget.type === 'kpi' ? getDisplayKPI(widget) : { value: widget.value, subtext: widget.subtext };
+                    const kpiData = widget.type === 'kpi' 
+                      ? getDisplayKPI(widget) 
+                      : { value: widget.value, subtext: widget.subtext, extraDetails: [] as { label: string; value: string }[] };
 
                     // Check if slicer fields are missing from this widget's data
                     const activeFilters = customFilters.filter(f => f.selectedValue !== null);
@@ -3162,7 +3761,8 @@ export default function CanvasPage() {
                         exit={{ opacity: 0, scale: 0.9 }}
                         transition={{ type: "spring", stiffness: 220, damping: 22 }}
                         key={widget.id}
-                        className={`group bg-surface border rounded-2xl p-4 shadow-sm flex flex-col justify-between overflow-visible transition-all select-none touch-none ${
+                        id={`widget-card-${widget.id}`}
+                        className={`canvas-widget group bg-surface border rounded-2xl ${widget.type === 'kpi' ? 'p-3' : 'p-4'} shadow-sm flex flex-col justify-between overflow-hidden transition-colors transition-shadow duration-150 select-none touch-none ${
                           isResponsive ? 'relative w-full' : 'absolute'
                         } ${
                           isPresentMode
@@ -3178,7 +3778,27 @@ export default function CanvasPage() {
                           height: isResponsive ? `${Math.max(height, 250)}px` : `${height}px`,
                           zIndex: isSelected && !isPresentMode ? 30 : 10
                         }}
-                        onClick={() => !isPresentMode && setSelectedWidgetId(widget.id)}
+                        onClick={(e) => {
+                          if (isPresentMode) return;
+                          e.stopPropagation();
+                          if (e.shiftKey) {
+                            setSelectedWidgetIds(prev => {
+                              if (prev.includes(widget.id)) {
+                                const next = prev.filter(id => id !== widget.id);
+                                if (selectedWidgetId === widget.id) {
+                                  setSelectedWidgetId(next[0] || null);
+                                }
+                                return next;
+                              } else {
+                                setSelectedWidgetId(widget.id);
+                                return [...prev, widget.id];
+                              }
+                            });
+                          } else {
+                            setSelectedWidgetId(widget.id);
+                            setSelectedWidgetIds([widget.id]);
+                          }
+                        }}
                         onContextMenu={(e) => {
                           if (isPresentMode) return;
                           e.preventDefault();
@@ -3413,18 +4033,66 @@ export default function CanvasPage() {
                           
                           {/* Type 1: KPI */}
                           {widget.type === 'kpi' && (
-                            <div className={`flex flex-col justify-center h-full text-left relative overflow-hidden transition-opacity duration-300 ${isSlicerMissing ? 'opacity-50' : ''}`} style={{ height: `${height - 40}px` }}>
-                              <div className="pl-4 pr-2">
+                            <div className={`flex-1 flex flex-col justify-between min-h-0 mt-0.5 text-left relative overflow-hidden transition-all duration-300 group/kpi ${isSlicerMissing ? 'opacity-50' : ''}`}>
+                              
+                              {/* Glowing background circle for premium visual depth */}
+                              <div 
+                                className="absolute -right-6 -bottom-6 w-20 h-20 rounded-full blur-2xl opacity-15 pointer-events-none transition-transform duration-500 group-hover/kpi:scale-125"
+                                style={{ backgroundColor: widget.color }}
+                              />
+                              
+                              <div className="flex items-start justify-between gap-3 w-full">
+                                <div className="flex flex-col space-y-0.5 min-w-0">
+                                  {/* Subtitle / Meta */}
+                                  <span className="text-[8.5px] font-mono text-muted-custom uppercase tracking-wider truncate max-w-[150px]">
+                                    {widget.targetMetricName ? prettifyLabel(widget.targetMetricName.split(',')[0]) : 'Metric Value'}
+                                  </span>
+                                  {/* Big Value */}
+                                  <div 
+                                    className="font-bold tracking-tight transition-all font-mono leading-none" 
+                                    style={{ 
+                                      color: (widget.numberFormat?.negativeStyle === 'red' && (String(kpiData.value).startsWith('-') || String(kpiData.value).startsWith('('))) ? '#EF4444' : widget.color,
+                                      fontSize: height > 180 ? '2.5rem' : height > 140 ? '2rem' : width > 200 ? '1.8rem' : '1.4rem'
+                                    }}
+                                  >
+                                    {kpiData.value || '—'}
+                                  </div>
+
+                                  {/* Associated Context Details (State, Profit etc.) */}
+                                  {kpiData.extraDetails && kpiData.extraDetails.length > 0 && (
+                                    <div className="flex flex-wrap gap-1 mt-1.5 max-w-full">
+                                      {kpiData.extraDetails.map((detail, idx) => (
+                                        <div 
+                                          key={idx} 
+                                          className="text-[7.5px] font-mono px-1.5 py-0.5 rounded bg-surface/50 border border-border-custom/30 text-muted-custom flex items-center space-x-1 whitespace-nowrap"
+                                        >
+                                          <span className="opacity-75">{detail.label}:</span>
+                                          <span className="font-bold text-text-custom">{detail.value}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                                
+                                {/* Auto-detected Category Icon */}
+                                {getKpiIcon(widget.targetMetricName || '', widget.color || '#3B82F6')}
+                              </div>
+
+                              {/* Progress bar or dynamic trend pill */}
+                              <div className="flex items-center justify-end w-full mt-2 pt-1.5 border-t border-border-custom/10">
+                                {/* Active aggregation badge */}
                                 <div 
-                                  className="font-bold tracking-tight transition-all leading-none" 
+                                  className="text-[7.5px] font-mono px-1.5 py-0.5 rounded border uppercase tracking-wider"
                                   style={{ 
-                                    color: (widget.numberFormat?.negativeStyle === 'red' && (String(kpiData.value).startsWith('-') || String(kpiData.value).startsWith('('))) ? '#EF4444' : widget.color,
-                                    fontSize: height > 180 ? '2.5rem' : height > 140 ? '2rem' : width > 200 ? '1.75rem' : '1.4rem'
+                                    backgroundColor: `${widget.color}08`, 
+                                    borderColor: `${widget.color}20`,
+                                    color: widget.color 
                                   }}
                                 >
-                                  {kpiData.value || '—'}
+                                  {widget.activeAgg || 'SUM'}
                                 </div>
                               </div>
+
                             </div>
                           )}
 
@@ -3433,106 +4101,141 @@ export default function CanvasPage() {
                             const key = widget.xAxisKey || 'label';
                             const valKey = widget.yAxisKey || 'value';
                             
-                            // For stacked bar, get all keys except the label key.
-                            const dataKeys = widget.type === 'stacked_bar' && widget.data.length > 0
+                            // For stacked bar or multi-metric bar, get all keys except the label key.
+                            const dataKeys = (widget.type === 'stacked_bar' || (widget.type === 'bar' && widget.targetMetricName && widget.targetMetricName.includes(','))) && widget.data.length > 0
                               ? Object.keys(widget.data[0]).filter(k => k !== key && typeof widget.data[0][k] === 'number')
                               : [valKey];
 
-                            const maxVal = Math.max(...widget.data.map(d => dataKeys.reduce((sum, k) => sum + (Number(d[k]) || 0), 0))) || 1;
-                            
-                            const paletteColors = [
-                              widget.color || '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#EF4444', '#14B8A6'
-                            ];
+                             const maxVal = Math.max(...widget.data.map(d => {
+                               const values = dataKeys.map(k => Number(d[k]) || 0);
+                               return widget.type === 'stacked_bar'
+                                 ? values.reduce((sum, v) => sum + v, 0)
+                                 : Math.max(...values, 0);
+                             })) || 1;
+                             
+                             const paletteColors = [
+                               widget.color || '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#EF4444', '#14B8A6'
+                             ];
 
-                            return (
-                              <div className="flex flex-col justify-end pt-2 min-h-[40px] w-full" style={{ height: `${height - 90}px` }}>
-                                <div className="flex h-full w-full">
-                                  {/* Y-axis Ticks */}
-                                  <div className="flex flex-col justify-between text-[7px] text-muted-custom font-mono h-[85%] pr-1.5 border-r border-border-custom/30 select-none pb-1.5 shrink-0 text-right min-w-[36px]">
-                                    <div>{formatKpiValue(maxVal, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg, widget.numberFormat)}</div>
-                                    <div>{formatKpiValue(maxVal / 2, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg, widget.numberFormat)}</div>
-                                    <div>{formatKpiValue(0, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg, widget.numberFormat)}</div>
-                                  </div>
-                                  
-                                  {/* Chart bars */}
-                                  <div className="flex-1 flex items-end justify-around h-full border-b border-border-custom/50 pb-1.5 gap-1 pl-1">
-                                    {widget.data.map((item, idx) => {
-                                      const totalVal = dataKeys.reduce((sum, k) => sum + (Number(item[k]) || 0), 0);
-                                      const heightPercent = maxVal ? (totalVal / maxVal) * 85 : 0;
-                                    
-                                    const itemLabel = String(item[key]);
-                                  const isHighlighted = (() => {
-                                    const activeFilters = customFilters.filter(f => f.selectedValue !== null);
-                                    if (activeFilters.length === 0) return true;
-                                    
-                                    return activeFilters.every(f => {
-                                      const isTargetingThisChart = (widget.targetDimName && f.fieldName.toLowerCase() === widget.targetDimName.toLowerCase()) || f.fieldName.toLowerCase() === key.toLowerCase();
-                                      if (isTargetingThisChart) return String(itemLabel).toLowerCase() === String(f.selectedValue).toLowerCase();
-                                      if (item[f.fieldName] !== undefined) return String(item[f.fieldName]).toLowerCase() === String(f.selectedValue).toLowerCase();
-                                      return true;
-                                    });
-                                  })();
+                             return (
+                               <div className="flex flex-col justify-end pt-2 min-h-[40px] w-full" style={{ height: `${height - 90}px` }}>
+                                 <div className="flex h-full w-full">
+                                   {/* Y-axis Ticks */}
+                                   <div className="flex flex-col justify-between text-[7px] text-muted-custom font-mono h-[85%] pr-1.5 border-r border-border-custom/30 select-none pb-1.5 shrink-0 text-right min-w-[36px]">
+                                     <div>{formatKpiValue(maxVal, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg, widget.numberFormat)}</div>
+                                     <div>{formatKpiValue(maxVal / 2, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg, widget.numberFormat)}</div>
+                                     <div>{formatKpiValue(0, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg, widget.numberFormat)}</div>
+                                   </div>
+                                   
+                                   {/* Chart bars */}
+                                   <div className="flex-1 flex items-end justify-around h-full border-b border-border-custom/50 pb-1.5 gap-1 pl-1">
+                                     {widget.data.map((item, idx) => {
+                                       const totalVal = dataKeys.reduce((sum, k) => sum + (Number(item[k]) || 0), 0);
+                                       const heightPercent = maxVal ? (totalVal / maxVal) * 85 : 0;
+                                     
+                                     const itemLabel = String(item[key]);
+                                   const isHighlighted = (() => {
+                                     const activeFilters = customFilters.filter(f => f.selectedValue !== null);
+                                     if (activeFilters.length === 0) return true;
+                                     
+                                     return activeFilters.every(f => {
+                                       const isTargetingThisChart = (widget.targetDimName && f.fieldName.toLowerCase() === widget.targetDimName.toLowerCase()) || f.fieldName.toLowerCase() === key.toLowerCase();
+                                       if (isTargetingThisChart) return String(itemLabel).toLowerCase() === String(f.selectedValue).toLowerCase();
+                                       if (item[f.fieldName] !== undefined) return String(item[f.fieldName]).toLowerCase() === String(f.selectedValue).toLowerCase();
+                                       return true;
+                                     });
+                                   })();
 
-                                  return (
-                                    <div 
-                                      key={idx} 
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        const filterCol = widget.targetDimName || widget.xAxisKey || 'label';
-                                        setCustomFilters(prev => {
-                                          const existing = prev.find(f => f.fieldName.toLowerCase() === filterCol.toLowerCase());
-                                          if (existing) {
-                                            return prev.map(f => f.fieldName.toLowerCase() === filterCol.toLowerCase() ? {
-                                              ...f,
-                                              selectedValue: f.selectedValue === itemLabel ? null : itemLabel
-                                            } : f);
-                                          } else {
-                                            const options = Array.from(new Set(widget.data.map(d => String(d[widget.xAxisKey || 'label'] || d[filterCol]))));
-                                            return [...prev, {
-                                              fieldName: filterCol,
-                                              category: 'Dimensions',
-                                              options,
-                                              selectedValue: itemLabel
-                                            }];
-                                          }
-                                        });
-                                        addLog(`Clicked Bar: cross-filtered canvas by "${filterCol}" = "${itemLabel}"`);
-                                      }}
-                                      className="flex flex-col items-center flex-1 group/bar relative h-full justify-end cursor-pointer"
-                                      style={{ maxWidth: `${Math.max(20, Math.min(64, (width / widget.data.length) - 8))}px` }}
-                                    >
-                                      {/* Bar hover label */}
-                                      <div className="absolute -top-7 scale-0 group-hover/bar:scale-100 bg-surface border border-border-custom px-1.5 py-0.5 rounded text-[9px] font-mono shadow z-20 pointer-events-none whitespace-nowrap flex flex-col items-center">
-                                        <span>{_sanitizeLabel(itemLabel)}: {formatKpiValue(totalVal, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg, widget.numberFormat)}</span>
-                                        {widget.type === 'stacked_bar' && dataKeys.length > 1 && (
-                                          <div className="flex gap-2 mt-0.5 border-t border-border-custom/50 pt-0.5">
-                                            {dataKeys.map(k => (
-                                              <span key={k} className="text-[8px] text-muted-custom">{_sanitizeLabel(k)}: {formatKpiValue(item[k], k, widget.activeAgg, widget.numberFormat)}</span>
-                                            ))}
-                                          </div>
-                                        )}
-                                      </div>
-                                      <div 
-                                        className={`w-full transition-all duration-300 relative flex flex-col justify-end overflow-hidden rounded-t-sm ${
-                                          isHighlighted ? 'opacity-100 ring-2 ring-accent-custom/40' : 'opacity-25 grayscale-50'
-                                        }`}
-                                        style={{ height: `${heightPercent}%` }}
-                                      >
-                                        {dataKeys.map((k, i) => {
-                                          const val = Number(item[k]) || 0;
-                                          const segPercent = totalVal ? (val / totalVal) * 100 : 0;
-                                          const segColor = paletteColors[i % paletteColors.length];
-                                          return (
-                                            <div 
-                                              key={k}
-                                              className="w-full relative transition-all duration-300 border-b border-black/10 last:border-b-0" 
-                                              style={{ height: `${segPercent}%`, backgroundColor: segColor }}
-                                            >
-                                              <div className="absolute inset-x-0 top-0 h-full bg-white/5"></div>
-                                            </div>
-                                          );
-                                        })}
-                                      </div>
+                                   return (
+                                     <div 
+                                       key={idx} 
+                                       onClick={(e) => {
+                                         e.stopPropagation();
+                                         const filterCol = widget.targetDimName || widget.xAxisKey || 'label';
+                                         setCustomFilters(prev => {
+                                           const existing = prev.find(f => f.fieldName.toLowerCase() === filterCol.toLowerCase());
+                                           if (existing) {
+                                             return prev.map(f => f.fieldName.toLowerCase() === filterCol.toLowerCase() ? {
+                                               ...f,
+                                               selectedValue: f.selectedValue === itemLabel ? null : itemLabel
+                                             } : f);
+                                           } else {
+                                             const options = Array.from(new Set(widget.data.map(d => String(d[widget.xAxisKey || 'label'] || d[filterCol]))));
+                                             return [...prev, {
+                                               fieldName: filterCol,
+                                               category: 'Dimensions',
+                                               options,
+                                               selectedValue: itemLabel
+                                             }];
+                                           }
+                                         });
+                                         addLog(`Clicked Bar: cross-filtered canvas by "${filterCol}" = "${itemLabel}"`);
+                                       }}
+                                       className="flex flex-col items-center flex-1 group/bar relative h-full justify-end cursor-pointer"
+                                       style={{ maxWidth: `${Math.max(20, Math.min(64, (width / widget.data.length) - 8))}px` }}
+                                     >
+                                       {/* Bar hover label */}
+                                       <div className={`absolute -top-7 scale-0 group-hover/bar:scale-100 bg-surface border shadow-2xl pointer-events-none whitespace-nowrap flex flex-col items-center z-20 ${
+                                         (isFullScreenCanvas || isPresentMode)
+                                           ? 'px-3 py-1.5 rounded-xl border-accent-custom/50 border-2 text-[12px] space-y-0.5 -translate-y-3' 
+                                           : 'px-1.5 py-0.5 rounded border-border-custom text-[9px] font-mono'
+                                       }`}>
+                                         {dataKeys.length > 1 ? (
+                                           <div className="flex flex-col items-start space-y-0.5">
+                                             <span className={`font-bold border-b border-border-custom/50 pb-0.5 w-full ${isFullScreenCanvas || isPresentMode ? 'text-[12px] mb-1' : 'text-[9px] mb-0.5'}`}>{_sanitizeLabel(itemLabel)}</span>
+                                             {dataKeys.map(k => (
+                                               <span key={k} className={isFullScreenCanvas || isPresentMode ? 'text-[11px]' : 'text-[8px] text-muted-custom'}>
+                                                 {prettifyLabel(k)}: {formatKpiValue(item[k], k, widget.activeAgg, widget.numberFormat)}
+                                               </span>
+                                             ))}
+                                           </div>
+                                         ) : (
+                                           <span className={isFullScreenCanvas || isPresentMode ? 'text-[12px]' : ''}>{_sanitizeLabel(itemLabel)}: {formatKpiValue(totalVal, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg, widget.numberFormat)}</span>
+                                         )}
+                                       </div>
+                                      {widget.type === 'bar' && dataKeys.length > 1 ? (
+                                        <div className="flex items-end gap-0.5 h-full w-full justify-center">
+                                          {dataKeys.map((k, i) => {
+                                            const val = Number(item[k]) || 0;
+                                            const barHeight = maxVal ? (val / maxVal) * 85 : 0;
+                                            const barColor = paletteColors[i % paletteColors.length];
+                                            return (
+                                              <div 
+                                                key={k}
+                                                className={`w-2.5 rounded-t-xs transition-all duration-300 relative ${
+                                                  isHighlighted ? 'opacity-100 ring-1 ring-accent-custom/25' : 'opacity-25 grayscale-50'
+                                                }`}
+                                                style={{ height: `${barHeight}%`, backgroundColor: barColor }}
+                                                title={`${prettifyLabel(k)}: ${formatKpiValue(val, k, widget.activeAgg, widget.numberFormat)}`}
+                                              >
+                                                <div className="absolute inset-x-0 top-0 h-full bg-white/5"></div>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      ) : (
+                                        <div 
+                                          className={`w-full transition-all duration-300 relative flex flex-col justify-end overflow-hidden rounded-t-sm ${
+                                            isHighlighted ? 'opacity-100 ring-2 ring-accent-custom/40' : 'opacity-25 grayscale-50'
+                                          }`}
+                                          style={{ height: `${heightPercent}%` }}
+                                        >
+                                          {dataKeys.map((k, i) => {
+                                            const val = Number(item[k]) || 0;
+                                            const segPercent = totalVal ? (val / totalVal) * 100 : 0;
+                                            const segColor = paletteColors[i % paletteColors.length];
+                                            return (
+                                              <div 
+                                                key={k}
+                                                className="w-full relative transition-all duration-300 border-b border-black/10 last:border-b-0" 
+                                                style={{ height: `${segPercent}%`, backgroundColor: segColor }}
+                                              >
+                                                <div className="absolute inset-x-0 top-0 h-full bg-white/5"></div>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      )}
                                       <span className="text-[8px] font-mono text-muted-custom mt-1 truncate max-w-full text-center">
                                         {_sanitizeLabel(item[key]).slice(0, 8)}
                                       </span>
@@ -3568,158 +4271,180 @@ export default function CanvasPage() {
                                   </button>
                                 ))}
                               </div>
-                                                 <div className="relative flex-1">
-                                {(() => {
-                                  const valKey = widget.yAxisKey || 'value';
-                                  if (!widget.data || widget.data.length === 0) {
-                                    return <div className="text-center text-xs text-muted-custom py-8">No data points</div>;
-                                  }
-                                  
-                                  const vals = widget.data.map(d => Number(d[valKey]) || 0);
-                                  const maxVal = Math.max(...vals, 1);
-                                  const minVal = Math.min(...vals, 0); 
-                                  const range = maxVal - minVal || 1;
+                              <div className="relative flex-1">
+                                 {(() => {
+                                   if (!widget.data || widget.data.length === 0) {
+                                     return <div className="text-center text-xs text-muted-custom py-8">No data points</div>;
+                                   }
 
-                                  return (
-                                    <div className="flex h-full w-full">
-                                      {/* Y-axis Ticks */}
-                                      <div className="flex flex-col justify-between text-[7px] text-muted-custom font-mono h-[75%] pr-1.5 border-r border-border-custom/30 select-none pb-1.5 mt-2 shrink-0 text-right min-w-[36px]">
-                                        <div>{formatKpiValue(maxVal, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg, widget.numberFormat)}</div>
-                                        <div>{formatKpiValue((maxVal + minVal) / 2, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg, widget.numberFormat)}</div>
-                                        <div>{formatKpiValue(minVal, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg, widget.numberFormat)}</div>
-                                      </div>
-                                      
-                                      <div className="flex-1 relative h-full">
-                                        <svg className="w-full h-full" viewBox="0 0 200 100" preserveAspectRatio="none">
-                                          <defs>
-                                            <linearGradient id={`grad-${widget.id}`} x1="0" y1="0" x2="0" y2="1">
-                                              <stop offset="0%" stopColor={widget.color || '#3B82F6'} stopOpacity="0.15" />
-                                              <stop offset="100%" stopColor={widget.color || '#3B82F6'} stopOpacity="0.0" />
-                                            </linearGradient>
-                                          </defs>
-                                          
-                                          {widget.data.length === 1 ? (() => {
-                                            const numVal = vals[0];
-                                            const x = 100;
-                                            const y = 90 - ((numVal - minVal) / range) * 75;
-                                            const labelVal = widget.data[0][widget.xAxisKey || 'label'] || '';
-                                            return (
-                                              <circle
-                                                cx={x}
-                                                cy={y}
-                                                r="5"
-                                                fill={widget.color || '#3B82F6'}
-                                                stroke="#fff"
-                                                strokeWidth="2"
-                                                className="cursor-pointer hover:opacity-80 transition-opacity duration-150"
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  const filterCol = widget.targetDimName || widget.xAxisKey || 'label';
-                                                  setCustomFilters(prev => {
-                                                    const existing = prev.find(f => f.fieldName.toLowerCase() === filterCol.toLowerCase());
-                                                    if (existing) {
-                                                      return prev.map(f => f.fieldName.toLowerCase() === filterCol.toLowerCase() ? {
-                                                        ...f,
-                                                        selectedValue: f.selectedValue === labelVal ? null : labelVal
-                                                      } : f);
-                                                    } else {
-                                                      const options = Array.from(new Set(widget.data.map(d => String(d[widget.xAxisKey || 'label'] || d[filterCol]))));
-                                                      return [...prev, {
-                                                        fieldName: filterCol,
-                                                        category: 'Dimensions',
-                                                        options,
-                                                        selectedValue: labelVal
-                                                      }];
-                                                    }
-                                                  });
-                                                  addLog(`Clicked Line Point: cross-filtered canvas by "${filterCol}" = "${labelVal}"`);
-                                                }}
-                                                onMouseEnter={(e) => {
-                                                  const rect = e.currentTarget.getBoundingClientRect();
-                                                  setActiveHoverTooltip({
-                                                    x: rect.left + window.scrollX + 6,
-                                                    y: rect.top + window.scrollY - 30,
-                                                    content: `${_sanitizeLabel(labelVal)}: ${formatKpiValue(numVal, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg, widget.numberFormat)}`
-                                                  });
-                                                }}
-                                                onMouseLeave={() => setActiveHoverTooltip(null)}
-                                              >
-                                                <title>{`${_sanitizeLabel(labelVal)}: ${formatKpiValue(numVal, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg, widget.numberFormat)}`}</title>
-                                              </circle>
-                                            );
-                                          })() : (() => {
-                                            const segmentWidth = 180 / (widget.data.length - 1 || 1);
-                                            const points = widget.data.map((item, idx) => {
-                                              const x = 10 + idx * segmentWidth;
-                                              const y = 90 - ((vals[idx] - minVal) / range) * 75;
-                                              return { x, y };
-                                            });
-                                            const pathD = points.reduce((acc, p, idx) => {
-                                              return idx === 0 ? `M ${p.x} ${p.y}` : `${acc} L ${p.x} ${p.y}`;
-                                            }, '');
-                                            const areaD = `${pathD} L 190 100 L 10 100 Z`;
-                                            return (
-                                              <>
-                                                <path d={areaD} fill={`url(#grad-${widget.id})`} />
-                                                <path d={pathD} fill="none" stroke={widget.color || '#3B82F6'} strokeWidth="2" strokeLinecap="round" />
-                                                {points.map((p, idx) => {
-                                                  const item = widget.data[idx];
-                                                  const labelVal = item[widget.xAxisKey || 'label'] || '';
-                                                  const numVal = vals[idx];
-                                                  return (
-                                                    <circle 
-                                                      key={idx} 
-                                                      cx={p.x} 
-                                                      cy={p.y} 
-                                                      r="6" 
-                                                      fill={widget.color || '#3B82F6'} 
-                                                      stroke="#fff" 
-                                                      strokeWidth="1.5" 
-                                                      className="cursor-pointer opacity-0 hover:opacity-100 transition-opacity duration-150"
-                                                      onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        const filterCol = widget.targetDimName || widget.xAxisKey || 'label';
-                                                        setCustomFilters(prev => {
-                                                          const existing = prev.find(f => f.fieldName.toLowerCase() === filterCol.toLowerCase());
-                                                          if (existing) {
-                                                            return prev.map(f => f.fieldName.toLowerCase() === filterCol.toLowerCase() ? {
-                                                              ...f,
-                                                              selectedValue: f.selectedValue === labelVal ? null : labelVal
-                                                            } : f);
-                                                          } else {
-                                                            const options = Array.from(new Set(widget.data.map(d => String(d[widget.xAxisKey || 'label'] || d[filterCol]))));
-                                                            return [...prev, {
-                                                              fieldName: filterCol,
-                                                              category: 'Dimensions',
-                                                              options,
-                                                              selectedValue: labelVal
-                                                            }];
-                                                          }
-                                                        });
-                                                        addLog(`Clicked Line Point: cross-filtered canvas by "${filterCol}" = "${labelVal}"`);
-                                                      }}
-                                                      onMouseEnter={(e) => {
-                                                        const rect = e.currentTarget.getBoundingClientRect();
-                                                        setActiveHoverTooltip({
-                                                          x: rect.left + window.scrollX + 6,
-                                                          y: rect.top + window.scrollY - 30,
-                                                          content: `${_sanitizeLabel(labelVal)}: ${formatKpiValue(numVal, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg, widget.numberFormat)}`
-                                                        });
-                                                      }}
-                                                      onMouseLeave={() => setActiveHoverTooltip(null)}
-                                                    >
-                                                      <title>{`${_sanitizeLabel(labelVal)}: ${formatKpiValue(numVal, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg, widget.numberFormat)}`}</title>
-                                                    </circle>
-                                                  );
-                                                })}
-                                              </>
-                                            );
-                                          })()}
-                                        </svg>
-                                      </div>
-                                    </div>
-                                  );
-                                })()}
+                                   const metrics = widget.targetMetricName
+                                     ? widget.targetMetricName.split(',').map(s => s.trim())
+                                     : [widget.yAxisKey || 'value'];
+
+                                   const paletteColors = [
+                                     widget.color || '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#14B8A6'
+                                   ];
+
+                                   const allVals: number[] = [];
+                                   widget.data.forEach(d => {
+                                     metrics.forEach(m => {
+                                       allVals.push(Number(d[m]) || Number(d.value) || 0);
+                                     });
+                                   });
+                                   const maxVal = Math.max(...allVals, 1);
+                                   const minVal = Math.min(...allVals, 0); 
+                                   const range = maxVal - minVal || 1;
+
+                                   return (
+                                     <div className="flex h-full w-full">
+                                       {/* Y-axis Ticks */}
+                                       <div className="flex flex-col justify-between text-[7px] text-muted-custom font-mono h-[75%] pr-1.5 border-r border-border-custom/30 select-none pb-1.5 mt-2 shrink-0 text-right min-w-[36px]">
+                                         <div>{formatKpiValue(maxVal, metrics[0], widget.activeAgg, widget.numberFormat)}</div>
+                                         <div>{formatKpiValue((maxVal + minVal) / 2, metrics[0], widget.activeAgg, widget.numberFormat)}</div>
+                                         <div>{formatKpiValue(minVal, metrics[0], widget.activeAgg, widget.numberFormat)}</div>
+                                       </div>
+                                       
+                                       <div className="flex-1 relative h-full">
+                                         <svg className="w-full h-full" viewBox="0 0 200 100" preserveAspectRatio="none">
+                                           <defs>
+                                             {metrics.map((m, mIdx) => (
+                                               <linearGradient key={m} id={`grad-${widget.id}-${mIdx}`} x1="0" y1="0" x2="0" y2="1">
+                                                 <stop offset="0%" stopColor={paletteColors[mIdx % paletteColors.length]} stopOpacity="0.15" />
+                                                 <stop offset="100%" stopColor={paletteColors[mIdx % paletteColors.length]} stopOpacity="0.0" />
+                                               </linearGradient>
+                                             ))}
+                                           </defs>
+                                           
+                                           {metrics.map((m, mIdx) => {
+                                             const strokeColor = paletteColors[mIdx % paletteColors.length];
+                                             const vals = widget.data.map(d => Number(d[m]) || Number(d.value) || 0);
+
+                                             if (widget.data.length === 1) {
+                                               const numVal = vals[0];
+                                               const x = 100;
+                                               const y = 90 - ((numVal - minVal) / range) * 75;
+                                               const labelVal = widget.data[0][widget.xAxisKey || 'label'] || '';
+                                               return (
+                                                 <g key={m}>
+                                                   <circle
+                                                     cx={x}
+                                                     cy={y}
+                                                     r="5"
+                                                     fill={strokeColor}
+                                                     stroke="#fff"
+                                                     strokeWidth="2"
+                                                     className="cursor-pointer hover:opacity-80 transition-opacity duration-150"
+                                                     onClick={(e) => {
+                                                       e.stopPropagation();
+                                                       const filterCol = widget.targetDimName || widget.xAxisKey || 'label';
+                                                       setCustomFilters(prev => {
+                                                         const existing = prev.find(f => f.fieldName.toLowerCase() === filterCol.toLowerCase());
+                                                         if (existing) {
+                                                           return prev.map(f => f.fieldName.toLowerCase() === filterCol.toLowerCase() ? {
+                                                             ...f,
+                                                             selectedValue: f.selectedValue === labelVal ? null : labelVal
+                                                           } : f);
+                                                         } else {
+                                                           const options = Array.from(new Set(widget.data.map(d => String(d[widget.xAxisKey || 'label'] || d[filterCol]))));
+                                                           return [...prev, {
+                                                             fieldName: filterCol,
+                                                             category: 'Dimensions',
+                                                             options,
+                                                             selectedValue: labelVal
+                                                           }];
+                                                         }
+                                                       });
+                                                       addLog(`Clicked Line Point: cross-filtered canvas by "${filterCol}" = "${labelVal}"`);
+                                                     }}
+                                                     onMouseEnter={(e) => {
+                                                       const rect = e.currentTarget.getBoundingClientRect();
+                                                       setActiveHoverTooltip({
+                                                         x: rect.left + rect.width / 2,
+                                                         y: rect.top - 10,
+                                                         content: `${_sanitizeLabel(labelVal)} (${prettifyLabel(m)}): ${formatKpiValue(numVal, m, widget.activeAgg, widget.numberFormat)}`
+                                                       });
+                                                     }}
+                                                     onMouseLeave={() => setActiveHoverTooltip(null)}
+                                                   >
+                                                     <title>{`${_sanitizeLabel(labelVal)} (${prettifyLabel(m)}): ${formatKpiValue(numVal, m, widget.activeAgg, widget.numberFormat)}`}</title>
+                                                   </circle>
+                                                 </g>
+                                               );
+                                             }
+
+                                             const segmentWidth = 180 / (widget.data.length - 1 || 1);
+                                             const points = widget.data.map((item, idx) => {
+                                               const x = 10 + idx * segmentWidth;
+                                               const y = 90 - ((vals[idx] - minVal) / range) * 75;
+                                               return { x, y };
+                                             });
+                                             const pathD = points.reduce((acc, p, idx) => {
+                                               return idx === 0 ? `M ${p.x} ${p.y}` : `${acc} L ${p.x} ${p.y}`;
+                                             }, '');
+                                             const areaD = `${pathD} L 190 100 L 10 100 Z`;
+                                             
+                                             return (
+                                               <g key={m}>
+                                                 <path d={areaD} fill={`url(#grad-${widget.id}-${mIdx})`} />
+                                                 <path d={pathD} fill="none" stroke={strokeColor} strokeWidth="2" strokeLinecap="round" />
+                                                 {points.map((p, idx) => {
+                                                   const item = widget.data[idx];
+                                                   const labelVal = item[widget.xAxisKey || 'label'] || '';
+                                                   const numVal = vals[idx];
+                                                   return (
+                                                     <circle 
+                                                       key={idx} 
+                                                       cx={p.x} 
+                                                       cy={p.y} 
+                                                       r="6" 
+                                                       fill={strokeColor} 
+                                                       stroke="#fff" 
+                                                       strokeWidth="1.5" 
+                                                       className="cursor-pointer opacity-0 hover:opacity-100 transition-opacity duration-150"
+                                                       onClick={(e) => {
+                                                         e.stopPropagation();
+                                                         const filterCol = widget.targetDimName || widget.xAxisKey || 'label';
+                                                         setCustomFilters(prev => {
+                                                           const existing = prev.find(f => f.fieldName.toLowerCase() === filterCol.toLowerCase());
+                                                           if (existing) {
+                                                             return prev.map(f => f.fieldName.toLowerCase() === filterCol.toLowerCase() ? {
+                                                               ...f,
+                                                               selectedValue: f.selectedValue === labelVal ? null : labelVal
+                                                             } : f);
+                                                           } else {
+                                                             const options = Array.from(new Set(widget.data.map(d => String(d[widget.xAxisKey || 'label'] || d[filterCol]))));
+                                                             return [...prev, {
+                                                               fieldName: filterCol,
+                                                               category: 'Dimensions',
+                                                               options,
+                                                               selectedValue: labelVal
+                                                             }];
+                                                           }
+                                                         });
+                                                         addLog(`Clicked Line Point: cross-filtered canvas by "${filterCol}" = "${labelVal}"`);
+                                                       }}
+                                                       onMouseEnter={(e) => {
+                                                         const rect = e.currentTarget.getBoundingClientRect();
+                                                         setActiveHoverTooltip({
+                                                           x: rect.left + rect.width / 2,
+                                                           y: rect.top - 10,
+                                                           content: `${_sanitizeLabel(labelVal)} (${prettifyLabel(m)}): ${formatKpiValue(numVal, m, widget.activeAgg, widget.numberFormat)}`
+                                                         });
+                                                       }}
+                                                       onMouseLeave={() => setActiveHoverTooltip(null)}
+                                                     >
+                                                       <title>{`${_sanitizeLabel(labelVal)} (${prettifyLabel(m)}): ${formatKpiValue(numVal, m, widget.activeAgg, widget.numberFormat)}`}</title>
+                                                     </circle>
+                                                   );
+                                                 })}
+                                               </g>
+                                             );
+                                           })}
+                                         </svg>
+                                       </div>
+                                     </div>
+                                   );
+                                 })()}
                               </div>
                               <div className="flex justify-between text-[8px] font-mono text-muted-custom mt-1 border-t border-border-custom/30 pt-0.5 overflow-hidden shrink-0">
                                 {widget.data.map((item, idx) => (
@@ -3732,7 +4457,7 @@ export default function CanvasPage() {
                           )}
 
                           {/* Type 4: DONUT/PIE CHART */}
-                          {widget.type === 'pie' && (() => {
+                          {((widget.type === 'pie' || widget.type === 'donut')) && (() => {
                             const totalVal = widget.data.reduce((acc, d) => acc + Number(d[widget.yAxisKey || 'val'] || 0), 0) || 1;
                             const pieFilterCol = widget.targetDimName || widget.xAxisKey || 'name';
                             const pieFilter = customFilters.find(f => f.fieldName.toLowerCase() === pieFilterCol.toLowerCase());
@@ -3742,14 +4467,15 @@ export default function CanvasPage() {
                               widget.color || '#EC4899', '#10B981', '#F59E0B', '#8B5CF6', '#3B82F6', '#EF4444', '#14B8A6'
                             ];
 
+                            const isPie = widget.type === 'pie';
                             let accumulatedPercent = 0;
-
+ 
                             return (
                               <div className="flex items-center justify-center space-x-4 min-h-[40px] w-full" style={{ height: `${height - 90}px` }}>
                                 <div className="relative shrink-0 transition-all" style={{ width: `${Math.max(48, Math.min(120, (height - 90) * 0.85))}px`, height: `${Math.max(48, Math.min(120, (height - 90) * 0.85))}px` }}>
                                   <svg viewBox="0 0 36 36" className="w-full h-full transform -rotate-90">
                                     {/* Draw base circle track */}
-                                    <circle cx="18" cy="18" r="15.915" fill="transparent" stroke="rgba(120, 120, 120, 0.1)" strokeWidth="4" />
+                                    <circle cx="18" cy="18" r="15.915" fill="transparent" stroke="rgba(120, 120, 120, 0.1)" strokeWidth={isPie ? "0" : "4"} />
                                     
                                     {widget.data.map((item, idx) => {
                                       const keyName = String(item[widget.xAxisKey || 'name']);
@@ -3760,7 +4486,7 @@ export default function CanvasPage() {
                                       
                                       const offset = -accumulatedPercent;
                                       accumulatedPercent += percent;
-
+ 
                                       return (
                                         <circle 
                                           key={idx}
@@ -3769,7 +4495,7 @@ export default function CanvasPage() {
                                           r="15.915" 
                                           fill="transparent" 
                                           stroke={sliceColor} 
-                                          strokeWidth="4.5" 
+                                          strokeWidth={isPie ? "31.83" : "6.5"} 
                                           strokeDasharray={`${percent} ${100 - percent}`} 
                                           strokeDashoffset={offset} 
                                           className={`transition-all duration-200 cursor-pointer ${isRingSelected ? 'opacity-100' : 'opacity-20'}`}
@@ -3793,13 +4519,13 @@ export default function CanvasPage() {
                                                 }];
                                               }
                                             });
-                                            addLog(`Clicked Pie Slice: cross-filtered canvas by "${filterCol}" = "${keyName}"`);
+                                            addLog(`Clicked Slice: cross-filtered canvas by "${filterCol}" = "${keyName}"`);
                                           }}
                                           onMouseEnter={(e) => {
                                             const rect = e.currentTarget.getBoundingClientRect();
                                             setActiveHoverTooltip({
-                                              x: rect.left + window.scrollX + 15,
-                                              y: rect.top + window.scrollY - 30,
+                                              x: rect.left + rect.width / 2,
+                                              y: rect.top - 10,
                                               content: `${_sanitizeLabel(keyName)}: ${percent.toFixed(1)}% (${formatKpiValue(valNum, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg, widget.numberFormat)})`
                                             });
                                           }}
@@ -3810,10 +4536,12 @@ export default function CanvasPage() {
                                       );
                                     })}
                                   </svg>
-                                  <div className="absolute inset-0 flex flex-col items-center justify-center text-[7px] font-mono leading-none text-text-custom">
-                                    <span className="text-[10px] font-bold text-accent-custom tracking-wider">{widget.data.length}</span>
-                                    <span className="text-[6px] text-muted-custom uppercase mt-0.5">Slices</span>
-                                  </div>
+                                  {!isPie && (
+                                    <div className="absolute inset-0 flex flex-col items-center justify-center text-[7px] font-mono leading-none text-text-custom pointer-events-none">
+                                      <span className="text-[10px] font-bold text-accent-custom tracking-wider">{widget.data.length}</span>
+                                      <span className="text-[6px] text-muted-custom uppercase mt-0.5">Slices</span>
+                                    </div>
+                                  )}
                                 </div>
                                 <div className="flex-1 overflow-y-auto space-y-1.5 max-h-full pr-1 font-mono text-[8px] text-muted-custom">
                                   {widget.data.map((item, idx) => {
@@ -3880,6 +4608,8 @@ export default function CanvasPage() {
                                 isDark={isDark} 
                                 color={widget.color}
                                 formatConfig={widget.numberFormat}
+                                targetMetricName={widget.targetMetricName || widget.yAxisKey}
+                                isFullScreen={isFullScreenCanvas || isPresentMode}
                               />
                             </div>
                           )}
@@ -4100,6 +4830,17 @@ export default function CanvasPage() {
                     );
                   })}
                 </AnimatePresence>
+                {selectionBox && selectionBox.active && (
+                  <div 
+                    className="absolute border border-accent-custom bg-accent-custom/10 pointer-events-none rounded-xs z-50"
+                    style={{
+                      left: `${Math.min(selectionBox.startX, selectionBox.currentX)}px`,
+                      top: `${Math.min(selectionBox.startY, selectionBox.currentY)}px`,
+                      width: `${Math.abs(selectionBox.currentX - selectionBox.startX)}px`,
+                      height: `${Math.abs(selectionBox.currentY - selectionBox.startY)}px`,
+                    }}
+                  />
+                )}
                 </div>
               </div>
             </div>
@@ -4150,62 +4891,14 @@ export default function CanvasPage() {
                       </div>
                     </div>
 
-                    <form onSubmit={handlePromptSubmit} className="relative">
-                      <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
-                        <VizzyPilotLogoIcon size={18} className="text-accent-custom animate-pulse" />
-                      </div>
-                      <input
-                        type="text"
-                        value={promptInput}
-                        onChange={(e) => setPromptInput(e.target.value)}
-                        placeholder="Prompt AI to construct and organize widgets on your canvas..."
-                        className="w-full bg-surface border border-border-custom hover:border-border-custom/80 focus:border-accent-custom/50 rounded-xl py-3 pl-11 pr-32 text-xs font-mono shadow-inner focus:outline-none transition-all placeholder:text-muted-custom"
-                        disabled={isCompiling}
-                      />
-                      <div className="absolute right-2 inset-y-1.5 flex items-center space-x-1.5">
-                        {promptInput && (
-                          <button 
-                            type="button" 
-                            onClick={() => setPromptInput('')}
-                            className="text-[10px] font-mono text-muted-custom hover:text-text-custom px-1 cursor-pointer"
-                          >
-                            Clear
-                          </button>
-                        )}
-                        <button
-                          type="submit"
-                          disabled={isCompiling}
-                          className="px-3 h-full bg-accent-custom hover:opacity-90 disabled:opacity-50 text-white text-[11px] font-mono font-medium rounded-lg flex items-center space-x-1 cursor-pointer transition-all shadow-xs"
-                        >
-                          {isCompiling ? (
-                            <>
-                              <RotateCcw className="w-3.5 h-3.5 animate-spin" />
-                              <span>Compiling...</span>
-                            </>
-                          ) : (
-                            <>
-                              <Play className="w-3.5 h-3.5 fill-current" />
-                              <span>Compile</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    </form>
-
-                    {showFloatingSuggestions && (
-                      <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                        {PROMPT_SUGGESTIONS.map((sug, i) => (
-                          <button
-                            key={i}
-                            type="button"
-                            onClick={() => setPromptInput(sug)}
-                            className="px-2 py-1 bg-surface-2 hover:bg-border-custom/20 border border-border-custom/30 rounded-full text-[9px] font-mono text-muted-custom hover:text-text-custom transition-all cursor-pointer truncate max-w-[200px]"
-                          >
-                            {sug}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                    <AIPromptBar 
+                      onSubmit={handleAIPromptSubmit} 
+                      isCompiling={isCompiling} 
+                      suggestions={PROMPT_SUGGESTIONS} 
+                      placeholder="Prompt AI to construct and organize widgets on your canvas..."
+                      isFullScreen={true}
+                      showSuggestions={showFloatingSuggestions}
+                    />
                   </motion.div>
                 )}
               </div>
@@ -4319,7 +5012,8 @@ export default function CanvasPage() {
               </div>
               {(() => {
                 const targetMetric = targetWidget?.targetMetricName || '';
-                const isCategoricalMetric = fieldsList.some(f => f.name === targetMetric && (f.category === 'Dimensions' || f.category === 'Dates'));
+                const metrics = targetMetric.split(',').map(s => s.trim());
+                const isCategoricalMetric = metrics.some(m => fieldsList.some(f => f.name === m && (f.category === 'Dimensions' || f.category === 'Dates')));
 
                 return ([
                   { label: 'Sum (Total)', value: 'SUM' },
@@ -4739,7 +5433,11 @@ export default function CanvasPage() {
 
       {activeHoverTooltip && (
         <div 
-          className="fixed z-[9999] bg-surface border border-border-custom px-2 py-1 rounded-lg text-[10px] font-mono shadow-xl pointer-events-none whitespace-nowrap text-text-custom animate-in fade-in duration-75"
+          className={`fixed z-[9999] bg-surface border border-border-custom shadow-2xl pointer-events-none whitespace-nowrap text-text-custom animate-in fade-in duration-75 ${
+            (isFullScreenCanvas || isPresentMode)
+              ? 'px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold tracking-wide border-2 border-accent-custom/50' 
+              : 'px-2 py-1 rounded-lg text-[10px] font-mono'
+          }`}
           style={{ 
             top: `${activeHoverTooltip.y}px`, 
             left: `${activeHoverTooltip.x}px`,
