@@ -386,6 +386,7 @@ const PromptInputTextarea: React.FC<PromptInputTextareaProps & React.ComponentPr
       className={cn("text-base", className)}
       disabled={disabled}
       placeholder={placeholder}
+      aria-label="Type your analytics question"
       {...props}
     />
   );

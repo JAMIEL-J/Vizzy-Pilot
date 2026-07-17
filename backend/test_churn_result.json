@@ -9,19 +9,27 @@
       "type": "scatter"
     },
     {
-      "title": "Total Charges at Risk by Contract Type",
-      "type": "bar"
+      "title": "Total Charges by Gender",
+      "type": "hbar"
     },
     {
-      "title": "Total Charges by Gender",
+      "title": "Total Charges by Contract Type",
       "type": "treemap"
     },
     {
-      "title": "Avg Total Charges: Churned vs Retained",
+      "title": "Total Charges at Risk by Payment Method",
+      "type": "bar"
+    },
+    {
+      "title": "Monthly Charges at Risk by Payment Method",
       "type": "bar"
     },
     {
       "title": "Monthly Charges at Risk by Contract Type",
+      "type": "hbar"
+    },
+    {
+      "title": "Churn Status Rate by Senior Citizen (%)",
       "type": "bar"
     },
     {
@@ -29,8 +37,12 @@
       "type": "bar"
     },
     {
-      "title": "Churn Rate by Contract Type (%)",
+      "title": "Avg Total Charges: Churned vs Retained",
       "type": "bar"
+    },
+    {
+      "title": "Churn Overview",
+      "type": "donut"
     },
     {
       "title": "Churn Rate by Customer Tenure Cohort (%)",
@@ -38,18 +50,6 @@
     },
     {
       "title": "Churn Rate by Monthly Charges Range (%)",
-      "type": "bar"
-    },
-    {
-      "title": "Churn Rate by Gender (%)",
-      "type": "bar"
-    },
-    {
-      "title": "Monthly Charges at Risk by Gender",
-      "type": "hbar"
-    },
-    {
-      "title": "Churn Status Rate by Senior Citizen (%)",
       "type": "bar"
     },
     {
@@ -61,24 +61,24 @@
       "type": "hbar"
     },
     {
-      "title": "Churn Count by Gender",
-      "type": "hbar"
-    },
-    {
-      "title": "Customer Tenure by Contract Type",
-      "type": "hbar"
+      "title": "Churn Rate by Contract Type (%)",
+      "type": "bar"
     },
     {
       "title": "Avg Customer Tenure: Churned vs Retained",
       "type": "bar"
     },
     {
-      "title": "Churn Overview",
-      "type": "donut"
+      "title": "Churn Rate by Gender (%)",
+      "type": "bar"
     },
     {
-      "title": "Churn Volume by Contract Type",
-      "type": "stacked_bar"
+      "title": "Churn Count by Contract Type",
+      "type": "hbar"
+    },
+    {
+      "title": "Avg Customer Tenure by Contract Type",
+      "type": "hbar"
     }
   ]
 }

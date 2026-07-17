@@ -5,8 +5,8 @@ import remarkGfm from 'remark-gfm';
 import { datasetService, type Dataset, type DatasetVersionSummary } from '../../lib/api/dataset';
 import ChartRenderer from '../../components/chat/ChartRenderer';
 import SqlEditor from '../../components/chat/SqlEditor';
-import { 
-    PanelRightClose, Download, Copy, Maximize2, 
+import {
+    PanelRightClose, Download, Copy, Maximize2,
     Sparkles, Database, Code2, Check, ArrowUp,
     BarChart3, AlertCircle, X, Plus, MessageSquare,
     PanelLeft, PanelLeftClose, Table as TableIcon, FileText, Wand2, BrainCog, Globe,
@@ -100,22 +100,22 @@ const renderInsightPoints = (content: string) => {
 
 const splitInsightIntoPoints = (content: string): string[] => {
     if (!content) return [];
-    
+
     // First, try splitting on newlines (in case the LLM already emitted bullet points)
     const newlinePoints = content
         .split(/\n+/)
         .map((line) => line.replace(/^\s*(?:-\s*|\d+[.)]\s*|•\s*)/, '').trim())
         .filter(Boolean);
-        
+
     if (newlinePoints.length > 1) {
         return newlinePoints;
     }
-    
+
     // Otherwise, split a paragraph into sentences
     let normalized = content.replace(/\s+/g, ' ').trim();
     normalized = normalized.replace(/^\s*(?:-\s*|\d+[.)]\s*|•\s*)/, '').trim();
     if (!normalized) return [];
-    
+
     // Split safely without lookbehind to support older browsers (only split on punctuation followed by space)
     const parts = normalized.split(/([.!?])\s+/);
     const sentencePoints: string[] = [];
@@ -124,7 +124,7 @@ const splitInsightIntoPoints = (content: string): string[] => {
         const punc = parts[i + 1] || '';
         if (text) sentencePoints.push((text + punc).trim());
     }
-    
+
     if (sentencePoints.length > 1) {
         return sentencePoints;
     }
@@ -171,7 +171,7 @@ const renderAnalysisInsight = (msg: ChatMessage) => {
                     <div className="absolute -right-6 -top-6 h-16 w-16 rounded-full bg-primary/10 blur-2xl" />
                     <div className="relative flex items-start gap-3">
                         <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/20 text-[10px] font-bold tracking-wider text-primary backdrop-blur-sm">
-                            <svg className="h-3 w-3" viewBox="0 0 16 16" fill="none"><path d="M8 1L10 5.5L15 6L11.5 9.5L12.5 15L8 12L3.5 15L4.5 9.5L1 6L6 5.5L8 1Z" fill="currentColor"/></svg>
+                            <svg className="h-3 w-3" viewBox="0 0 16 16" fill="none"><path d="M8 1L10 5.5L15 6L11.5 9.5L12.5 15L8 12L3.5 15L4.5 9.5L1 6L6 5.5L8 1Z" fill="currentColor" /></svg>
                         </span>
                         <span className="text-sm leading-relaxed text-foreground/90 [&_strong]:text-primary [&_strong]:font-semibold">
                             <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ p: 'span' }}>
@@ -818,11 +818,12 @@ export default function ChatInterface() {
     };
 
     const renderHistoryList = () => (
-        <>
+        <nav role="navigation" aria-label="Chat sessions" className="flex flex-col h-full overflow-hidden">
             <div className="flex items-center justify-between px-3 py-3 border-b border-border/20">
                 <div className="flex items-center gap-2">
                     <button
                         type="button"
+                        aria-label="Close sidebar"
                         onClick={() => setIsSidebarOpen(false)}
                         className="rounded p-1 text-muted-foreground hover:bg-surface-2 hover:text-foreground"
                         title="Close sidebar"
@@ -840,6 +841,7 @@ export default function ChatInterface() {
                         <>
                             <button
                                 type="button"
+                                aria-label="Delete selected sessions"
                                 onClick={handleDeleteSelectedSessions}
                                 className="rounded p-1 text-red-500 hover:bg-red-500/10 transition disabled:opacity-40"
                                 title={`Delete selected (${selectedSessionIds.length})`}
@@ -863,6 +865,7 @@ export default function ChatInterface() {
                             {sessions.length > 0 && (
                                 <button
                                     type="button"
+                                    aria-label="Select multiple sessions"
                                     onClick={() => setIsMultiSelectMode(true)}
                                     className="rounded p-1 text-muted-foreground hover:bg-surface-2 hover:text-foreground"
                                     title="Select multiple sessions"
@@ -872,97 +875,106 @@ export default function ChatInterface() {
                             )}
                             <button
                                 type="button"
+                                aria-label="New analysis"
                                 onClick={handleNewChat}
                                 className="rounded p-1 text-muted-foreground hover:bg-surface-2 hover:text-foreground"
                                 title="New analysis"
                             >
                                 <Plus className="h-3.5 w-3.5" />
-                              </button>
+                            </button>
                         </>
                     )}
                 </div>
             </div>
-            <div className="flex-1 overflow-auto px-2">
+            <ul role="list" className="flex-1 overflow-auto px-2">
                 {[{ label: 'Today', items: groupedSessions.today }, { label: 'Yesterday', items: groupedSessions.yesterday }, { label: 'Previous', items: groupedSessions.previous }].map((group) => {
                     if (!group.items.length) return null;
                     return (
-                        <div key={group.label}>
+                        <li key={group.label} role="presentation" className="list-none">
                             <p className="px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{group.label}</p>
-                            {group.items.map(session => {
-                                const isSelected = selectedSessionIds.includes(session.id);
-                                return (
-                                    <button
-                                        key={session.id}
-                                        type="button"
-                                        className={`group mb-0.5 flex w-full items-start gap-2 rounded-md px-2 py-2 text-left text-[12px] transition ${
-                                            isMultiSelectMode 
-                                                ? isSelected 
-                                                    ? 'bg-red-500/5 text-foreground border border-red-500/20' 
-                                                    : 'text-muted-foreground hover:bg-surface-2 hover:text-foreground border border-transparent'
-                                                : currentSessionId === session.id 
-                                                    ? 'bg-surface-3 text-foreground border border-transparent' 
-                                                    : 'text-muted-foreground hover:bg-surface-2 hover:text-foreground border border-transparent'
-                                        }`}
-                                        onClick={() => {
-                                            if (isMultiSelectMode) {
-                                                setSelectedSessionIds(prev => 
-                                                    prev.includes(session.id) 
-                                                        ? prev.filter(id => id !== session.id) 
-                                                        : [...prev, session.id]
-                                                );
-                                            } else {
-                                                loadSession(session.id);
-                                            }
-                                        }}
-                                    >
-                                        {isMultiSelectMode ? (
-                                            <input
-                                                type="checkbox"
-                                                checked={isSelected}
-                                                onChange={(e) => {
-                                                    e.stopPropagation();
-                                                    setSelectedSessionIds(prev => 
-                                                        prev.includes(session.id) 
-                                                            ? prev.filter(id => id !== session.id) 
-                                                            : [...prev, session.id]
-                                                    );
+                            <ul role="list" className="space-y-0.5">
+                                {group.items.map(session => {
+                                    const isSelected = selectedSessionIds.includes(session.id);
+                                    return (
+                                        <li
+                                            key={session.id}
+                                            role="listitem"
+                                            aria-current={session.id === currentSessionId ? 'true' : undefined}
+                                            className="list-none"
+                                        >
+                                            <button
+                                                type="button"
+                                                className={`group mb-0.5 flex w-full items-start gap-2 rounded-md px-2 py-2 text-left text-[12px] transition ${isMultiSelectMode
+                                                    ? isSelected
+                                                        ? 'bg-red-500/5 text-foreground border border-red-500/20'
+                                                        : 'text-muted-foreground hover:bg-surface-2 hover:text-foreground border border-transparent'
+                                                    : currentSessionId === session.id
+                                                        ? 'bg-surface-3 text-foreground border border-transparent'
+                                                        : 'text-muted-foreground hover:bg-surface-2 hover:text-foreground border border-transparent'
+                                                    }`}
+                                                onClick={() => {
+                                                    if (isMultiSelectMode) {
+                                                        setSelectedSessionIds(prev =>
+                                                            prev.includes(session.id)
+                                                                ? prev.filter(id => id !== session.id)
+                                                                : [...prev, session.id]
+                                                        );
+                                                    } else {
+                                                        loadSession(session.id);
+                                                    }
                                                 }}
-                                                className="mt-0.5 h-3.5 w-3.5 rounded border-border bg-background text-accent-custom focus:ring-accent-custom/20 accent-sky-500 cursor-pointer shrink-0"
-                                            />
-                                        ) : (
-                                            <MessageSquare className="mt-0.5 h-3 w-3 text-muted-foreground shrink-0" />
-                                        )}
-                                        <div className="min-w-0 flex-1">
-                                            <div className="truncate font-medium">{session.title || 'Untitled Chat'}</div>
-                                            <div className="text-[10.5px] text-muted-foreground">{session.message_count} messages</div>
-                                        </div>
-                                        {!isMultiSelectMode && (
-                                            <span
-                                                role="button"
-                                                tabIndex={0}
-                                                onClick={(e) => handleDeleteSession(e as unknown as React.MouseEvent, session.id)}
-                                                onKeyDown={(e) => {
-                                                    if (e.key === 'Enter' || e.key === ' ') handleDeleteSession(e as unknown as React.MouseEvent, session.id);
-                                                }}
-                                                className="rounded p-1 text-muted-foreground opacity-0 hover:bg-red-500/10 hover:text-red-500 group-hover:opacity-100"
-                                                title="Delete session"
                                             >
-                                                <X className="h-3 w-3" />
-                                            </span>
-                                        )}
-                                    </button>
-                                );
-                            })}
-                        </div>
+                                                {isMultiSelectMode ? (
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isSelected}
+                                                        onChange={(e) => {
+                                                            e.stopPropagation();
+                                                            setSelectedSessionIds(prev =>
+                                                                prev.includes(session.id)
+                                                                    ? prev.filter(id => id !== session.id)
+                                                                    : [...prev, session.id]
+                                                            );
+                                                        }}
+                                                        className="mt-0.5 h-3.5 w-3.5 rounded border-border bg-background text-accent-custom focus:ring-accent-custom/20 accent-sky-500 cursor-pointer shrink-0"
+                                                    />
+                                                ) : (
+                                                    <MessageSquare className="mt-0.5 h-3 w-3 text-muted-foreground shrink-0" />
+                                                )}
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="truncate font-medium">{session.title || 'Untitled Chat'}</div>
+                                                    <div className="text-[10.5px] text-muted-foreground">{session.message_count} messages</div>
+                                                </div>
+                                                {!isMultiSelectMode && (
+                                                    <span
+                                                        role="button"
+                                                        tabIndex={0}
+                                                        aria-label="Delete session"
+                                                        onClick={(e) => handleDeleteSession(e as unknown as React.MouseEvent, session.id)}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Enter' || e.key === ' ') handleDeleteSession(e as unknown as React.MouseEvent, session.id);
+                                                        }}
+                                                        className="rounded p-1 text-muted-foreground opacity-0 hover:bg-red-500/10 hover:text-red-500 group-hover:opacity-100"
+                                                        title="Delete session"
+                                                    >
+                                                        <X className="h-3 w-3" />
+                                                    </span>
+                                                )}
+                                            </button>
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        </li>
                     );
                 })}
                 {sessions.length === 0 && (
-                    <div className="px-3 py-8 text-center text-sm text-muted-foreground">
+                    <li role="presentation" className="px-3 py-8 text-center text-sm text-muted-foreground list-none">
                         No recent chats
-                    </div>
+                    </li>
                 )}
-            </div>
-        </>
+            </ul>
+        </nav>
     );
 
     const renderMessageContent = (msg: ChatMessage) => {
@@ -1071,10 +1083,10 @@ export default function ChatInterface() {
                 )}
                 <div className="flex-1 overflow-y-auto w-full min-h-0">
                     {messages.length === 0 ? (
-                        <RuixenMoonChat 
-                            onSendMessage={handleSendMessage} 
-                            datasets={datasets} 
-                            selectedDatasetId={selectedDatasetId} 
+                        <RuixenMoonChat
+                            onSendMessage={handleSendMessage}
+                            datasets={datasets}
+                            selectedDatasetId={selectedDatasetId}
                             onDatasetChange={(id) => {
                                 setSelectedDatasetId(id);
                                 if (messages.length === 0) {
@@ -1092,7 +1104,7 @@ export default function ChatInterface() {
                             suggestions={initialSuggestions}
                         />
                     ) : (
-                        <div className="p-6 md:p-10 space-y-8 max-w-5xl mx-auto w-full">
+                        <div role="log" aria-label="Chat messages" aria-live="polite" className="p-6 md:p-10 space-y-8 max-w-5xl mx-auto w-full">
                             {error && (
                                 <div className="mx-auto max-w-xl">
                                     <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
@@ -1101,7 +1113,7 @@ export default function ChatInterface() {
                                             <h4 className="text-sm font-semibold text-destructive">Chat Error</h4>
                                             <p className="text-sm text-muted-foreground mt-1">{error}</p>
                                         </div>
-                                        <button onClick={() => setError(null)} className="rounded p-1 hover:bg-destructive/10"><X className="h-4 w-4 text-destructive" /></button>
+                                        <button onClick={() => setError(null)} aria-label="Close error message" className="rounded p-1 hover:bg-destructive/10"><X className="h-4 w-4 text-destructive" /></button>
                                     </div>
                                 </div>
                             )}
@@ -1109,7 +1121,7 @@ export default function ChatInterface() {
                                 const isKpi = msg.output_data?.type === 'kpi' || msg.output_data?.chart?.type === 'kpi';
                                 const chartType = msg.output_data?.chart?.type;
                                 const intent = (msg.intent_type || '').toLowerCase();
-                                
+
                                 let transitionText = "Based on the query execution and data retrieval, here is the analysis:";
                                 if (isKpi) {
                                     transitionText = "Based on the query execution and data retrieval, here is the metric you requested:";
@@ -1123,7 +1135,7 @@ export default function ChatInterface() {
                                 const shouldRestrictWidth = msg.role === 'assistant' && isKpi && !isDetailed;
 
                                 return (
-                                    <div key={msg.id} id={`msg-${msg.id}`} className={`flex w-full mb-8 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                    <div key={msg.id} id={`msg-${msg.id}`} role="article" aria-label={msg.role === 'user' ? 'Your message' : 'Assistant response'} className={`flex w-full mb-8 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                                         <div className={`max-w-7xl w-full flex items-start space-x-3 ${msg.role === 'user' ? 'justify-end' : ''}`}>
                                             {msg.role === 'assistant' && (
                                                 <div className="w-10 h-10 rounded-xl bg-white dark:bg-black border border-border flex items-center justify-center flex-shrink-0 shadow-sm overflow-hidden">
@@ -1178,135 +1190,135 @@ export default function ChatInterface() {
                                                         </div>
                                                     )}
 
-                                                {isInsightMessage(msg) ? (
-                                                    (() => {
-                                                        const insightSqlQueries = getInsightSqlQueries(msg);
-                                                        return (
-                                                            <div className="space-y-4 w-full">
-                                                                <div className="chat-insight-container text-themed-main">{renderInsightPoints(msg.content)}</div>
-                                                                {insightSqlQueries.length > 0 && (
-                                                                    <div className="rounded-sm border border-border-main bg-bg-main/40">
-                                                                        <div className="flex items-center justify-between px-3 py-2 border-b border-border-main/70">
-                                                                            <div className="flex items-center gap-2.5">
-                                                                                <span className="text-[10px] font-semibold font-mono tracking-[0.16em] uppercase text-themed-muted">Insight SQL</span>
-                                                                                <span className="text-[10px] font-medium font-mono tracking-widest uppercase px-2 py-0.5 rounded-sm bg-primary/15 text-primary border border-primary/30">{insightSqlQueries.length} queries</span>
+                                                    {isInsightMessage(msg) ? (
+                                                        (() => {
+                                                            const insightSqlQueries = getInsightSqlQueries(msg);
+                                                            return (
+                                                                <div className="space-y-4 w-full">
+                                                                    <div className="chat-insight-container text-themed-main">{renderInsightPoints(msg.content)}</div>
+                                                                    {insightSqlQueries.length > 0 && (
+                                                                        <div className="rounded-sm border border-border-main bg-bg-main/40">
+                                                                            <div className="flex items-center justify-between px-3 py-2 border-b border-border-main/70">
+                                                                                <div className="flex items-center gap-2.5">
+                                                                                    <span className="text-[10px] font-semibold font-mono tracking-[0.16em] uppercase text-themed-muted">Insight SQL</span>
+                                                                                    <span className="text-[10px] font-medium font-mono tracking-widest uppercase px-2 py-0.5 rounded-sm bg-primary/15 text-primary border border-primary/30">{insightSqlQueries.length} queries</span>
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="px-3 py-3 space-y-3">
+                                                                                {insightSqlQueries.map((item, idx) => {
+                                                                                    const copyKey = `${msg.id}::insight-sql::${item.id}`;
+                                                                                    return (
+                                                                                        <div key={copyKey} className="rounded-sm border border-border-main/70 bg-bg-card/70">
+                                                                                            <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border-main/70">
+                                                                                                <div className="flex items-center gap-2 flex-wrap min-w-0">
+                                                                                                    <span className="text-[10px] font-medium font-mono tracking-widest uppercase px-1.5 py-0.5 rounded-sm bg-bg-main/70 text-themed-muted border border-border-main/70">#{idx + 1}</span>
+                                                                                                    <span className="text-xs font-semibold text-themed-main truncate">{item.title}</span>
+                                                                                                    {item.dimension && <span className="text-[10px] font-medium font-mono tracking-widest uppercase px-1.5 py-0.5 rounded-sm bg-primary/10 text-primary border border-primary/20">{item.dimension}</span>}
+                                                                                                    {typeof item.row_count === 'number' && <span className="text-[10px] font-medium font-mono tracking-widest uppercase px-1.5 py-0.5 rounded-sm bg-bg-main/70 text-themed-muted border border-border-main/70">{item.row_count} rows</span>}
+                                                                                                </div>
+                                                                                                <BtnGhost onClick={() => { navigator.clipboard.writeText(item.sql); setCopiedSqlMsgId(copyKey); setTimeout(() => setCopiedSqlMsgId(null), 2000); }} className="text-[10px] font-mono font-semibold tracking-widest uppercase text-themed-muted hover:text-primary transition-colors flex items-center gap-1 flex-shrink-0">
+                                                                                                    {copiedSqlMsgId === copyKey ? <><Check className="h-3 w-3" /> Copied!</> : <><Copy className="h-3 w-3" /> Copy</>}
+                                                                                                </BtnGhost>
+                                                                                            </div>
+                                                                                            <pre className="mx-3 my-3 p-3 bg-bg-card border border-border-main/70 rounded-sm text-xs font-mono text-primary overflow-x-auto whitespace-pre-wrap leading-relaxed"><code>{item.sql}</code></pre>
+                                                                                        </div>
+                                                                                    );
+                                                                                })}
                                                                             </div>
                                                                         </div>
-                                                                        <div className="px-3 py-3 space-y-3">
-                                                                            {insightSqlQueries.map((item, idx) => {
-                                                                                const copyKey = `${msg.id}::insight-sql::${item.id}`;
-                                                                                return (
-                                                                                    <div key={copyKey} className="rounded-sm border border-border-main/70 bg-bg-card/70">
-                                                                                        <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border-main/70">
-                                                                                            <div className="flex items-center gap-2 flex-wrap min-w-0">
-                                                                                                <span className="text-[10px] font-medium font-mono tracking-widest uppercase px-1.5 py-0.5 rounded-sm bg-bg-main/70 text-themed-muted border border-border-main/70">#{idx + 1}</span>
-                                                                                                <span className="text-xs font-semibold text-themed-main truncate">{item.title}</span>
-                                                                                                {item.dimension && <span className="text-[10px] font-medium font-mono tracking-widest uppercase px-1.5 py-0.5 rounded-sm bg-primary/10 text-primary border border-primary/20">{item.dimension}</span>}
-                                                                                                {typeof item.row_count === 'number' && <span className="text-[10px] font-medium font-mono tracking-widest uppercase px-1.5 py-0.5 rounded-sm bg-bg-main/70 text-themed-muted border border-border-main/70">{item.row_count} rows</span>}
-                                                                                            </div>
-                                                                                            <BtnGhost onClick={() => { navigator.clipboard.writeText(item.sql); setCopiedSqlMsgId(copyKey); setTimeout(() => setCopiedSqlMsgId(null), 2000); }} className="text-[10px] font-mono font-semibold tracking-widest uppercase text-themed-muted hover:text-primary transition-colors flex items-center gap-1 flex-shrink-0">
-                                                                                                {copiedSqlMsgId === copyKey ? <><Check className="h-3 w-3" /> Copied!</> : <><Copy className="h-3 w-3" /> Copy</>}
-                                                                                            </BtnGhost>
-                                                                                        </div>
-                                                                                        <pre className="mx-3 my-3 p-3 bg-bg-card border border-border-main/70 rounded-sm text-xs font-mono text-primary overflow-x-auto whitespace-pre-wrap leading-relaxed"><code>{item.sql}</code></pre>
-                                                                                    </div>
-                                                                                );
-                                                                            })}
-                                                                        </div>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        );
-                                                    })()
-                                                ) : ['analysis', 'visualization', 'dashboard', 'comparative', 'aggregative', 'trend', 'text_query', 'clarification'].includes(msg.intent_type || '') ? (
-                                                    <div className="chat-insight-container text-sm leading-relaxed">
-                                                        {renderAnalysisInsight(msg)}
-                                                        {msg.output_data?.type === 'clarification' && msg.output_data?.ambiguity && (
-                                                            <div className="mt-3.5 space-y-2">
-                                                                <div className="flex flex-wrap gap-2">
-                                                                    {msg.output_data.ambiguity.candidates?.map((c: any, cIdx: number) => (
-                                                                        <button
-                                                                            key={cIdx}
-                                                                            onClick={() => {
-                                                                                const term = msg.output_data?.ambiguity?.term || "";
-                                                                                const originalQuery = msg.output_data?.ambiguity?.original_query || "";
-                                                                                const chosenColumn = c.column;
-                                                                                const newQuery = `For my query "${originalQuery}", I meant column "${chosenColumn}" instead of "${term}"`;
-                                                                                handleSendMessage(newQuery);
-                                                                            }}
-                                                                            className="px-3 py-1.5 rounded-lg border border-border bg-surface-3 hover:bg-primary/10 hover:border-primary/40 text-xs font-semibold text-foreground transition-all duration-200 cursor-pointer"
-                                                                        >
-                                                                            {c.column}
-                                                                        </button>
-                                                                    ))}
+                                                                    )}
                                                                 </div>
-                                                            </div>
-                                                        )}
-                                                        {hasRenderableOutput(msg.output_data) && (() => {
-                                                             const isKpi = msg.output_data?.type === 'kpi' || msg.output_data?.chart?.type === 'kpi';
-                                                             return (
-                                                                 <>
-                                                                     <div className="mt-4 flex flex-wrap items-center gap-2">
-                                                                         {!isKpi && (
-                                                                             <BtnGhost onClick={() => { setSelectedArtifactId(msg.id); setIsArtifactVisible(true); }} className="flex items-center gap-1.5 text-xs">
-                                                                                 <BarChart3 className="h-3 w-3" /> View Visualization
-                                                                             </BtnGhost>
-                                                                         )}
-                                                                         {msg.output_data?.sql && (
-                                                                             <BtnGhost onClick={() => setShowSql(prev => ({ ...prev, [msg.id]: !prev[msg.id] }))} className="flex items-center gap-1.5 text-xs">
-                                                                                 <Code2 className="h-3 w-3" /> {showSql[msg.id] ? 'Hide' : 'View'} SQL
-                                                                             </BtnGhost>
-                                                                         )}
-                                                                         {!isKpi && (
-                                                                             <>
-                                                                                 <BtnGhost onClick={() => handleDownloadCSV(msg.output_data, msg.id)} className="flex items-center gap-1.5 text-xs">
-                                                                                     <Download className="h-3 w-3" /> CSV
-                                                                                 </BtnGhost>
-                                                                                 <BtnGhost onClick={() => handlePinToCanvas(msg, msg.output_data)} className="flex items-center gap-1.5 text-xs text-accent-custom hover:text-accent-custom">
-                                                                                     <Pin className="h-3 w-3" /> Pin to Canvas
-                                                                                 </BtnGhost>
-                                                                             </>
-                                                                         )}
-                                                                     </div>
-                                                                     {msg.output_data?.sql && showSql[msg.id] && (
-                                                                         <SqlEditor
-                                                                             messageId={msg.id}
-                                                                             sql={msg.output_data.sql}
-                                                                             variant="inline"
-                                                                             className="mt-3"
-                                                                             onExecute={async (next) => {
-                                                                                 setEditingSql(prev => ({ ...prev, [msg.id]: next }));
-                                                                                 await handleExecuteEditedSql(msg.id, next);
-                                                                             }}
-                                                                         />
-                                                                     )}
-                                                                 </>
-                                                             );
-                                                         })()}
+                                                            );
+                                                        })()
+                                                    ) : ['analysis', 'visualization', 'dashboard', 'comparative', 'aggregative', 'trend', 'text_query', 'clarification'].includes(msg.intent_type || '') ? (
+                                                        <div className="chat-insight-container text-sm leading-relaxed">
+                                                            {renderAnalysisInsight(msg)}
+                                                            {msg.output_data?.type === 'clarification' && msg.output_data?.ambiguity && (
+                                                                <div className="mt-3.5 space-y-2">
+                                                                    <div className="flex flex-wrap gap-2">
+                                                                        {msg.output_data.ambiguity.candidates?.map((c: any, cIdx: number) => (
+                                                                            <button
+                                                                                key={cIdx}
+                                                                                onClick={() => {
+                                                                                    const term = msg.output_data?.ambiguity?.term || "";
+                                                                                    const originalQuery = msg.output_data?.ambiguity?.original_query || "";
+                                                                                    const chosenColumn = c.column;
+                                                                                    const newQuery = `For my query "${originalQuery}", I meant column "${chosenColumn}" instead of "${term}"`;
+                                                                                    handleSendMessage(newQuery);
+                                                                                }}
+                                                                                className="px-3 py-1.5 rounded-lg border border-border bg-surface-3 hover:bg-primary/10 hover:border-primary/40 text-xs font-semibold text-foreground transition-all duration-200 cursor-pointer"
+                                                                            >
+                                                                                {c.column}
+                                                                            </button>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                            {hasRenderableOutput(msg.output_data) && (() => {
+                                                                const isKpi = msg.output_data?.type === 'kpi' || msg.output_data?.chart?.type === 'kpi';
+                                                                return (
+                                                                    <>
+                                                                        <div className="mt-4 flex flex-wrap items-center gap-2">
+                                                                            {!isKpi && (
+                                                                                <BtnGhost onClick={() => { setSelectedArtifactId(msg.id); setIsArtifactVisible(true); }} className="flex items-center gap-1.5 text-xs">
+                                                                                    <BarChart3 className="h-3 w-3" /> View Visualization
+                                                                                </BtnGhost>
+                                                                            )}
+                                                                            {msg.output_data?.sql && (
+                                                                                <BtnGhost onClick={() => setShowSql(prev => ({ ...prev, [msg.id]: !prev[msg.id] }))} className="flex items-center gap-1.5 text-xs">
+                                                                                    <Code2 className="h-3 w-3" /> {showSql[msg.id] ? 'Hide' : 'View'} SQL
+                                                                                </BtnGhost>
+                                                                            )}
+                                                                            {!isKpi && (
+                                                                                <>
+                                                                                    <BtnGhost onClick={() => handleDownloadCSV(msg.output_data, msg.id)} className="flex items-center gap-1.5 text-xs">
+                                                                                        <Download className="h-3 w-3" /> CSV
+                                                                                    </BtnGhost>
+                                                                                    <BtnGhost onClick={() => handlePinToCanvas(msg, msg.output_data)} className="flex items-center gap-1.5 text-xs text-accent-custom hover:text-accent-custom">
+                                                                                        <Pin className="h-3 w-3" /> Pin to Canvas
+                                                                                    </BtnGhost>
+                                                                                </>
+                                                                            )}
+                                                                        </div>
+                                                                        {msg.output_data?.sql && showSql[msg.id] && (
+                                                                            <SqlEditor
+                                                                                messageId={msg.id}
+                                                                                sql={msg.output_data.sql}
+                                                                                variant="inline"
+                                                                                className="mt-3"
+                                                                                onExecute={async (next) => {
+                                                                                    setEditingSql(prev => ({ ...prev, [msg.id]: next }));
+                                                                                    await handleExecuteEditedSql(msg.id, next);
+                                                                                }}
+                                                                            />
+                                                                        )}
+                                                                    </>
+                                                                );
+                                                            })()}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="text-sm leading-relaxed">{msg.content}</div>
+                                                    )}
+                                                </div>
+                                                {msg.role === 'assistant' && msg.output_data?.followup_suggestions && msg.output_data.followup_suggestions.length > 0 && (
+                                                    <div className="mt-4 flex flex-wrap gap-2 animate-fade-in border-t border-border/20 pt-3">
+                                                        {msg.output_data.followup_suggestions.map((suggestion: string, sIdx: number) => (
+                                                            <button
+                                                                key={sIdx}
+                                                                onClick={() => handleSendMessage(suggestion, { enableSuggestions: true })}
+                                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-[#1EAEDB]/20 bg-[#1EAEDB]/5 hover:bg-[#1EAEDB]/15 hover:border-[#1EAEDB]/45 text-xs font-medium text-[#1EAEDB] transition-all duration-200 cursor-pointer shadow-sm active:scale-[0.98]"
+                                                            >
+                                                                <Globe className="h-3.5 w-3.5" />
+                                                                {suggestion}
+                                                            </button>
+                                                        ))}
                                                     </div>
-                                                ) : (
-                                                    <div className="text-sm leading-relaxed">{msg.content}</div>
                                                 )}
                                             </div>
-                                            {msg.role === 'assistant' && msg.output_data?.followup_suggestions && msg.output_data.followup_suggestions.length > 0 && (
-                                                <div className="mt-4 flex flex-wrap gap-2 animate-fade-in border-t border-border/20 pt-3">
-                                                    {msg.output_data.followup_suggestions.map((suggestion: string, sIdx: number) => (
-                                                        <button
-                                                            key={sIdx}
-                                                            onClick={() => handleSendMessage(suggestion, { enableSuggestions: true })}
-                                                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-[#1EAEDB]/20 bg-[#1EAEDB]/5 hover:bg-[#1EAEDB]/15 hover:border-[#1EAEDB]/45 text-xs font-medium text-[#1EAEDB] transition-all duration-200 cursor-pointer shadow-sm active:scale-[0.98]"
-                                                        >
-                                                            <Globe className="h-3.5 w-3.5" />
-                                                            {suggestion}
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            )}
                                         </div>
                                     </div>
-                                </div>
-                            );
-                        })}
+                                );
+                            })}
                             {isTyping && (
                                 <div className="flex gap-3 animate-fade-in">
                                     <div className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md bg-surface-3 border border-border text-foreground">
@@ -1363,20 +1375,20 @@ export default function ChatInterface() {
                     )}
                 </div>
                 {messages.length > 0 && (
-                <div className="border-t border-border bg-background p-4">
-                    <div className="mx-auto max-w-[680px]">
-                        <PromptInputBox 
-                            onSend={(msg, files, options) => handleSendMessage(msg, options)}
-                            placeholder={`Ask anything about ${activeDatasetName || 'your data'}...`}
-                            isLoading={isTyping}
-                        />
-                        <div className="mt-2 flex items-center gap-2 px-1 text-[10.5px] text-muted-foreground">
-                            <span className="flex items-center gap-1"><Database className="h-2.5 w-2.5" />Context: {activeDatasetName || 'None selected'}</span>
-                            <span className="text-border">·</span>
-                            <span>Press Enter to send · Shift+Enter for newline</span>
+                    <div className="border-t border-border bg-background p-4">
+                        <div className="mx-auto max-w-[680px]">
+                            <PromptInputBox
+                                onSend={(msg, files, options) => handleSendMessage(msg, options)}
+                                placeholder={`Ask anything about ${activeDatasetName || 'your data'}...`}
+                                isLoading={isTyping}
+                            />
+                            <div className="mt-2 flex items-center gap-2 px-1 text-[10.5px] text-muted-foreground">
+                                <span className="flex items-center gap-1"><Database className="h-2.5 w-2.5" />Context: {activeDatasetName || 'None selected'}</span>
+                                <span className="text-border">·</span>
+                                <span>Press Enter to send · Shift+Enter for newline</span>
+                            </div>
                         </div>
                     </div>
-                </div>
                 )}
             </div>
             {renderArtifactViewer()}

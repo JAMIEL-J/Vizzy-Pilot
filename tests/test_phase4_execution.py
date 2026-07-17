@@ -4,14 +4,16 @@ import pytest
 
 def test_dashboard_load_returns_sse_stream(client, approved_version_id):
     version_id = approved_version_id["version_id"]
-    with client.stream("GET", f"/api/v1/dashboard/load/{version_id}") as r:
+    headers = approved_version_id.get("headers")
+    with client.stream("GET", f"/api/v1/dashboard/load/{version_id}", headers=headers) as r:
         assert r.status_code == 200
         assert "text/event-stream" in r.headers["content-type"]
 
 def test_sse_stream_terminates_with_done_event(client, approved_version_id):
     done_received = False
     version_id = approved_version_id["version_id"]
-    with client.stream("GET", f"/api/v1/dashboard/load/{version_id}") as r:
+    headers = approved_version_id.get("headers")
+    with client.stream("GET", f"/api/v1/dashboard/load/{version_id}", headers=headers) as r:
         for line in r.iter_lines():
             if line.startswith("data:"):
                 payload = json.loads(line[5:].strip())
@@ -25,7 +27,8 @@ def test_sse_stream_terminates_with_done_event(client, approved_version_id):
 def test_every_chart_result_has_required_fields(client, approved_version_id):
     charts = []
     version_id = approved_version_id["version_id"]
-    with client.stream("GET", f"/api/v1/dashboard/load/{version_id}") as r:
+    headers = approved_version_id.get("headers")
+    with client.stream("GET", f"/api/v1/dashboard/load/{version_id}", headers=headers) as r:
         for line in r.iter_lines():
             if line.startswith("data:"):
                 payload = json.loads(line[5:].strip())
@@ -46,7 +49,8 @@ def test_every_chart_result_has_required_fields(client, approved_version_id):
 
 def test_pandas_charts_never_return_inf_or_nan(client, approved_version_id):
     version_id = approved_version_id["version_id"]
-    with client.stream("GET", f"/api/v1/dashboard/load/{version_id}") as r:
+    headers = approved_version_id.get("headers")
+    with client.stream("GET", f"/api/v1/dashboard/load/{version_id}", headers=headers) as r:
         for line in r.iter_lines():
             if line.startswith("data:"):
                 payload = json.loads(line[5:].strip())
@@ -62,15 +66,16 @@ def test_pandas_charts_never_return_inf_or_nan(client, approved_version_id):
 def test_cache_hit_returns_faster_than_cold(client, approved_version_id):
     # cold load
     version_id = approved_version_id["version_id"]
+    headers = approved_version_id.get("headers")
     start = time.time()
-    with client.stream("GET", f"/api/v1/dashboard/load/{version_id}") as r:
+    with client.stream("GET", f"/api/v1/dashboard/load/{version_id}", headers=headers) as r:
         for line in r.iter_lines():
             if line.startswith("data:") and json.loads(line[5:].strip()).get("event") == "done":
                 break
     cold_ms = (time.time() - start) * 1000
     # warm load (cache populated)
     start = time.time()
-    with client.stream("GET", f"/api/v1/dashboard/load/{version_id}") as r:
+    with client.stream("GET", f"/api/v1/dashboard/load/{version_id}", headers=headers) as r:
         for line in r.iter_lines():
             if line.startswith("data:") and json.loads(line[5:].strip()).get("event") == "done":
                 break
@@ -82,7 +87,8 @@ def test_cache_hit_returns_faster_than_cold(client, approved_version_id):
 def test_duckdb_charts_arrive_before_pandas(client, approved_version_id):
     arrival_order = []
     version_id = approved_version_id["version_id"]
-    with client.stream("GET", f"/api/v1/dashboard/load/{version_id}") as r:
+    headers = approved_version_id.get("headers")
+    with client.stream("GET", f"/api/v1/dashboard/load/{version_id}", headers=headers) as r:
         for line in r.iter_lines():
             if line.startswith("data:"):
                 payload = json.loads(line[5:].strip())

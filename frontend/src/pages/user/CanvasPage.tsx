@@ -2963,6 +2963,7 @@ export default function CanvasPage() {
             )}
             
             <button 
+              aria-label="Save options"
               className="h-9 px-2 bg-surface hover:bg-surface-2 border border-border-custom text-text-custom hover:text-accent-custom hover:border-accent-custom/55 rounded-r-full flex items-center justify-center transition-all cursor-pointer shadow-xs"
             >
               <ChevronDown className="w-3 h-3 text-muted-custom" />
@@ -3053,6 +3054,7 @@ export default function CanvasPage() {
               </div>
               <button
                 type="button"
+                aria-label="Close Sidebar"
                 onClick={() => {
                   setIsSidebarCollapsed(true);
                   addLog("Sidebar collapsed. Canvas entered Full Screen mode.");
@@ -3213,20 +3215,21 @@ export default function CanvasPage() {
                    disabled={isCreatingCalcField}
                  />
                  <button
-                   onClick={handleCreateCalculatedField}
-                   disabled={isCreatingCalcField || !calcPrompt.trim()}
-                   className="absolute right-1.5 p-1 text-accent-custom hover:text-accent-custom/80 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                   title="Generate calculated field with AI"
-                 >
-                   {isCreatingCalcField ? (
-                     <Loader2 className="w-3 h-3 animate-spin text-accent-custom" />
-                   ) : (
-                     <Sparkles className="w-3 h-3 animate-pulse" />
-                   )}
-                 </button>
+                    onClick={handleCreateCalculatedField}
+                    disabled={isCreatingCalcField || !calcPrompt.trim()}
+                    aria-label="Generate calculated field with AI"
+                    className="absolute right-1.5 p-1 text-accent-custom hover:text-accent-custom/80 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Generate calculated field with AI"
+                  >
+                    {isCreatingCalcField ? (
+                      <Loader2 className="w-3 h-3 animate-spin text-accent-custom" />
+                    ) : (
+                      <Sparkles className="w-3 h-3 animate-pulse" />
+                    )}
+                  </button>
                </div>
                
-               <div className="space-y-1.5 max-h-[360px] overflow-y-auto pr-1">
+               <div role="listbox" aria-label="Dataset fields" className="space-y-1.5 max-h-[360px] overflow-y-auto pr-1">
                   {isLoadingColumns ? (
                     <div className="flex flex-col items-center justify-center py-10 text-muted-custom space-y-2">
                       <Loader2 className="w-5 h-5 animate-spin text-accent-custom" />
@@ -3242,6 +3245,8 @@ export default function CanvasPage() {
                       return (
                         <div
                           key={field.name} draggable="true" onDragStart={(e) => { e.dataTransfer.setData("text/plain", field.name); e.dataTransfer.effectAllowed = "copyMove"; addLog(`Dragging column: "${field.name}". Drop it in the Interactive Canvas Slicers zone to filter!`); }} onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, field: field }); }}
+                          role="option"
+                          aria-selected={isChecked}
                           className="w-full flex items-center justify-between p-2 rounded-xl text-xs font-mono transition-all hover:bg-surface-2 border border-transparent group"
                         >
                           <div onClick={() => handleFieldToggle(field.name)} className="flex items-center space-x-2.5 min-w-0 cursor-pointer flex-1">
@@ -3300,6 +3305,7 @@ export default function CanvasPage() {
           {isSidebarCollapsed && !isFullScreenCanvas && (
             <button
               type="button"
+              aria-label="Show Sidebar"
               onClick={() => {
                 setIsSidebarCollapsed(false);
                 addLog("Sidebar restored.");
@@ -3606,6 +3612,7 @@ export default function CanvasPage() {
                     {/* Remove custom filter button */}
                     <button
                       type="button"
+                      aria-label="Remove Filter"
                       onClick={() => {
                         setCustomFilters(prev => prev.filter(f => f.fieldName !== cf.fieldName));
                         addLog(`Removed custom filter for column "${cf.fieldName}".`);
@@ -3739,6 +3746,8 @@ export default function CanvasPage() {
             ) : (
               <div 
                 ref={canvasContainerRef}
+                role="application"
+                aria-label="Vizzy Canvas workspace"
                 className="relative w-full border border-border-custom/30 rounded-2xl bg-surface-2/15 shadow-inner p-4 scrollbar-thin overflow-auto flex flex-col items-start justify-start"
                 style={{ 
                   height: (isFullScreenCanvas || isPresentMode) ? 'calc(100vh - 180px)' : (isResponsive ? '100%' : '650px'),
@@ -3821,6 +3830,10 @@ export default function CanvasPage() {
                         key={widget.id}
                         id={`widget-card-${widget.id}`}
                         data-widget-id={widget.id}
+                        role="region"
+                        aria-label={`Chart: ${widget.title}`}
+                        tabIndex={0}
+                        aria-selected={selectedWidgetIds.includes(widget.id)}
                         className={`canvas-widget group bg-surface border rounded-2xl ${widget.type === 'kpi' ? 'p-3' : 'p-4'} shadow-sm flex flex-col justify-between overflow-hidden transition-colors transition-shadow duration-150 select-none touch-none ${
                           isResponsive ? 'relative w-full' : 'absolute'
                         } ${
@@ -3919,6 +3932,7 @@ export default function CanvasPage() {
                             <div className="flex items-center space-x-1">
                               <button
                                 type="button"
+                                aria-label="Format size and positioning bounds"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setEditingWidgetId(editingWidgetId === widget.id ? null : widget.id);
@@ -3934,6 +3948,7 @@ export default function CanvasPage() {
                               </button>
                               <button
                                 type="button"
+                                aria-label="Delete widget"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   handleDeleteWidget(widget.id, widget.title);
@@ -4876,6 +4891,9 @@ export default function CanvasPage() {
                         {isSelected && !isPresentMode && (
                           <div
                             onPointerDown={(e) => handleResizeStart(e, widget.id)}
+                            role="button"
+                            aria-label="Resize widget"
+                            tabIndex={0}
                             className="absolute bottom-1.5 right-1.5 w-4 h-4 cursor-se-resize z-35 flex items-end justify-end text-muted-custom hover:text-accent-custom active:text-accent-custom transition-all"
                             title="Drag to resize component (PowerBI style)"
                           >

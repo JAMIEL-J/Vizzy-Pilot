@@ -1,8 +1,11 @@
 import pytest
 import duckdb
 import time
+import uuid
 from fastapi.testclient import TestClient
 from app.main import app
+from app.core.security import create_access_token
+from app.models.user import UserRole
 
 @pytest.fixture(scope="session")
 def client():
@@ -21,16 +24,28 @@ def sample_csv(tmp_path):
 
 @pytest.fixture
 def approved_version_id(client, sample_csv):
+    # Generate valid authorization headers
+    token = create_access_token(user_id=str(uuid.uuid4()), role=UserRole.USER)
+    headers = {"Authorization": f"Bearer {token}"}
+
     # Runs full Phase 1–3 and returns a confirmed version_id
     with open(sample_csv, "rb") as f:
-        r = client.post("/api/datasets/upload", files={"file": f})
+        r = client.post(
+            "/api/v1/datasets/upload", 
+            files={"file": f}, 
+            data={"name": "test_dataset"},
+            headers=headers
+        )
     
     dataset_id = r.json()["dataset_id"]
     
     # poll until ready
     version_id = None
     for _ in range(30):
-        status_resp = client.get(f"/api/datasets/{dataset_id}/status")
+        status_resp = client.get(
+            f"/api/v1/datasets/{dataset_id}/status",
+            headers=headers
+        )
         status = status_resp.json()
         if status["status"] == "ready":
             version_id = status["version_id"]
@@ -51,7 +66,10 @@ def approved_version_id(client, sample_csv):
         {"column_name": "is_returned", "role": "boolean_flag", "confidence": 0.95},
     ]
     
-    client.post(f"/api/datasets/{version_id}/confirm-mapping",
-                json={"mappings": mapping, "approved_by": "test_user"})
+    client.post(
+        f"/api/v1/datasets/{dataset_id}/versions/{version_id}/confirm-mapping",
+        json={"mappings": mapping, "approved_by": "test_user"},
+        headers=headers
+    )
     
-    return version_id
+    return {"dataset_id": dataset_id, "version_id": version_id, "headers": headers}

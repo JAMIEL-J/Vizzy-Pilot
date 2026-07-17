@@ -1912,7 +1912,7 @@ class NLQueryResponse(BaseModel):
 async def nl_query(
     request: NLQueryRequest,
     session: DBSession,
-    current_user: AuthenticatedUser,
+    current_user: RateLimitedUser,
 ) -> NLQueryResponse:
     """
     Primary UI interaction endpoint for natural language queries.

@@ -15,7 +15,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from sqlmodel import select
 
-from app.api.deps import DBSession, AuthenticatedUser
+from app.api.deps import DBSession, AuthenticatedUser, RateLimitedUser
 from app.api.sql_transparency_routes import (
     SQLExecuteRequest,
     SQLExecuteResponse,
@@ -380,7 +380,7 @@ async def create_canvas_calculated_field(
     dataset_id: UUID,
     request: CalculateFieldRequest,
     session: DBSession,
-    current_user: AuthenticatedUser,
+    current_user: RateLimitedUser,
 ) -> CalculateFieldResponse:
     """
     Generate a new calculated field via AI, validate it in DuckDB,
@@ -632,7 +632,7 @@ async def compile_canvas_prompt(
     dataset_id: UUID,
     request: CanvasCompileRequest,
     session: DBSession,
-    current_user: AuthenticatedUser,
+    current_user: RateLimitedUser,
 ) -> CanvasCompileResponse:
     """
     Compile a prompt directly into a queryable chart specification and SQL query
