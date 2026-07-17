@@ -17,7 +17,7 @@ class SourceType(str, Enum):
 class DatasetVersion(BaseModel, table=True):
     __tablename__ = "dataset_versions"
 
-    dataset_id: UUID = Field(nullable=False, index=True)
+    dataset_id: UUID = Field(nullable=False, index=True, foreign_key="datasets.id")
     version_number: int = Field(nullable=False)
 
     source_type: SourceType = Field(nullable=False)
@@ -50,7 +50,7 @@ class DatasetVersion(BaseModel, table=True):
     # Format: {"revenue": "Tot_Rev", "date": "Date"}
     semantic_map_json: Optional[str] = Field(default=None, nullable=True)
 
-    created_by: UUID = Field(nullable=False)
+    created_by: UUID = Field(nullable=False, foreign_key="users.id")
     is_active: bool = Field(default=True)
     duckdb_table_name: Optional[str] = Field(default="data", nullable=True)
 

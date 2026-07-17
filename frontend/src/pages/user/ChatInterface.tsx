@@ -1027,7 +1027,7 @@ export default function ChatInterface() {
                         <div className="mt-3 rounded-md border border-border bg-surface-2">
                             <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
                                 <span className="font-mono text-[10.5px] text-muted-foreground">generated.sql · NL2SQL</span>
-                                <BtnGhost onClick={() => { navigator.clipboard.writeText(msg.output_data.sql); setCopiedSqlMsgId(msg.id); setTimeout(() => setCopiedSqlMsgId(null), 1500); }}>
+                                <BtnGhost onClick={() => { navigator.clipboard.writeText(msg.output_data?.sql || ''); setCopiedSqlMsgId(msg.id); setTimeout(() => setCopiedSqlMsgId(null), 1500); }}>
                                     {copiedSqlMsgId === msg.id ? <><Check className="h-3 w-3" />Copied</> : <><Copy className="h-3 w-3" />Copy</>}
                                 </BtnGhost>
                             </div>
@@ -1228,8 +1228,8 @@ export default function ChatInterface() {
                                                                         <button
                                                                             key={cIdx}
                                                                             onClick={() => {
-                                                                                const term = msg.output_data.ambiguity.term;
-                                                                                const originalQuery = msg.output_data.ambiguity.original_query || "";
+                                                                                const term = msg.output_data?.ambiguity?.term || "";
+                                                                                const originalQuery = msg.output_data?.ambiguity?.original_query || "";
                                                                                 const chosenColumn = c.column;
                                                                                 const newQuery = `For my query "${originalQuery}", I meant column "${chosenColumn}" instead of "${term}"`;
                                                                                 handleSendMessage(newQuery);

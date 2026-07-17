@@ -15,7 +15,7 @@ import { chatService, type ChatSession, type ChatMessage } from '../../lib/api/c
 import { canvasService, formatKpiValue, formatKpiSubtext, type NumberFormatConfig } from '../../lib/api/canvas';
 import { apiClient } from '../../lib/api/client';
 import { toast } from 'react-hot-toast';
-import * as htmlToImage from 'html-to-image';
+// html-to-image is lazy-loaded in handleExportVisuals to reduce bundle size
 import download from 'downloadjs';
 import { VizzyPilotLogoIcon } from '../../components/layout/VizzyLogo';
 import { prettifyLabel } from '../../components/dashboard/dashboard-helpers';
@@ -125,11 +125,13 @@ const AIPromptBar: React.FC<AIPromptBarProps> = React.memo(({
 });
 
 // Define Widget Type for the Canvas with AI logs
+import type { ChartDataPoint, CanvasChartType, AggregationType, TimeGrain } from '../../types/canvas';
+
 interface CanvasWidget {
   id: string;
   title: string;
-  type: 'kpi' | 'bar' | 'stacked_bar' | 'line' | 'pie' | 'donut' | 'table' | 'map' | 'scatter' | 'bubble' | 'combo' | 'hbar';
-  data: any[];
+  type: CanvasChartType;
+  data: ChartDataPoint[];
   width: 'full' | 'half' | 'third';
   value?: string;
   subtext?: string;
@@ -142,8 +144,8 @@ interface CanvasWidget {
   position?: { x: number; y: number };
   customWidth?: number;
   customHeight?: number;
-  activeGrain?: 'year' | 'quarter' | 'month' | 'day';
-  activeAgg?: 'SUM' | 'AVG' | 'MIN' | 'MAX' | 'COUNT' | 'VAR_SAMP' | 'PERCENT_CHANGE';
+  activeGrain?: TimeGrain;
+  activeAgg?: AggregationType;
   targetMetricName?: string;
   targetDimName?: string;
   filterOmitted?: boolean;
@@ -213,9 +215,20 @@ export default function CanvasPage() {
     return INITIAL_WIDGETS;
   });
   
-  // Auto-persist widgets state to local cache whenever modified
+  // Auto-persist widgets state to local cache (debounced to avoid thrashing during drag/resize)
+  const widgetsPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    localStorage.setItem('vizzy_canvas_widgets', JSON.stringify(widgets));
+    if (widgetsPersistTimerRef.current) {
+      clearTimeout(widgetsPersistTimerRef.current);
+    }
+    widgetsPersistTimerRef.current = setTimeout(() => {
+      localStorage.setItem('vizzy_canvas_widgets', JSON.stringify(widgets));
+    }, 1500);
+    return () => {
+      if (widgetsPersistTimerRef.current) {
+        clearTimeout(widgetsPersistTimerRef.current);
+      }
+    };
   }, [widgets]);
 
   const [selectedWidgetId, setSelectedWidgetId] = useState<string | null>(null);
@@ -568,16 +581,24 @@ export default function CanvasPage() {
   const [viewportSize, setViewportSize] = useState({ width: 1200, height: 800 });
   const [editingWidgetId, setEditingWidgetId] = useState<string | null>(null);
 
-  // Resize listener for viewportSize
+  // Resize listener for viewportSize (debounced to avoid re-renders per frame)
   useEffect(() => {
     if (typeof window === 'undefined') return;
     setViewportSize({ width: window.innerWidth, height: window.innerHeight });
-    
+
+    let resizeTimer: ReturnType<typeof setTimeout>;
     const handleResize = () => {
-      setViewportSize({ width: window.innerWidth, height: window.innerHeight });
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        setViewportSize({ width: window.innerWidth, height: window.innerHeight });
+      }, 200);
     };
+
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    return () => {
+      clearTimeout(resizeTimer);
+      window.removeEventListener('resize', handleResize);
+    };
   }, []);
 
   // AI SQL Engine active compilation parameters
@@ -1036,8 +1057,11 @@ export default function CanvasPage() {
   };
 
   // ============================================================================
-  // AST Cross-Filtering Re-query Engine
+  // AST Cross-Filtering Re-query Engine (debounced + abortable)
   // ============================================================================
+  const crossFilterAbortRef = useRef<AbortController | null>(null);
+  const crossFilterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     if (!selectedDatasetId) return;
 
@@ -1045,78 +1069,101 @@ export default function CanvasPage() {
     if (updatableWidgets.length === 0) return;
 
     const activeFilters = customFilters.filter(f => f.selectedValue !== null);
-    
-    const executeAll = async () => {
-      try {
-        const promises = updatableWidgets.map(async (w) => {
-          try {
-            const res = await canvasService.executeSql(
-              selectedDatasetId, 
-              selectedVersionId || '', 
-              w.sql || '', 
-              activeFilters
-            );
-            return {
-              id: w.id,
-              data: res.results,
-              error: res.error,
-              filterOmitted: res.filter_omitted,
-              isKpi: w.type === 'kpi'
-            };
-          } catch (e) {
-            console.error(`Failed to requery widget ${w.id}`, e);
-            return { id: w.id, data: w.data, error: 'Failed', filterOmitted: true, isKpi: w.type === 'kpi' };
-          }
-        });
 
-        const updates = await Promise.all(promises);
-        
-        setWidgets(currentWidgets => currentWidgets.map(w => {
-          const update = updates.find(u => u.id === w.id);
-          if (update && !update.error) {
-            let updatedData = update.data || [];
+    // Cancel any in-flight request batch
+    if (crossFilterAbortRef.current) {
+      crossFilterAbortRef.current.abort();
+    }
+    // Debounce rapid filter toggles by 300ms
+    if (crossFilterTimerRef.current) {
+      clearTimeout(crossFilterTimerRef.current);
+    }
 
-            // Map SQL label/value results back to Pie/Donut's expected { name, val } structure
-            if (w.type === 'pie' || w.type === 'donut') {
-              updatedData = updatedData.map((r: any) => ({ name: r.label || r.name, val: r.value || r.val }));
+    crossFilterTimerRef.current = setTimeout(() => {
+      const controller = new AbortController();
+      crossFilterAbortRef.current = controller;
+
+      const executeAll = async () => {
+        try {
+          const promises = updatableWidgets.map(async (w) => {
+            if (controller.signal.aborted) return { id: w.id, data: w.data, error: 'Aborted', filterOmitted: true, isKpi: w.type === 'kpi' };
+            try {
+              const res = await canvasService.executeSql(
+                selectedDatasetId, 
+                selectedVersionId || '', 
+                w.sql || '', 
+                activeFilters
+              );
+              return {
+                id: w.id,
+                data: res.results,
+                error: res.error,
+                filterOmitted: res.filter_omitted,
+                isKpi: w.type === 'kpi'
+              };
+            } catch (e) {
+              if (controller.signal.aborted) return { id: w.id, data: w.data, error: 'Aborted', filterOmitted: true, isKpi: w.type === 'kpi' };
+              console.error(`Failed to requery widget ${w.id}`, e);
+              return { id: w.id, data: w.data, error: 'Failed', filterOmitted: true, isKpi: w.type === 'kpi' };
             }
+          });
 
-            // Apply dynamic Top-N slicing
-            const titleText = String(w.title || '').toLowerCase();
-            const topMatch = titleText.match(/\btop\s*(\d+)\b/);
-            const titleLimit = topMatch ? parseInt(topMatch[1]) : null;
-            const limit = titleLimit ?? w.limit;
+          const updates = await Promise.all(promises);
+          if (controller.signal.aborted) return;
 
-            if (limit && updatedData.length > limit) {
-              updatedData = updatedData.slice(0, limit);
-            }
+          setWidgets(currentWidgets => currentWidgets.map(w => {
+            const update = updates.find(u => u.id === w.id);
+            if (update && !update.error) {
+              let updatedData = update.data || [];
 
-            const newWidget = {
-              ...w,
-              data: updatedData,
-              filterOmitted: update.filterOmitted
-            };
-            // If it's a KPI and it re-queried successfully without fallback, update its value dynamically
-            if (update.isKpi && update.data && update.data.length > 0) {
-              const firstRow = update.data[0];
-              const numericKey = Object.keys(firstRow).find(k => typeof firstRow[k] === 'number');
-              if (numericKey) {
-                 const rawValue = firstRow[numericKey];
-                 const metricLabel = w.targetMetricName || w.yAxisKey || numericKey;
-                 newWidget.value = formatKpiValue(rawValue, metricLabel, w.activeAgg || 'SUM', w.numberFormat);
+              // Map SQL label/value results back to Pie/Donut's expected { name, val } structure
+              if (w.type === 'pie' || w.type === 'donut') {
+                updatedData = updatedData.map((r: any) => ({ name: r.label || r.name, val: r.value || r.val }));
               }
-            }
-            return newWidget;
-          }
-          return w;
-        }));
-      } catch (err) {
-        console.error('Cross-filter re-query failed', err);
-      }
-    };
 
-    // Fire async execution directly from effect body
-    executeAll();
+              // Apply dynamic Top-N slicing
+              const titleText = String(w.title || '').toLowerCase();
+              const topMatch = titleText.match(/\btop\s*(\d+)\b/);
+              const titleLimit = topMatch ? parseInt(topMatch[1]) : null;
+              const limit = titleLimit ?? w.limit;
+
+              if (limit && updatedData.length > limit) {
+                updatedData = updatedData.slice(0, limit);
+              }
+
+              const newWidget = {
+                ...w,
+                data: updatedData,
+                filterOmitted: update.filterOmitted
+              };
+              // If it's a KPI and it re-queried successfully without fallback, update its value dynamically
+              if (update.isKpi && update.data && update.data.length > 0) {
+                const firstRow = update.data[0];
+                const numericKey = Object.keys(firstRow).find(k => typeof firstRow[k] === 'number');
+                if (numericKey) {
+                   const rawValue = firstRow[numericKey];
+                   const metricLabel = w.targetMetricName || w.yAxisKey || numericKey;
+                   newWidget.value = formatKpiValue(rawValue, metricLabel, w.activeAgg || 'SUM', w.numberFormat);
+                }
+              }
+              return newWidget;
+            }
+            return w;
+          }));
+        } catch (err) {
+          if (!controller.signal.aborted) {
+            console.error('Cross-filter re-query failed', err);
+          }
+        }
+      };
+
+      executeAll();
+    }, 300);
+
+    return () => {
+      if (crossFilterTimerRef.current) clearTimeout(crossFilterTimerRef.current);
+      if (crossFilterAbortRef.current) crossFilterAbortRef.current.abort();
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customFilters, selectedDatasetId, selectedVersionId]);
 
@@ -1352,6 +1399,9 @@ export default function CanvasPage() {
     const startY = e.clientY;
     const dragStartWidgets = [...widgetsRef.current];
 
+    // Find the DOM element for direct manipulation (avoids React re-renders during resize)
+    const widgetEl = document.querySelector(`[data-widget-id="${widgetId}"]`) as HTMLElement | null;
+
     const handlePointerMove = (moveEvent: PointerEvent) => {
       const deltaX = moveEvent.clientX - startX;
       const deltaY = moveEvent.clientY - startY;
@@ -1364,30 +1414,35 @@ export default function CanvasPage() {
         nextHeight = Math.round(nextHeight / 16) * 16;
       }
       
-      setWidgets(prev => prev.map(w => {
-        if (w.id === widgetId) {
-          return {
-            ...w,
-            customWidth: nextWidth,
-            customHeight: nextHeight
-          };
-        }
-        return w;
-      }));
+      // Direct DOM manipulation — no React re-render per pixel
+      if (widgetEl) {
+        widgetEl.style.width = `${nextWidth}px`;
+        widgetEl.style.height = `${nextHeight}px`;
+      }
     };
 
-    const handlePointerUp = () => {
+    const handlePointerUp = (upEvent: PointerEvent) => {
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', handlePointerUp);
       
-      const currentWidgets = widgetsRef.current;
-      const widgetBefore = dragStartWidgets.find(w => w.id === widgetId);
-      const widgetAfter = currentWidgets.find(w => w.id === widgetId);
+      // Compute final size and commit to React state once
+      const deltaX = upEvent.clientX - startX;
+      const deltaY = upEvent.clientY - startY;
+      let finalWidth = Math.max(150, startWidth + deltaX);
+      let finalHeight = Math.max(80, startHeight + deltaY);
+      if (gridSnap) {
+        finalWidth = Math.round(finalWidth / 16) * 16;
+        finalHeight = Math.round(finalHeight / 16) * 16;
+      }
 
-      if (widgetBefore && widgetAfter && (
-        (widgetBefore.customWidth !== widgetAfter.customWidth) ||
-        (widgetBefore.customHeight !== widgetAfter.customHeight)
-      )) {
+      setWidgets(prev => prev.map(w => {
+        if (w.id === widgetId) {
+          return { ...w, customWidth: finalWidth, customHeight: finalHeight };
+        }
+        return w;
+      }));
+
+      if (startWidth !== finalWidth || startHeight !== finalHeight) {
         setPast(prev => [
           ...prev,
           {
@@ -1396,8 +1451,8 @@ export default function CanvasPage() {
             checkedFields: checkedFieldsRef.current
           }
         ]);
-        setFuture([]); // Clear future stack
-        addLog(`Resized component "${widgetAfter.title}" to ${widgetAfter.customWidth}x${widgetAfter.customHeight}px.`);
+        setFuture([]);
+        addLog(`Resized component "${widget.title}" to ${finalWidth}x${finalHeight}px.`);
       }
     };
 
@@ -2111,12 +2166,12 @@ export default function CanvasPage() {
     addLog('Canvas cleared.');
   };
 
-  const handleExportVisuals = (format: 'png' | 'svg' | 'json' = 'png') => {
+  const handleExportVisuals = async (format: 'png' | 'svg' | 'json' = 'png') => {
     if (!canvasContainerRef.current) return;
     toast.loading(`Exporting canvas as ${format.toUpperCase()}...`, { id: 'export-toast' });
     
     // We add a short timeout to ensure the UI is fully stable before capturing
-    setTimeout(() => {
+    setTimeout(async () => {
       if (format === 'json') {
         const config = { widgets, past, future };
         const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
@@ -2125,6 +2180,9 @@ export default function CanvasPage() {
         addLog("Export success! Canvas saved as JSON config.");
         return;
       }
+
+      // Lazy-load html-to-image only when user actually exports
+      const htmlToImage = await import('html-to-image');
 
       setIsExporting(true);
       // Give React time to apply responsive grid layout for export
@@ -3762,6 +3820,7 @@ export default function CanvasPage() {
                         transition={{ type: "spring", stiffness: 220, damping: 22 }}
                         key={widget.id}
                         id={`widget-card-${widget.id}`}
+                        data-widget-id={widget.id}
                         className={`canvas-widget group bg-surface border rounded-2xl ${widget.type === 'kpi' ? 'p-3' : 'p-4'} shadow-sm flex flex-col justify-between overflow-hidden transition-colors transition-shadow duration-150 select-none touch-none ${
                           isResponsive ? 'relative w-full' : 'absolute'
                         } ${
@@ -4604,7 +4663,7 @@ export default function CanvasPage() {
                           {widget.type === 'map' && (
                             <div className="w-full h-full relative" style={{ height: `${height - 90}px` }}>
                               <CustomGeoMap 
-                                data={widget.data} 
+                                data={widget.data as any} 
                                 isDark={isDark} 
                                 color={widget.color}
                                 formatConfig={widget.numberFormat}

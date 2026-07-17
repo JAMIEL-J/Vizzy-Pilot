@@ -1,10 +1,11 @@
 import { apiClient } from './client';
+import type { DashboardConfig } from '../../types/canvas';
 
 export interface SavedDashboard {
     id: string;
     name: string;
     description?: string;
-    config: any;
+    config: DashboardConfig;
     dataset_id?: string;
     dataset_version_id?: string;
     is_public: boolean;

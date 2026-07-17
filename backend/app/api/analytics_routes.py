@@ -402,7 +402,7 @@ def _build_duckdb_chart_configs(
     return chart_configs, unsupported_slots
 
 
-def _try_duckdb_analytics(
+async def _try_duckdb_analytics(
     *,
     state: "DashboardStateRequest",
     dataset_id: UUID,
@@ -436,7 +436,7 @@ def _try_duckdb_analytics(
     conn = None
     try:
         bootstrap_started = datetime.now(timezone.utc)
-        duckdb_path = get_or_build_duckdb(dataset_id, version_id, csv_path)
+        duckdb_path = await get_or_build_duckdb(dataset_id, version_id, csv_path)
         bootstrap_ms = (datetime.now(timezone.utc) - bootstrap_started).total_seconds() * 1000
 
         logger.info(
@@ -495,7 +495,7 @@ def _try_duckdb_analytics(
                 pass
 
 
-def _backfill_date_trends_with_duckdb(
+async def _backfill_date_trends_with_duckdb(
     *,
     dataset_id: UUID,
     version_id: UUID,
@@ -532,7 +532,7 @@ def _backfill_date_trends_with_duckdb(
 
     conn = None
     try:
-        duckdb_path = get_or_build_duckdb(dataset_id, version_id, csv_path)
+        duckdb_path = await get_or_build_duckdb(dataset_id, version_id, csv_path)
         conn = duckdb.connect(str(duckdb_path), read_only=True)
 
         from app.models.database import get_session
@@ -1155,7 +1155,7 @@ async def get_dashboard_analytics(  # pyright: ignore
 
         # Try DuckDB first for filtered chart values. If not available/ready,
         # fall back to existing pandas recomputation logic.
-        duckdb_result = _try_duckdb_analytics(
+        duckdb_result = await _try_duckdb_analytics(
             state=state,
             dataset_id=state.dataset_id,
             version_id=latest_version.id,
@@ -1443,7 +1443,7 @@ async def get_dashboard_analytics(  # pyright: ignore
             charts = charts_full
 
         # Enforce chat-consistent month trend semantics for both initial and filtered dashboard loads.
-        charts = _backfill_date_trends_with_duckdb(
+        charts = await _backfill_date_trends_with_duckdb(
             dataset_id=state.dataset_id,
             version_id=latest_version.id,
             csv_path=file_path,
@@ -1454,7 +1454,7 @@ async def get_dashboard_analytics(  # pyright: ignore
             target_value=state.target_value or "all",
         )
 
-        all_columns_charts_data = _backfill_date_trends_with_duckdb(
+        all_columns_charts_data = await _backfill_date_trends_with_duckdb(
             dataset_id=state.dataset_id,
             version_id=latest_version.id,
             csv_path=file_path,

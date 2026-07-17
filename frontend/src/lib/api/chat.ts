@@ -1,4 +1,5 @@
 import { apiClient } from './client';
+import type { ChatOutputData } from '../../types/canvas';
 
 export interface ChatSession {
     id: string;
@@ -15,7 +16,7 @@ export interface ChatMessage {
     id: string;
     role: 'user' | 'assistant';
     content: string;
-    output_data?: any;
+    output_data?: ChatOutputData;
     intent_type?: string;
     sequence: number;
     timestamp?: string; // Often added by frontend if not in API, but good to have

@@ -162,7 +162,6 @@ async def get_canvas_schema(
         columns=columns,
         row_count=latest_version.row_count,
     )
-import sqlglot
 
 def _inject_filters_into_sql(sql: str, filters: list, schema_columns: list = None) -> str:
     if not filters:
@@ -265,7 +264,7 @@ async def execute_canvas_sql(
 
     conn = None
     try:
-        conn = _get_duckdb_connection(dataset_id, latest_version.id, file_path)
+        conn = await _get_duckdb_connection(dataset_id, latest_version.id, file_path)
 
         sql_to_run = request.sql
         filter_omitted = False
@@ -342,14 +341,14 @@ async def execute_canvas_sql(
         logger.exception("[CANVAS SQL EXECUTE] Unexpected error: %s", e)
         raise HTTPException(
             status_code=500,
-            detail=f"Error executing SQL: {str(e)}",
+            detail="An error occurred while executing the query. Please check your SQL syntax.",
         )
     finally:
         if conn is not None:
             try:
                 conn.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to close DuckDB connection: %s", e)
 
 
 # =============================================================================
@@ -414,8 +413,8 @@ async def create_canvas_calculated_field(
     if latest_version.schema_metadata:
         try:
             raw_schema = json.loads(latest_version.schema_metadata)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("[CANVAS] Failed to parse schema_metadata JSON: %s", e)
 
     columns_str = ", ".join([
         f'"{col["name"]}" ({col["dtype"]})'
@@ -457,7 +456,7 @@ async def create_canvas_calculated_field(
         ai_data = parse_json_response(response.content)
     except Exception as e:
         logger.exception("[AI CALCULATE FIELD] Inference failed: %s", e)
-        raise HTTPException(status_code=500, detail=f"AI model inference failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="The AI model failed to generate a response. Please try rephrasing your prompt.")
 
     field_name = ai_data.get("field_name", "Calculated Field").strip()
     formula_sql = ai_data.get("formula_sql", "").strip()
@@ -470,7 +469,7 @@ async def create_canvas_calculated_field(
     # 4. Dry-run validate the formula in the DuckDB sandbox
     conn = None
     try:
-        conn = _get_duckdb_connection(dataset_id, latest_version.id, file_path)
+        conn = await _get_duckdb_connection(dataset_id, latest_version.id, file_path)
         test_query = f'SELECT ({formula_sql}) AS "val" FROM data LIMIT 1'
         await execute_sandboxed(
             conn=conn,
@@ -483,14 +482,14 @@ async def create_canvas_calculated_field(
         logger.warning("[AI CALCULATE FIELD] SQL validation failed for formula '%s': %s", formula_sql, e)
         raise HTTPException(
             status_code=422,
-            detail=f"Formula SQL validation failed: {str(e)}. (Attempted expression: {formula_sql})"
+            detail="The generated formula could not be validated against the dataset. Please refine your prompt."
         )
     finally:
         if conn is not None:
             try:
                 conn.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to close DuckDB connection: %s", e)
 
     # 5. Check if field name already exists to prevent duplicate collisions
     if any(c.get("name", "").lower() == field_name.lower() for c in raw_schema):
@@ -548,10 +547,19 @@ async def delete_canvas_field(
     dataset_id: UUID,
     field_name: str,
     session: DBSession,
+    current_user: AuthenticatedUser,
 ):
     """
     Deletes a specific field (e.g. calculated field) from the dataset schema metadata.
     """
+    from app.api.deps import verify_dataset_owner
+
+    await verify_dataset_owner(
+        dataset_id=dataset_id,
+        session=session,
+        current_user=current_user,
+    )
+
     latest_version = get_latest_version(session=session, dataset_id=dataset_id)
 
     if not latest_version:
@@ -561,8 +569,8 @@ async def delete_canvas_field(
     if latest_version.schema_metadata:
         try:
             raw_schema = json.loads(latest_version.schema_metadata)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("[CANVAS] Failed to parse schema_metadata for field deletion: %s", e)
 
     # Filter out the field to delete
     new_schema = [col for col in raw_schema if col.get("name") != field_name]

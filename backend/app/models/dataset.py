@@ -21,5 +21,5 @@ class Dataset(BaseModel, table=True):
 
     name: str = Field(nullable=False, max_length=255)
     description: Optional[str] = Field(default=None, nullable=True)
-    owner_id: UUID = Field(nullable=False, index=True)
+    owner_id: UUID = Field(nullable=False, index=True, foreign_key="users.id")
     is_active: bool = Field(default=True, nullable=False)

@@ -430,7 +430,7 @@ async def export_query_results(
     # Enforce limit in SQL
     limited_sql = enforce_export_limit(request.sql, MAX_EXPORT_ROWS)
 
-    duckdb_path = get_or_build_duckdb(dataset_id, latest_version.id, file_path)
+    duckdb_path = await get_or_build_duckdb(dataset_id, latest_version.id, file_path)
     conn = duckdb.connect(str(duckdb_path), read_only=True)
     try:
         # Execute query (without sandbox timeout for export — use a generous limit)
@@ -550,7 +550,7 @@ async def export_table(
         else latest_version.source_reference
     )
 
-    duckdb_path = get_or_build_duckdb(dataset_id, latest_version.id, file_path)
+    duckdb_path = await get_or_build_duckdb(dataset_id, latest_version.id, file_path)
     if not duckdb_path.exists():
         raise HTTPException(status_code=404, detail="DuckDB not ready. Please wait for processing.")
 

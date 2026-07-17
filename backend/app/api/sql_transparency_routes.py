@@ -86,9 +86,9 @@ class SQLValidateResponse(BaseModel):
 # =============================================================================
 
 
-def _get_duckdb_connection(dataset_id: UUID, version_id: UUID, csv_path: str) -> duckdb.DuckDBPyConnection:
+async def _get_duckdb_connection(dataset_id: UUID, version_id: UUID, csv_path: str) -> duckdb.DuckDBPyConnection:
     """Get a read-only DuckDB connection for the dataset."""
-    duckdb_path = get_or_build_duckdb(dataset_id, version_id, csv_path)
+    duckdb_path = await get_or_build_duckdb(dataset_id, version_id, csv_path)
     return duckdb.connect(str(duckdb_path), read_only=True)
 
 
@@ -168,7 +168,7 @@ async def execute_sql_query(
 
     conn = None
     try:
-        conn = _get_duckdb_connection(dataset_id, latest_version.id, file_path)
+        conn = await _get_duckdb_connection(dataset_id, latest_version.id, file_path)
 
         # Use the sandboxed execution path
         start_time = time.monotonic()
@@ -295,7 +295,7 @@ async def explain_sql_query(
 
     conn = None
     try:
-        conn = _get_duckdb_connection(dataset_id, latest_version.id, file_path)
+        conn = await _get_duckdb_connection(dataset_id, latest_version.id, file_path)
 
         # Run EXPLAIN
         explain_sql = f"EXPLAIN {request.sql}"

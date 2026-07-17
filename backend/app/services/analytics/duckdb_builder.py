@@ -157,7 +157,7 @@ async def build_duckdb_from_csv(
         raise RuntimeError(f"DuckDB build failed: {e}")
 
 
-def get_or_build_duckdb(dataset_id: UUID, version_id: UUID, csv_path: str) -> Path:
+async def get_or_build_duckdb(dataset_id: UUID, version_id: UUID, csv_path: str) -> Path:
     """
     Get existing DuckDB file, or build if missing.
 
@@ -168,7 +168,7 @@ def get_or_build_duckdb(dataset_id: UUID, version_id: UUID, csv_path: str) -> Pa
     if duckdb_path.exists():
         return duckdb_path
 
-    return build_duckdb_from_csv(dataset_id, version_id, csv_path)
+    return await build_duckdb_from_csv(dataset_id, version_id, csv_path)
 
 
 def duckdb_exists(dataset_id: UUID, version_id: UUID) -> bool:
