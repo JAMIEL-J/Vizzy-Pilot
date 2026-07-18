@@ -115,8 +115,7 @@ export default function AuthScreen({ initialMode, isDark, onToggleTheme, onClose
           email: email.trim(),
           password: password,
         });
-        localStorage.setItem("access_token", response.access_token);
-        localStorage.setItem("refresh_token", response.refresh_token);
+        // Tokens are set as HttpOnly cookies by the backend
 
         setIsLoginSuccess(true);
         setTimeout(() => {
@@ -132,8 +131,7 @@ export default function AuthScreen({ initialMode, isDark, onToggleTheme, onClose
           password: password,
         });
 
-        localStorage.setItem("access_token", response.access_token);
-        localStorage.setItem("refresh_token", response.refresh_token);
+        // Tokens are set as HttpOnly cookies by the backend
 
         setSuccessMsg('Signed in successfully! Loading console telemetry...');
         setIsLoginSuccess(true);

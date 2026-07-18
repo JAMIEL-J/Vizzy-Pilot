@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useLocation, Outlet, useNavigate } from 'react-router-dom';
 import ThemeToggle from '../ui/ThemeToggle';
 import { Button } from '@/components/ui/button';
+import { apiClient } from '../../lib/api/client';
 
 const navItems = [
     { path: '/admin', label: 'Dashboard', icon: 'dashboard' },
@@ -58,8 +59,8 @@ export default function AdminLayout() {
 
     const confirmLogout = () => {
         setShowLogoutConfirm(false);
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('refresh_token');
+        // Clear HttpOnly cookies via backend
+        apiClient.post('/auth/logout').catch(() => {});
         navigate('/admin/login');
     };
 

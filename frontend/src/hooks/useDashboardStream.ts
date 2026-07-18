@@ -4,13 +4,7 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
 
 const buildSseUrl = (versionId: string): string => {
   const base = API_URL.replace(/\/$/, '');
-  const url = new URL(`${base}/dashboard/load/${versionId}`);
-  const token = localStorage.getItem('access_token');
-
-  // EventSource cannot set custom headers, so pass token via query param.
-  if (token) url.searchParams.set('access_token', token);
-
-  return url.toString();
+  return `${base}/dashboard/load/${versionId}`;
 };
 
 export interface ChartResult {
@@ -47,7 +41,7 @@ export function useDashboardStream(versionId: string) {
     const tempKpis: Record<string, ChartResult> = {};
 
     const connect = () => {
-      es = new EventSource(buildSseUrl(versionId));
+      es = new EventSource(buildSseUrl(versionId), { withCredentials: true });
 
       es.onmessage = (event) => {
         try {

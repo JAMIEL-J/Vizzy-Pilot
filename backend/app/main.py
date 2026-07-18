@@ -117,6 +117,10 @@ app.add_middleware(
     allow_headers=settings.cors_allow_headers,
 )
 
+# CSRF middleware (runs AFTER CORS handles preflight — order is LIFO in Starlette)
+from app.core.csrf import CSRFMiddleware
+app.add_middleware(CSRFMiddleware)
+
 
 # Exception handlers
 @app.exception_handler(AuthenticationError)

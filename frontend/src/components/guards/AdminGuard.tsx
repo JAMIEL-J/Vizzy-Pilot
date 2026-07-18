@@ -1,5 +1,6 @@
 import { Navigate, useLocation } from 'react-router-dom';
 import { useEffect, useState, type ReactNode } from 'react';
+import { apiClient } from '../../lib/api/client';
 
 interface AdminGuardProps {
     children: ReactNode;
@@ -15,25 +16,26 @@ export default function AdminGuard({ children }: AdminGuardProps) {
     const [isAuthorized, setIsAuthorized] = useState(false);
 
     useEffect(() => {
-        // Check for access token and admin role
-        const token = localStorage.getItem('access_token');
-
-        if (!token) {
+        // Check if csrf_token cookie exists (proxy for being logged in)
+        const hasCsrf = document.cookie.split('; ').some(row => row.startsWith('csrf_token='));
+        
+        if (!hasCsrf) {
             setIsAuthorized(false);
             setIsChecking(false);
             return;
         }
 
-        // Decode JWT to check role (simple client-side check)
-        try {
-            const payload = JSON.parse(atob(token.split('.')[1]));
-            const isAdmin = payload.role === 'admin';
-            setIsAuthorized(isAdmin);
-        } catch {
-            setIsAuthorized(false);
-        }
-
-        setIsChecking(false);
+        // Verify admin role by making an authenticated API call
+        apiClient.get('/admin/stats')
+            .then(() => {
+                setIsAuthorized(true);
+            })
+            .catch(() => {
+                setIsAuthorized(false);
+            })
+            .finally(() => {
+                setIsChecking(false);
+            });
     }, []);
 
     if (isChecking) {
@@ -45,7 +47,6 @@ export default function AdminGuard({ children }: AdminGuardProps) {
     }
 
     if (!isAuthorized) {
-        // Redirect to admin login with return URL
         return <Navigate to="/admin/login" state={{ from: location }} replace />;
     }
 

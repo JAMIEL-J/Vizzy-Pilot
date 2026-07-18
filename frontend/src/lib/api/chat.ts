@@ -95,18 +95,22 @@ export const chatService = {
         signal?: AbortSignal,
         options?: { forceDeepAnalysis?: boolean; enableSuggestions?: boolean; compileVisualOnly?: boolean }
     ): Promise<{ user_message: ChatMessage; assistant_message: ChatMessage }> => {
-        const token = localStorage.getItem('access_token');
+        const csrfToken = document.cookie
+            .split('; ')
+            .find(row => row.startsWith('csrf_token='))
+            ?.split('=')[1];
         const headers: Record<string, string> = {
             'Content-Type': 'application/json',
         };
-        if (token) {
-            headers['Authorization'] = `Bearer ${token}`;
+        if (csrfToken) {
+            headers['X-CSRF-Token'] = csrfToken;
         }
 
         const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
         const response = await fetch(`${API_URL}/chat/sessions/${sessionId}/messages/stream`, {
             method: 'POST',
             headers,
+            credentials: 'include',
             body: JSON.stringify({
                 content,
                 force_deep_analysis: options?.forceDeepAnalysis ?? false,

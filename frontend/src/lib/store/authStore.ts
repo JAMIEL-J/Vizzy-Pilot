@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { User } from '../../types';
+import { apiClient } from '../api/client';
 
 interface AuthState {
     user: User | null;
@@ -15,8 +16,8 @@ export const useAuthStore = create<AuthState>((set) => ({
     setUser: (user) => set({ user, isAuthenticated: !!user }),
 
     logout: () => {
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('refresh_token');
+        // Clear HttpOnly cookies via backend
+        apiClient.post('/auth/logout').catch(() => {});
         
         // Clear all canvas / user-session layout cache keys
         localStorage.removeItem('vizzy_canvas_widgets');

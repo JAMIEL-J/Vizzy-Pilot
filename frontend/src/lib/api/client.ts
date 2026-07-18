@@ -2,20 +2,27 @@ import axios from 'axios';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
 
-// Create axios instance
+function getCsrfToken(): string | undefined {
+    return document.cookie
+        .split('; ')
+        .find(row => row.startsWith('csrf_token='))
+        ?.split('=')[1];
+}
+
 export const apiClient = axios.create({
     baseURL: API_URL,
     headers: {
         'Content-Type': 'application/json',
     },
+    withCredentials: true,
 });
 
-// Request interceptor to add auth token
+// Request interceptor to add CSRF token
 apiClient.interceptors.request.use(
     (config) => {
-        const token = localStorage.getItem('access_token');
-        if (token) {
-            config.headers.Authorization = `Bearer ${token}`;
+        const csrfToken = getCsrfToken();
+        if (csrfToken) {
+            config.headers['X-CSRF-Token'] = csrfToken;
         }
         return config;
     },
@@ -42,22 +49,16 @@ apiClient.interceptors.response.use(
             originalRequest._retry = true;
 
             try {
-                const refreshToken = localStorage.getItem('refresh_token');
-                if (refreshToken) {
-                    const { data } = await axios.post(`${API_URL}/auth/refresh`, {
-                        refresh_token: refreshToken,
-                    });
+                // refresh_token cookie is sent automatically via withCredentials
+                await axios.post(`${API_URL}/auth/refresh`, {}, { withCredentials: true });
 
-                    localStorage.setItem('access_token', data.access_token);
-
-                    // Retry original request with new token
-                    originalRequest.headers.Authorization = `Bearer ${data.access_token}`;
-                    return apiClient(originalRequest);
-                }
+                // Retry original request — new access_token cookie is set by backend
+                return apiClient(originalRequest);
             } catch (refreshError) {
-                // Refresh failed, logout user
-                localStorage.removeItem('access_token');
-                localStorage.removeItem('refresh_token');
+                // Refresh failed, logout — clear cookies via backend
+                try {
+                    await axios.post(`${API_URL}/auth/logout`, {}, { withCredentials: true });
+                } catch { /* ignore */ }
                 window.location.href = '/login';
                 return Promise.reject(refreshError);
             }
@@ -66,4 +67,3 @@ apiClient.interceptors.response.use(
         return Promise.reject(error);
     }
 );
-

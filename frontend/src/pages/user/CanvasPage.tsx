@@ -636,15 +636,8 @@ export default function CanvasPage() {
 
       if (rows.length > 0) {
         data = rows;
-        const firstRow = rows[0];
-        const hasLabel = firstRow.label !== undefined && firstRow.label !== null;
-        if (hasLabel) {
-          value = String(firstRow.label);
-          subtext = `${prettifyLabel(kpiLabel)}: ${formattedMetricVal}`;
-        } else {
-          value = formattedMetricVal;
-          subtext = kpiLabel || 'Total';
-        }
+        value = formattedMetricVal;
+        subtext = kpiLabel || 'Total';
       } else {
         value = formattedMetricVal;
         subtext = kpiLabel || 'Total';
@@ -1904,17 +1897,10 @@ export default function CanvasPage() {
 
         if (type === 'kpi') {
           const firstRow = queryData[0] || {};
-          const hasLabel = firstRow.label !== undefined && firstRow.label !== null;
           const kpiVal = firstRow.value ?? firstRow.VALUE ?? 0;
-          
-          if (hasLabel) {
-            value = String(firstRow.label);
-            subtext = `${prettifyLabel(primaryMetric)}: ${formatKpiValue(kpiVal, primaryMetric, 'SUM')}`;
-          } else {
-            value = formatKpiValue(kpiVal, primaryMetric, 'SUM');
-            subtext = formatKpiSubtext(primaryMetric, 'SUM');
-          }
-          chartData = [];
+          value = formatKpiValue(kpiVal, primaryMetric, 'SUM');
+          subtext = formatKpiSubtext(primaryMetric, 'SUM');
+          chartData = queryData;
         } else if (type === 'pie') {
           const rowKeys = Object.keys(queryData[0] || {});
           xAxisKey = rowKeys.find(k => k.toLowerCase() === 'label') || rowKeys[0] || 'name';
@@ -2444,17 +2430,10 @@ export default function CanvasPage() {
 
         if (type === 'kpi') {
           const firstRow = queryData[0] || {};
-          const hasLabel = firstRow.label !== undefined && firstRow.label !== null;
           const kpiVal = firstRow.value ?? firstRow.VALUE ?? 0;
-          
-          if (hasLabel) {
-            value = String(firstRow.label);
-            subtext = `${prettifyLabel(primaryMetric)}: ${formatKpiValue(kpiVal, primaryMetric, 'SUM')}`;
-          } else {
-            value = formatKpiValue(kpiVal, primaryMetric, 'SUM');
-            subtext = formatKpiSubtext(primaryMetric, 'SUM');
-          }
-          chartData = [];
+          value = formatKpiValue(kpiVal, primaryMetric, 'SUM');
+          subtext = formatKpiSubtext(primaryMetric, 'SUM');
+          chartData = queryData;
         } else if (type === 'pie' || type === 'donut') {
           const rowKeys = Object.keys(queryData[0] || {});
           xAxisKey = rowKeys.find(k => k.toLowerCase() === 'label') || rowKeys[0] || 'name';

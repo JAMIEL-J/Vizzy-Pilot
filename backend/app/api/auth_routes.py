@@ -1,4 +1,7 @@
+import secrets
+
 from fastapi import APIRouter, HTTPException, status, Request
+from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr, Field
 
@@ -52,6 +55,56 @@ class MessageResponse(BaseModel):
     message: str
 
 
+# ── Cookie helper ──────────────────────────────────────────────────
+def _build_login_response(access_token: str, refresh_token: str) -> JSONResponse:
+    """
+    Build a JSONResponse that:
+      1. Returns tokens in the JSON body (backward compat with header-auth clients)
+      2. Sets HttpOnly auth cookies (Defense-in-Depth)
+      3. Sets a JS-readable CSRF cookie for double-submit protection
+    """
+    csrf_token = secrets.token_urlsafe(32)
+
+    response = JSONResponse(
+        content={
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
+        }
+    )
+
+    # HttpOnly — invisible to JS, immune to XSS
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=86400,       # 24 h
+        path="/api",
+    )
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=604800,      # 7 d
+        path="/api",
+    )
+    # JS-readable — frontend reads this and sends it as X-CSRF-Token header
+    response.set_cookie(
+        key="csrf_token",
+        value=csrf_token,
+        httponly=False,
+        secure=True,
+        samesite="lax",
+        max_age=86400,
+        path="/",
+    )
+    return response
+
+
 @router.post("/register", response_model=MessageResponse, status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/hour")
 def register(
@@ -97,14 +150,13 @@ def register(
     return MessageResponse(message="Registration successful")
 
 
-
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=None)
 @limiter.limit("10/minute")
 def login(
     request: Request,
     login_request: LoginRequest,
     session: DBSession,
-) -> TokenResponse:
+) -> JSONResponse:
     """
     Authenticate user and issue tokens (PUBLIC - no auth required).
     This is the generic login endpoint. Consider using /login/user or /login/admin.
@@ -168,20 +220,17 @@ def login(
         metadata={"email": user.email},
     )
     
-    return TokenResponse(
-        access_token=access_token,
-        refresh_token=refresh_token,
-    )
+    return _build_login_response(access_token, refresh_token)
 
 
 
-@router.post("/login/user", response_model=TokenResponse)
+@router.post("/login/user", response_model=None)
 @limiter.limit("10/minute")
 def login_user(
     request: Request,
     login_request: LoginRequest,
     session: DBSession,
-) -> TokenResponse:
+) -> JSONResponse:
     """
     Authenticate a standard user and issue tokens (PUBLIC - no auth required).
     Only allows users with role USER.
@@ -256,20 +305,17 @@ def login_user(
         metadata={"email": user.email, "login_type": "user"},
     )
     
-    return TokenResponse(
-        access_token=access_token,
-        refresh_token=refresh_token,
-    )
+    return _build_login_response(access_token, refresh_token)
 
 
 
-@router.post("/login/admin", response_model=TokenResponse)
+@router.post("/login/admin", response_model=None)
 @limiter.limit("10/minute")
 def login_admin(
     request: Request,
     login_request: LoginRequest,
     session: DBSession,
-) -> TokenResponse:
+) -> JSONResponse:
     """
     Authenticate an admin user and issue tokens (PUBLIC - no auth required).
     Only allows users with role ADMIN.
@@ -344,24 +390,24 @@ def login_admin(
         metadata={"email": user.email, "login_type": "admin"},
     )
     
-    return TokenResponse(
-        access_token=access_token,
-        refresh_token=refresh_token,
-    )
+    return _build_login_response(access_token, refresh_token)
 
 
-
-@router.post("/refresh", response_model=AccessTokenResponse)
+@router.post("/refresh", response_model=None)
 @limiter.limit("20/minute")
 def refresh_token_endpoint(
     request: Request,
     refresh_request: RefreshRequest,
-) -> AccessTokenResponse:
+) -> JSONResponse:
     """
     Issue a new access token using a refresh token.
+    Reads refresh_token from cookie first, falls back to body param.
     """
+    # 1. Try cookie, fall back to body
+    raw_refresh = request.cookies.get("refresh_token") or refresh_request.refresh_token
+
     try:
-        token_data = verify_token(refresh_request.refresh_token, token_type="refresh")
+        token_data = verify_token(raw_refresh, token_type="refresh")
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -377,6 +423,54 @@ def refresh_token_endpoint(
         event_type="TOKEN_REFRESHED",
         user_id=token_data.user_id,
     )
-    
-    return AccessTokenResponse(access_token=access_token)
 
+    csrf_token = secrets.token_urlsafe(32)
+
+    response = JSONResponse(
+        content={
+            "access_token": access_token,
+            "token_type": "bearer",
+        }
+    )
+
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=86400,
+        path="/api",
+    )
+    response.set_cookie(
+        key="csrf_token",
+        value=csrf_token,
+        httponly=False,
+        secure=True,
+        samesite="lax",
+        max_age=86400,
+        path="/",
+    )
+
+    return response
+
+
+@router.post("/logout", response_model=MessageResponse)
+def logout(request: Request) -> JSONResponse:
+    """
+    Clear all auth cookies. The client should also discard any locally
+    stored tokens.
+    """
+    response = JSONResponse(content={"message": "Logged out successfully"})
+
+    # Delete auth cookies by setting max_age=0
+    response.delete_cookie(key="access_token", path="/api")
+    response.delete_cookie(key="refresh_token", path="/api")
+    response.delete_cookie(key="csrf_token", path="/")
+
+    record_audit_event(
+        event_type="USER_LOGOUT",
+        user_id="cookie-session",
+    )
+
+    return response

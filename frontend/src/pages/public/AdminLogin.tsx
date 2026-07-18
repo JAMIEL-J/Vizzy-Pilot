@@ -25,8 +25,7 @@ export default function AdminLogin() {
 
     try {
       const response = await authApi.loginAdmin({ email, password });
-      localStorage.setItem("access_token", response.access_token);
-      localStorage.setItem("refresh_token", response.refresh_token);
+      // Tokens are set as HttpOnly cookies by the backend
       setIsLoginSuccess(true);
       setTimeout(() => {
         navigate("/admin");

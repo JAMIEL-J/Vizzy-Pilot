@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Annotated, Callable, Optional
 
-from fastapi import Depends, Header, Query
+from fastapi import Depends, Header, Query, Request
 from jose import JWTError, jwt
 import bcrypt
 from pydantic import BaseModel
@@ -192,19 +192,28 @@ def _populate_user_llm_settings(user_id: str) -> None:
 
 
 async def get_current_user(
+    request: Request,
     authorization: Optional[str] = Header(default=None),
 ) -> CurrentUser:
     """
     FastAPI dependency to get current authenticated user.
+    Priority: cookie > Authorization header.
     """
-    # FIX: explicit missing-header handling
-    if not authorization:
+    token: Optional[str] = None
+
+    # 1. Try cookie first (HttpOnly access_token set on login)
+    cookie_token = request.cookies.get("access_token")
+    if cookie_token:
+        token = cookie_token
+    # 2. Fall back to Authorization header
+    elif authorization:
+        if not authorization.startswith("Bearer "):
+            raise AuthenticationError("Invalid authorization header format")
+        token = authorization[7:]
+
+    if not token:
         raise AuthenticationError("Authorization header missing")
 
-    if not authorization.startswith("Bearer "):
-        raise AuthenticationError("Invalid authorization header format")
-
-    token = authorization[7:]
     token_data = verify_token(token)
 
     _populate_user_llm_settings(token_data.user_id)
@@ -216,22 +225,31 @@ async def get_current_user(
 
 
 async def get_current_user_from_header_or_query(
+    request: Request,
     authorization: Optional[str] = Header(default=None),
     access_token: Optional[str] = Query(default=None, alias="access_token"),
 ) -> CurrentUser:
     """
-    Resolve the current user from Authorization header or access_token query param.
+    Resolve the current user from cookie, Authorization header, or access_token query param.
+    Priority: cookie > header > query.
     Used for EventSource endpoints where custom headers are not allowed.
     """
     token: Optional[str] = None
 
-    if authorization:
+    # 1. Try cookie first
+    cookie_token = request.cookies.get("access_token")
+    if cookie_token:
+        token = cookie_token
+    # 2. Fall back to Authorization header
+    elif authorization:
         if not authorization.startswith("Bearer "):
             raise AuthenticationError("Invalid authorization header format")
         token = authorization[7:]
+    # 3. Fall back to query param (SSE)
     elif access_token:
         token = access_token
-    else:
+
+    if not token:
         raise AuthenticationError("Authorization header missing")
 
     token_data = verify_token(token)
