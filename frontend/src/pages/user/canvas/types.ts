@@ -51,4 +51,5 @@ export interface FieldDef {
   category: string;
   type: string;
   formula?: string;
+  defaultAgg?: 'SUM' | 'AVG' | 'MIN' | 'MAX' | 'COUNT' | 'VAR_SAMP' | 'PERCENT_CHANGE';
 }

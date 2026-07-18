@@ -11,6 +11,9 @@ export const buildAggExpr = (agg: string, colName: string, fieldsList: FieldDef[
   const colObj = fieldsList.find(f => f.name === colName);
   
   let baseAgg = agg === 'PERCENT_CHANGE' ? 'SUM' : agg;
+  if ((agg === 'SUM' || agg === 'PERCENT_CHANGE') && colObj?.defaultAgg) {
+    baseAgg = colObj.defaultAgg;
+  }
   let baseExpr = `${baseAgg}("${colName}")`;
 
   // 1. Handle AI Calculated Fields with formulas
@@ -21,13 +24,16 @@ export const buildAggExpr = (agg: string, colName: string, fieldsList: FieldDef[
       baseExpr = `${baseAgg}(${colObj.formula})`;
     }
   }
-  // 2. Handle dirty numeric string columns
+  // 2. Handle dirty numeric string columns or text-like columns being aggregated numerically
   else if (
-    colObj && 
-    colObj.category === 'Metrics' && 
-    (colObj.type.toLowerCase().includes('varchar') || 
-     colObj.type.toLowerCase().includes('string') || 
-     colObj.type.toLowerCase().includes('char'))
+    baseAgg !== 'COUNT' && (
+      (colObj && (
+        colObj.type.toLowerCase().includes('varchar') || 
+        colObj.type.toLowerCase().includes('string') || 
+        colObj.type.toLowerCase().includes('char')
+      )) ||
+      (!colObj)
+    )
   ) {
     baseExpr = `${baseAgg}(TRY_CAST(NULLIF(REGEXP_REPLACE("${colName}", '^\\\\s*$', ''), '') AS DOUBLE))`;
   }

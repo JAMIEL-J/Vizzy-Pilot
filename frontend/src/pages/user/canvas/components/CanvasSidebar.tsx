@@ -21,6 +21,7 @@ interface CanvasSidebarProps {
   fieldsList: FieldDef[];
   handleFieldToggle: (fieldName: string) => void;
   handleDeleteField: (fieldName: string, e: React.MouseEvent) => void;
+  onFieldRightClick?: (field: FieldDef, e: React.MouseEvent) => void;
   logs: string[];
 }
 
@@ -31,6 +32,7 @@ export const CanvasSidebar: React.FC<CanvasSidebarProps> = ({
   checkedFields, setCheckedFields,
   calcPrompt, setCalcPrompt, handleCreateCalculatedField, isCreatingCalcField,
   isLoadingColumns, fieldsList, handleFieldToggle, handleDeleteField,
+  onFieldRightClick,
   logs
 }) => {
   if (isSidebarCollapsed) return null;
@@ -244,9 +246,13 @@ export const CanvasSidebar: React.FC<CanvasSidebarProps> = ({
                       e.dataTransfer.effectAllowed = "copyMove"; 
                       addLog(`Dragging column: "${field.name}". Drop it in the Interactive Canvas Slicers zone to filter!`); 
                     }}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      if (onFieldRightClick) onFieldRightClick(field, e);
+                    }}
                     role="option"
                     aria-selected={isChecked}
-                    className="w-full flex items-center justify-between p-2 rounded-xl text-xs font-mono transition-all hover:bg-surface-2 border border-transparent group"
+                    className="w-full flex items-center justify-between p-2 rounded-xl text-xs font-mono transition-all hover:bg-surface-2 border border-transparent group select-none cursor-pointer"
                   >
                     <div onClick={() => handleFieldToggle(field.name)} className="flex items-center space-x-2.5 min-w-0 cursor-pointer flex-1">
                       <GripVertical className="w-3 h-3 text-muted-custom/30 group-hover:text-accent-custom shrink-0 cursor-grab active:cursor-grabbing mr-1 transition-all" />

@@ -3,7 +3,7 @@ import React from 'react';
 import { 
   Trash2, Download, Maximize2, Minimize2, GripVertical, Settings2, Loader2, RefreshCw 
 } from 'lucide-react';
-import type { CanvasWidget } from '../types';
+import type { CanvasWidget, CustomFilter } from '../types';
 import { ChartRenderer } from './ChartRenderer';
 
 interface WidgetCardProps {
@@ -25,6 +25,7 @@ interface WidgetCardProps {
   onWidgetRightClick: (e: React.MouseEvent, widgetId: string) => void;
   // Trigger single widget compilation refresh
   onRecompile?: (widgetId: string, fields: string[]) => void;
+  customFilters?: CustomFilter[];
 }
 
 export const WidgetCard: React.FC<WidgetCardProps> = ({
@@ -44,7 +45,8 @@ export const WidgetCard: React.FC<WidgetCardProps> = ({
   handleDeleteWidget,
   onFilterClick,
   onWidgetRightClick,
-  onRecompile
+  onRecompile,
+  customFilters = []
 }) => {
   const isSelected = selectedWidgetIds.includes(widget.id);
   const isPrimarySelected = selectedWidgetId === widget.id;
@@ -81,7 +83,7 @@ export const WidgetCard: React.FC<WidgetCardProps> = ({
       tabIndex={0}
       aria-selected={isSelected}
       onContextMenu={(e) => onWidgetRightClick(e, widget.id)}
-      className={`canvas-widget bg-surface border rounded-2xl flex flex-col shadow-xs group/card overflow-hidden select-none outline-none ${
+      className={`canvas-widget bg-surface border rounded-2xl flex flex-col shadow-xs group/card overflow-visible select-none outline-none ${
         isResponsive ? 'w-full h-[320px]' : ''
       } ${
         isPrimarySelected 
@@ -95,7 +97,7 @@ export const WidgetCard: React.FC<WidgetCardProps> = ({
       {/* Header controls (only when not in present mode) */}
       {!isPresentMode && (
         <div 
-          className="px-4 py-2 border-b border-border-custom/50 flex items-center justify-between bg-surface-2/20 cursor-grab active:cursor-grabbing relative select-none"
+          className="px-4 py-2 border-b border-border-custom/50 flex items-center justify-between bg-surface-2/20 cursor-grab active:cursor-grabbing relative select-none rounded-t-2xl"
           onPointerDown={(e) => handleDragStart(e, widget.id)}
         >
           <div className="flex items-center space-x-1.5 min-w-0">
@@ -140,6 +142,7 @@ export const WidgetCard: React.FC<WidgetCardProps> = ({
           setGeoFilters={setGeoFilters}
           addLog={addLog}
           onFilterClick={onFilterClick}
+          customFilters={customFilters}
         />
       </div>
 

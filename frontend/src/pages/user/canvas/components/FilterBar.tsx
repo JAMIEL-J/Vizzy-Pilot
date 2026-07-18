@@ -88,7 +88,9 @@ export const FilterBar: React.FC<FilterBarProps> = ({
                 >
                   <option value="ALL_VALS" className="bg-surface text-text-custom">All Values</option>
                   {f.options.map((opt, idx) => (
-                    <option key={idx} value={opt} className="bg-surface text-text-custom">{opt}</option>
+                    <option key={idx} value={opt} className="bg-surface text-text-custom">
+                      {opt === '0' ? 'No (0)' : opt === '1' ? 'Yes (1)' : opt}
+                    </option>
                   ))}
                 </select>
                 <div className="absolute inset-y-0 right-1 flex items-center pointer-events-none text-muted-custom">

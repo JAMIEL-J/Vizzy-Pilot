@@ -1,7 +1,7 @@
 // CanvasToolbar.tsx — top actions control bar — extracted from CanvasPage.tsx
 import React from 'react';
-import { 
-  Database, Play, Undo2, Redo2, Grid, Sliders, Maximize2, Minimize2, Save as SaveIcon, FolderOpen, Loader2, ArrowRightLeft 
+import {
+  Database, Play, Undo2, Redo2, Grid, Sliders, Maximize2, Minimize2, Save as SaveIcon, FolderOpen, Loader2, ArrowRightLeft
 } from 'lucide-react';
 import type { Dataset, DatasetVersionSummary } from '../../../../lib/api/dataset';
 
@@ -46,6 +46,8 @@ interface CanvasToolbarProps {
   setIsFullScreenCanvas: (v: boolean) => void;
   isPresentMode: boolean;
   setIsPresentMode: (v: boolean) => void;
+  showSqlViewer: boolean;
+  setShowSqlViewer: (v: boolean) => void;
 
   // Export visual triggers
   handleExportVisuals: (format: 'png' | 'svg' | 'json') => void;
@@ -62,6 +64,7 @@ export const CanvasToolbar: React.FC<CanvasToolbarProps> = ({
   canvasZoom, setCanvasZoom,
   isFullScreenCanvas, setIsFullScreenCanvas,
   isPresentMode, setIsPresentMode,
+  showSqlViewer, setShowSqlViewer,
   handleExportVisuals
 }) => {
   return (
@@ -153,11 +156,10 @@ export const CanvasToolbar: React.FC<CanvasToolbarProps> = ({
         <button
           type="button"
           onClick={() => setGridSnap(!gridSnap)}
-          className={`flex items-center space-x-1.5 px-3 py-2 border rounded-xl transition-all cursor-pointer text-xs font-semibold ${
-            gridSnap 
-              ? 'bg-accent-custom/10 border-accent-custom/30 text-accent-custom' 
+          className={`flex items-center space-x-1.5 px-3 py-2 border rounded-xl transition-all cursor-pointer text-xs font-semibold ${gridSnap
+              ? 'bg-accent-custom/10 border-accent-custom/30 text-accent-custom'
               : 'bg-surface border-border-custom text-muted-custom hover:text-text-custom hover:border-border-custom/80'
-          }`}
+            }`}
           title="Toggle Grid Snapping"
         >
           <Grid className="w-3.5 h-3.5" />
@@ -167,11 +169,10 @@ export const CanvasToolbar: React.FC<CanvasToolbarProps> = ({
         <button
           type="button"
           onClick={() => setShowGridlines(!showGridlines)}
-          className={`flex items-center space-x-1.5 px-3 py-2 border rounded-xl transition-all cursor-pointer text-xs font-semibold ${
-            showGridlines 
-              ? 'bg-accent-custom/10 border-accent-custom/30 text-accent-custom' 
+          className={`flex items-center space-x-1.5 px-3 py-2 border rounded-xl transition-all cursor-pointer text-xs font-semibold ${showGridlines
+              ? 'bg-accent-custom/10 border-accent-custom/30 text-accent-custom'
               : 'bg-surface border-border-custom text-muted-custom hover:text-text-custom hover:border-border-custom/80'
-          }`}
+            }`}
           title="Toggle Gridlines"
         >
           <Sliders className="w-3.5 h-3.5" />
@@ -189,7 +190,7 @@ export const CanvasToolbar: React.FC<CanvasToolbarProps> = ({
             <SaveIcon className="w-3.5 h-3.5" />
             <span className="hidden md:inline">Save As...</span>
           </button>
-          
+
           {loadedDashboardId && (
             <button
               type="button"
@@ -248,11 +249,10 @@ export const CanvasToolbar: React.FC<CanvasToolbarProps> = ({
         <button
           type="button"
           onClick={() => setIsFullScreenCanvas(!isFullScreenCanvas)}
-          className={`flex items-center space-x-1.5 px-3 py-2 border rounded-xl transition-all cursor-pointer text-xs font-semibold ${
-            isFullScreenCanvas 
-              ? 'bg-accent-custom/10 border-accent-custom/30 text-accent-custom' 
+          className={`flex items-center space-x-1.5 px-3 py-2 border rounded-xl transition-all cursor-pointer text-xs font-semibold ${isFullScreenCanvas
+              ? 'bg-accent-custom/10 border-accent-custom/30 text-accent-custom'
               : 'bg-surface border-border-custom text-muted-custom hover:text-text-custom hover:border-border-custom/80'
-          }`}
+            }`}
           title="Toggle Full Screen Layout Mode"
         >
           {isFullScreenCanvas ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
@@ -262,14 +262,26 @@ export const CanvasToolbar: React.FC<CanvasToolbarProps> = ({
         <button
           type="button"
           onClick={() => setIsPresentMode(!isPresentMode)}
-          className={`flex items-center space-x-1.5 px-3 py-2 border rounded-xl transition-all cursor-pointer text-xs font-semibold ${
-            isPresentMode 
-              ? 'bg-accent-custom/10 border-accent-custom/30 text-accent-custom' 
+          className={`flex items-center space-x-1.5 px-3 py-2 border rounded-xl transition-all cursor-pointer text-xs font-semibold ${isPresentMode
+              ? 'bg-accent-custom/10 border-accent-custom/30 text-accent-custom'
               : 'bg-surface border-border-custom text-muted-custom hover:text-text-custom hover:border-border-custom/80'
-          }`}
+            }`}
           title="Preview Presentation mode (Read Only View)"
         >
           <span className="hidden sm:inline">Present</span>
+        </button>
+
+        <button 
+          type="button"
+          onClick={() => setShowSqlViewer(!showSqlViewer)}
+          className={`flex items-center space-x-1.5 px-3 py-2 border rounded-xl transition-all cursor-pointer text-xs font-semibold ${showSqlViewer
+              ? 'bg-purple-500/10 border-purple-500/30 text-purple-500 font-bold'
+              : 'bg-surface border-border-custom text-muted-custom hover:text-text-custom hover:border-border-custom/80'
+            }`}
+          title="Toggle showing database SQL query translation and step-by-step thinking for each chart"
+        >
+          <Database className="w-3.5 h-3.5 animate-pulse" />
+          <span>Show SQL</span>
         </button>
 
         {/* Export select options dropdown */}
