@@ -6,6 +6,13 @@
 
 ## 📝 Recent Architectural Changes Log
 
+### **Phase 6 P1 — Monolith Decomposition of CanvasPage.tsx (2026-07-18)**
+- **Refactor (Decomposed CanvasPage monolith)**: Refactored the monolithic 5,510-line `CanvasPage.tsx` into a modular package located at [canvas/CanvasPage.tsx](file:///D:/Vizzy%20Redesign/Vizzy%20Redesign/frontend/src/pages/user/canvas/CanvasPage.tsx).
+- **Refactor (Isolated Hook State Blocks)**: Created five single-responsibility hooks inside `canvas/hooks/` for state logic, widget bounds coordinates, datasets column fetching, active slicers dynamic cross filtering, and visual PNG/SVG layout exports.
+- **Refactor (Extracted View Layout Components)**: Decoupled visual sections into dedicated, clean, under-500-line React components: `AIPromptBar`, `CanvasToolbar`, `CanvasSidebar`, `FilterBar`, `WidgetCard`, `ChartRenderer`, and `CanvasModals`.
+- **Refactor (Isolated Utility Pipelines)**: Moved mathematical, string sanitization, and DuckDB aggregation/formula parsing helpers to dedicated utility helper files: `canvas/utils/canvasUtils.tsx` and `canvas/utils/sqlBuilder.ts`.
+- **Refactor (Route Stub & Barrel Exports)**: Added a barrel stub file at the old path [CanvasPage.tsx](file:///D:/Vizzy%20Redesign/Vizzy%20Redesign/frontend/src/pages/user/CanvasPage.tsx) that re-exports the main orchestrator, preserving navigation routing references across App.tsx/TopNav.tsx. Checked and validated types system-wide via `npx tsc --noEmit` with zero errors.
+
 ### **Phase 5 P3 — Defense in Depth: Cookie-Based Auth, CSRF Protection & Logout (2026-07-18)**
 - **Security (Cookie-First JWT Resolution)**: Updated `get_current_user` and `get_current_user_from_header_or_query` in [security.py](file:///D:/Vizzy%20Redesign/Vizzy%20Redesign/backend/app/core/security.py) to accept `Request` parameter and read `access_token` from `request.cookies.get()` first, falling back to `Authorization: Bearer` header (and query param for SSE). Uses `request.cookies.get()` instead of FastAPI `Cookie()` dependency to avoid DI failures when cookie is absent. Full backward compatibility with header-based auth.
 - **Security (HttpOnly Auth Cookies on Login)**: All three login endpoints (`/login`, `/login/user`, `/login/admin`) in [auth_routes.py](file:///D:/Vizzy%20Redesign/Vizzy%20Redesign/backend/app/api/auth_routes.py) now return `JSONResponse` with tokens in body (backward compat) AND set HttpOnly `access_token`/`refresh_token` cookies (`secure=True`, `samesite=lax`, scoped to `/api`). A JS-readable `csrf_token` cookie is also set for double-submit CSRF protection. Extracted shared `_build_login_response()` helper to DRY cookie-setting logic. Changed `response_model` to `None` since `JSONResponse` bypasses Pydantic serialization.
