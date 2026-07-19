@@ -92,6 +92,19 @@ class SensitiveDataFilter(logging.Filter):
         return "[REDACTED - potential sensitive data]"
 
 
+class HumanReadableFormatter(logging.Formatter):
+    """Clean human-readable formatter for local development terminals."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        time_str = datetime.now().strftime("%H:%M:%S")
+        level = record.levelname
+        module = record.module
+        msg = record.getMessage()
+        if record.exc_info:
+            msg += "\n" + self.formatException(record.exc_info)
+        return f"[{time_str}] {level:<7} [{module}:{record.lineno}] - {msg}"
+
+
 def setup_logger(
     name: str,
     level: Optional[str] = None,
@@ -119,7 +132,12 @@ def setup_logger(
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(getattr(logging, log_level.upper()))
     
-    formatter = StructuredFormatter()
+    # Use HumanReadableFormatter in dev mode or terminal interactive mode for DX
+    if getattr(settings, "environment", "development") == "development" or sys.stdout.isatty():
+        formatter = HumanReadableFormatter()
+    else:
+        formatter = StructuredFormatter()
+
     console_handler.setFormatter(formatter)
     
     sensitive_filter = SensitiveDataFilter()

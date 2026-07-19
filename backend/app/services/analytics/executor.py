@@ -119,14 +119,15 @@ def _build_business_semantic_hints(query: str, available_cols: list[str], column
         if subcat_col:
             add_hint("subcategory_dimension", subcat_col, "DIMENSION", bool(column_metadata.get(subcat_col, {}).get("coerced")))
 
-    if asks_subcategory and (asks_performance or asks_profit):
-        preferred_metric = None
-        if asks_profit:
-            preferred_metric = resolve_metric(["profit", "net profit", "margin"])
-        if not preferred_metric:
-            preferred_metric = resolve_metric(["sales", "revenue", "amount", "income"])
-        if preferred_metric:
-            add_hint("ranking_metric", preferred_metric, "METRIC", bool(column_metadata.get(preferred_metric, {}).get("coerced")))
+    asks_volume = any(k in q for k in ["sales volume", "transaction volume", "unit volume", "order volume", "volume"])
+    if asks_volume:
+        qty_col = resolve_metric(["quantity", "qty", "units", "units sold", "item count", "volume"])
+        if qty_col:
+            add_hint("sales_volume_metric", qty_col, "METRIC", bool(column_metadata.get(qty_col, {}).get("coerced")))
+            hints[-1]["aggregation"] = "SUM"
+        else:
+            add_hint("sales_volume_metric", "COUNT(*)", "METRIC", False)
+            hints[-1]["aggregation"] = "COUNT"
 
     churn_col = resolve_metric(["churn", "churned", "attrition", "cancelled", "is churned"])
     if churn_col:

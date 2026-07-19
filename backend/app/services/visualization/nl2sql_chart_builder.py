@@ -245,8 +245,9 @@ def build_chart_from_nl2sql(nl2sql_result: dict) -> Dict[str, Any]:
     builders = {
         "kpi": _build_kpi,
         "bar": _build_bar,
-        "stacked_bar": _build_stacked_bar,
-        "stacked": _build_stacked_bar,
+        "stacked_bar": _build_multi_chart,
+        "multi_chart": _build_multi_chart,
+        "exploration": _build_multi_chart,
         "line": _build_line,
         "pie": _build_pie,
         "table": _build_table,
@@ -464,9 +465,9 @@ def _build_stacked_bar(data: list, columns: list, title: str, x_axis: str, y_axi
             reverse=True,
         )[:top_n]
 
-    all_currency = all(_is_currency_metric(title, metric, column_metadata) for metric in metric_cols)
-    any_percentage = any(_is_likely_percentage(metric) for metric in metric_cols)
-    format_type = "percentage" if any_percentage else ("currency" if all_currency else "number")
+    all_percentage = all(_is_likely_percentage(metric) for metric in metric_cols)
+    any_currency = any(_is_currency_metric(title, metric, column_metadata) for metric in metric_cols)
+    format_type = "percentage" if all_percentage else ("currency" if any_currency else "number")
 
     return {
         "type": "stacked_bar",
@@ -482,6 +483,36 @@ def _build_stacked_bar(data: list, columns: list, title: str, x_axis: str, y_axi
             "x": x_axis or category_col.replace("_", " ").title(),
             "y": y_axis or "Value",
         },
+    }
+
+
+def _build_multi_chart(data: list, columns: list, title: str, x_axis: str, y_axis: str, column_metadata: Optional[Dict[str, Any]] = None) -> dict:
+    """Multi-chart: converts multiple metrics into standalone charts (4-5 in a scrollable series)."""
+    if not data or not columns:
+        return _build_table(data, columns, title, x_axis, y_axis, column_metadata)
+
+    first_row = data[0] if isinstance(data[0], dict) else {}
+    numeric_cols = [c for c in columns if isinstance(first_row.get(c), (int, float))]
+    category_candidates = [c for c in columns if c not in numeric_cols]
+
+    if not category_candidates or not numeric_cols:
+        return _build_table(data, columns, title, x_axis, y_axis, column_metadata)
+
+    category_col = category_candidates[0]
+    charts = []
+    
+    for metric in numeric_cols[:5]:
+        sub_title = f"{_humanize_label(metric)} by {_humanize_label(category_col)}"
+        sub_chart = _build_bar(data, [category_col, metric], sub_title, x_axis, y_axis, column_metadata)
+        charts.append(sub_chart)
+
+    return {
+        "type": "multi_chart",
+        "title": title or "Exploratory Analytics Overview",
+        "charts": charts,
+        "categories": numeric_cols[:5],
+        "dimension": category_col,
+        "format_type": "multi",
     }
 
 

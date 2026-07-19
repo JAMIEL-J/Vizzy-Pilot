@@ -263,7 +263,7 @@ def _build_numbered_metric_summary(
 
 
 def _looks_interpretive_query(query: str) -> bool:
-    """Detect analyst-style explanatory queries (why/driver/cause questions)."""
+    """Detect analyst-style explanatory queries (why/driver/cause/dip/drop questions)."""
     q = (query or "").lower().strip()
     q = re.sub(r"[^\w\s]", " ", q)
     patterns = [
@@ -276,6 +276,11 @@ def _looks_interpretive_query(query: str) -> bool:
         r"\bwhat\s+causes?\b",
         r"\bexplain\b",
         r"\breason\s+for\b",
+        r"\breasons?\b",
+        r"\bdip\b",
+        r"\bdrop\b",
+        r"\bdecline\b",
+        r"\bdecrease\b",
         r"\broot\s+cause\b",
         r"\bwhat\s+is\s+behind\b",
         r"\bfactors?\s+behind\b",
@@ -1428,6 +1433,9 @@ async def send_message_stream(
 
         async def progress_callback(progress_data: dict):
             await queue.put(("progress", progress_data))
+            detail = progress_data.get("detail", "")
+            if detail:
+                await emit_thought(f"{detail}")
 
         task = None
         try:
@@ -1762,7 +1770,7 @@ async def send_message_stream(
                     }
                     await queue.put(("complete", complete_payload))
                 except Exception as task_err:
-                    logger.error(f"Error in stream task execution: {task_err}")
+                    logger.error(f"Error in stream task execution: {task_err}", exc_info=True)
                     await queue.put(("error", str(task_err)))
 
             task = asyncio.create_task(run_pipeline())

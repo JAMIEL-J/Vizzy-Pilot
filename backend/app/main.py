@@ -38,9 +38,9 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         start_time = time.perf_counter()
         response = await call_next(request)
         process_time = (time.perf_counter() - start_time) * 1000
-        logger.info(
-            f"[HTTP] {request.method} {request.url.path} -> {response.status_code} ({process_time:.1f}ms)"
-        )
+        msg = f"[HTTP] {request.method} {request.url.path} -> {response.status_code} ({process_time:.1f}ms)"
+        print(msg, flush=True)
+        logger.info(msg)
         return response
 
 

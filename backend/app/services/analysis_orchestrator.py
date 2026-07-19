@@ -563,7 +563,13 @@ async def run_analysis_orchestration(
         await progress_callback({"step": 2, "total": 6, "phase": "loading", "detail": "Loading dataset..."})
 
     try:
-        df = pd.read_csv(data_path)
+        if str(data_path).endswith('.duckdb'):
+            import duckdb
+            con = duckdb.connect(str(data_path), read_only=True)
+            df = con.execute("SELECT * FROM data LIMIT 100000").df()
+            con.close()
+        else:
+            df = pd.read_csv(data_path, nrows=100000)
     except FileNotFoundError:
         raise InvalidOperation(
             operation="run_analysis",
