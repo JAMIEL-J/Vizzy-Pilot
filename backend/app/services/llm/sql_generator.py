@@ -16,7 +16,7 @@ RULES:
 3. Return a strict JSON object with NO OTHER TEXT. It must be valid JSON, no markdown codeblocks.
 4. Determine the best chart output type for the result set.
 5. CRITICAL: ALWAYS use `TRY_CAST(column_name AS DOUBLE)` inside all aggregations (SUM, AVG, MIN, MAX), even if the schema says the column is numeric. The data often contains string-typed numbers (e.g. '123.45'). Example: `SUM(TRY_CAST(TotalCharges AS DOUBLE))`. NEVER just use `SUM(TotalCharges)`.
-6. The SQL query MUST be valid syntax. Use single quotes for strings and double quotes for exact column identifiers if needed.
+6. CRITICAL COLUMN QUOTING RULE: ALWAYS enclose column names containing spaces, hyphens, slashes, or special characters in DOUBLE QUOTES. Examples: `"Customer ID"`, `"Sub-Category"`, `"Order Date"`, `"Product ID"`. Never leave spaces or hyphens unquoted in column identifiers as that causes DuckDB SQL syntax errors.
 7. For 'kpi', return ONE row + ONE numeric column.
 8. For 'bar'/'pie', return category + numeric value.
 9. For 'line', return time/sequence + numeric value.

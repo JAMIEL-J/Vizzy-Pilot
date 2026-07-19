@@ -37,7 +37,27 @@ class QueryExecutionError(Exception):
 
 _executor = ThreadPoolExecutor(max_workers=4)
 
-def validate_sql(sql: str, allowed_tables: str | list[str]) -> Tuple[bool, str, Optional[exp.Expression]]:
+def auto_quote_schema_columns(sql: str, known_columns: Optional[list[str]] = None) -> str:
+    """
+    Scans SQL for unquoted occurrences of schema column names containing spaces, hyphens,
+    slashes, or special characters, and wraps them in double quotes.
+    """
+    if not sql or not known_columns:
+        return sql
+    fixed_sql = sql
+    sorted_cols = sorted(known_columns, key=len, reverse=True)
+    for col in sorted_cols:
+        if any(char in col for char in (' ', '-', '/', '%', '#')) and not col.startswith('"'):
+            escaped_col = re.escape(col)
+            pattern = r'(?<!")\b' + escaped_col + r'\b(?!")'
+            fixed_sql = re.sub(pattern, f'"{col}"', fixed_sql, flags=re.IGNORECASE)
+    return fixed_sql
+
+def validate_sql(
+    sql: str,
+    allowed_tables: str | list[str],
+    known_columns: Optional[list[str]] = None
+) -> Tuple[bool, str, Optional[exp.Expression]]:
     """
     Returns (is_valid, error_message, parsed_expression).
     Uses DuckDB AST parsing — not string matching.
@@ -47,7 +67,11 @@ def validate_sql(sql: str, allowed_tables: str | list[str]) -> Tuple[bool, str, 
 
     sql = sql.strip()
 
-    # Step 0: Defense-in-depth: Run regex patterns
+    # Step 0: Auto-quote schema columns with spaces/hyphens if provided
+    if known_columns:
+        sql = auto_quote_schema_columns(sql, known_columns)
+
+    # Step 0.1: Defense-in-depth: Run regex patterns
     for pattern in BLOCKED_PATTERNS:
         if re.search(pattern, sql, re.IGNORECASE):
             return False, f"Blocked pattern matched: {pattern}", None
@@ -60,9 +84,9 @@ def validate_sql(sql: str, allowed_tables: str | list[str]) -> Tuple[bool, str, 
     except Exception as e:
         pass
     
-    # Step 1: Parse via DuckDB — catches syntax errors
+    # Step 1: Parse via DuckDB — catches syntax errors using parameterized serialization query
     try:
-        parsed_db = duckdb.query(f"SELECT json_serialize_sql('{sql.replace(chr(39), chr(39)*2)}')")
+        parsed_db = duckdb.execute("SELECT json_serialize_sql(?)", [sql])
         ast = parsed_db.fetchone()[0]
     except Exception as e:
         return False, f"Syntax error: {str(e)}", None
@@ -158,7 +182,16 @@ async def execute_sandboxed(
 ) -> pd.DataFrame:
     """Execute SQL query in a sandboxed thread with timeout."""
     
-    is_valid, reason, parsed = validate_sql(sql, table_name)
+    known_cols = []
+    try:
+        describe_df = conn.execute(f'DESCRIBE "{table_name}"').df()
+        if "column_name" in describe_df.columns:
+            known_cols = describe_df["column_name"].tolist()
+            sql = auto_quote_schema_columns(sql, known_cols)
+    except Exception as e:
+        logger.debug(f"Could not fetch column names for auto-quoting: {e}")
+
+    is_valid, reason, parsed = validate_sql(sql, table_name, known_columns=known_cols)
     if not is_valid:
         logger.warning(f"SQL Validation Failed: {reason} | SQL: {sql}")
         raise QueryExecutionError(f"SQL validation failed: {reason}")

@@ -145,8 +145,21 @@ export default function CanvasPage() {
 
   // Compute zoom scale relative to canvas container size
   const canvasScale = useMemo(() => {
-    if (!isPresentMode && !isFullScreenCanvas) return 1;
-    if (!canvasContainerRef.current) return 0.5;
+    if (isPresentMode) {
+      if (!canvasContainerRef.current) return 1;
+      const containerWidth = canvasContainerRef.current.clientWidth - 32;
+      const containerHeight = canvasContainerRef.current.clientHeight - 32;
+      const scaleX = containerWidth / contentWidth;
+      const scaleY = containerHeight / contentHeight;
+      return Math.min(scaleX, scaleY);
+    }
+
+    if (!canvasContainerRef.current) {
+      if (canvasZoom === '100') return 1;
+      if (canvasZoom === '75') return 0.75;
+      if (canvasZoom === '50') return 0.5;
+      return 1;
+    }
 
     const containerWidth = canvasContainerRef.current.clientWidth - 32;
     const containerHeight = canvasContainerRef.current.clientHeight - 32;
@@ -154,16 +167,14 @@ export default function CanvasPage() {
     const scaleX = containerWidth / contentWidth;
     const scaleY = containerHeight / contentHeight;
 
-    if (isPresentMode) return Math.min(scaleX, scaleY);
-
     switch (canvasZoom) {
-      case 'fit-width': return scaleX;
-      case 'fit-page': return Math.min(scaleX, scaleY);
-      case 'fit-canvas': return Math.max(scaleX, scaleY);
+      case 'fit-width': return Math.min(Math.max(scaleX, 0.2), 2.5);
+      case 'fit-page': return Math.min(Math.max(Math.min(scaleX, scaleY), 0.2), 2.5);
+      case 'fit-canvas': return Math.min(Math.max(Math.max(scaleX, scaleY), 0.2), 2.5);
       case '100': return 1;
       case '75': return 0.75;
       case '50': return 0.5;
-      default: return scaleX;
+      default: return 1;
     }
   }, [isFullScreenCanvas, isPresentMode, canvasZoom, contentWidth, contentHeight]);
 
@@ -917,6 +928,8 @@ export default function CanvasPage() {
       {/* 1. COMPILER UPPER TOOLBAR PANEL */}
       {!isFullScreenCanvas && !isPresentMode && (
         <CanvasToolbar 
+          isSidebarCollapsed={isSidebarCollapsed}
+          setIsSidebarCollapsed={setIsSidebarCollapsed}
           datasets={datasets}
           selectedDatasetId={selectedDatasetId}
           handleDatasetChange={handleDatasetChange}
@@ -952,10 +965,10 @@ export default function CanvasPage() {
         />
       )}
 
-      {/* 2. DOCK SHELF GRID CONTAINER */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 flex-1 divide-y xl:divide-y-0 xl:divide-x divide-border-custom">
+      {/* CORE TWO-COLUMN DESIGNER STAGE */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 min-h-[calc(100vh-140px)]">
         
-        {/* LEFT DOCK SIDEBAR PANEL */}
+        {/* LEFT TOOLBAR & PALETTE PANEL */}
         {!isFullScreenCanvas && !isPresentMode && (
           <CanvasSidebar 
             isSidebarCollapsed={isSidebarCollapsed}
@@ -982,6 +995,25 @@ export default function CanvasPage() {
         {/* RIGHT CORE GRIDSTAGE SHEET */}
         <div className={`${(isSidebarCollapsed || isFullScreenCanvas || isPresentMode) ? 'xl:col-span-12' : 'xl:col-span-9'} p-6 flex flex-col justify-between space-y-6 transition-all duration-300 relative`}>
 
+          {/* Floating Zoom & Preset Controls for Fullscreen Mode */}
+          {isFullScreenCanvas && !isPresentMode && (
+            <div className="fixed top-5 left-6 z-[99999] flex items-center bg-surface/90 backdrop-blur-md border border-border-custom rounded-full px-3.5 py-1.5 shadow-2xl space-x-2 text-xs font-mono">
+              <span className="text-muted-custom uppercase font-bold text-[9px] tracking-wider">Zoom:</span>
+              <select
+                value={canvasZoom}
+                onChange={(e) => setCanvasZoom(e.target.value as any)}
+                className="bg-transparent border-none text-[11px] font-semibold text-text-custom outline-none pr-3 cursor-pointer"
+              >
+                <option value="fit-width" className="bg-surface text-text-custom">Fit Width</option>
+                <option value="fit-page" className="bg-surface text-text-custom">Fit Page</option>
+                <option value="fit-canvas" className="bg-surface text-text-custom">Fit Canvas</option>
+                <option value="100" className="bg-surface text-text-custom">100%</option>
+                <option value="75" className="bg-surface text-text-custom">75%</option>
+                <option value="50" className="bg-surface text-text-custom">50%</option>
+              </select>
+            </div>
+          )}
+
           {/* Floating Exit Button for Full Screen & Present Modes */}
           {(isFullScreenCanvas || isPresentMode) && (
             <button
@@ -991,33 +1023,31 @@ export default function CanvasPage() {
                 if (isFullScreenCanvas) setIsFullScreenCanvas(false);
                 addLog("Exited full screen/presentation mode.");
               }}
-              className="absolute top-4 right-4 z-[9999] flex items-center space-x-1.5 px-3 py-2 bg-red-500 hover:bg-red-600 text-white font-mono text-[10px] font-bold rounded-xl shadow-2xl transition-all cursor-pointer border-none"
+              className="fixed top-5 right-6 z-[99999] flex items-center space-x-2 px-4 py-2 bg-surface/90 hover:bg-red-500 text-text-custom hover:text-white backdrop-blur-md border border-border-custom hover:border-red-500/50 text-xs font-mono font-bold rounded-full shadow-2xl transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer"
             >
-              <X className="w-3.5 h-3.5" />
+              <X className="w-4 h-4" />
               <span>Exit {isPresentMode ? 'Present' : 'Fullscreen'} (ESC)</span>
             </button>
           )}
 
           {/* Floated Prompt Bar in Full Screen Mode */}
           {isFullScreenCanvas && !isPresentMode && (
-            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-full max-w-2xl z-[999] bg-surface/90 backdrop-blur-md border border-border-custom rounded-2xl shadow-2xl p-2 animate-in slide-in-from-bottom duration-300">
+            <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[99999] bg-surface/90 backdrop-blur-md border border-border-custom rounded-2xl shadow-2xl p-1.5 animate-in slide-in-from-bottom duration-300">
               <AIPromptBar 
                 onSubmit={handleAIPromptSubmit} 
                 isCompiling={isCompiling} 
-                suggestions={PROMPT_SUGGESTIONS} 
                 placeholder="Prompt AI to construct and organize widgets on your canvas..."
-                isFullScreen={false}
+                isFullScreen={true}
               />
             </div>
           )}
 
           {/* TOP BAR: PROMPT INPUT BAR (Standard Flow) */}
           {!isFullScreenCanvas && !isPresentMode && (
-            <div className="space-y-4">
+            <div className="w-full">
               <AIPromptBar 
                 onSubmit={handleAIPromptSubmit} 
                 isCompiling={isCompiling} 
-                suggestions={PROMPT_SUGGESTIONS} 
                 placeholder="Prompt AI to construct and organize widgets on your canvas..."
                 isFullScreen={false}
               />
@@ -1242,8 +1272,8 @@ export default function CanvasPage() {
               <div 
                 className="flex items-start justify-start mx-auto"
                 style={{
-                  height: (!activeResponsive && (isFullScreenCanvas || isPresentMode)) ? `${contentHeight * canvasScale}px` : 'auto',
-                  width: (!activeResponsive && (isFullScreenCanvas || isPresentMode)) ? `${contentWidth * canvasScale}px` : '100%',
+                  height: !isResponsive ? `${contentHeight * canvasScale}px` : 'auto',
+                  width: !isResponsive ? `${contentWidth * canvasScale}px` : '100%',
                   overflow: 'visible'
                 }}
               >
@@ -1261,20 +1291,20 @@ export default function CanvasPage() {
                       setCheckedFields([]);
                     }
                   }}
-                  className={`relative ${activeResponsive ? 'transition-all duration-300' : ''} ${
-                    activeResponsive 
+                  className={`relative ${isResponsive ? 'transition-all duration-300' : ''} ${
+                    isResponsive 
                       ? 'w-full bg-transparent border-0 shadow-none grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 auto-rows-max' 
                       : 'bg-surface rounded-xl border border-dashed border-border-custom/80 shadow-md origin-top-left shrink-0'
                   }`}
                   style={{
-                    width: activeResponsive ? '100%' : ((isFullScreenCanvas || isPresentMode) ? `${contentWidth}px` : '2400px'),
-                    height: activeResponsive ? 'auto' : ((isFullScreenCanvas || isPresentMode) ? `${contentHeight}px` : '1600px'),
-                    minHeight: activeResponsive ? '100%' : ((isFullScreenCanvas || isPresentMode) ? `${contentHeight}px` : '1600px'),
-                    backgroundImage: (showGridlines && !activeResponsive) 
+                    width: isResponsive ? '100%' : `${contentWidth}px`,
+                    height: isResponsive ? 'auto' : `${contentHeight}px`,
+                    minHeight: isResponsive ? '100%' : `${contentHeight}px`,
+                    backgroundImage: (showGridlines && !isResponsive) 
                       ? (isDark ? 'radial-gradient(rgba(255, 255, 255, 0.08) 1.2px, transparent 1.2px)' : 'radial-gradient(rgba(0, 0, 0, 0.04) 1.2px, transparent 1.2px)')
                       : undefined,
                     backgroundSize: '16px 16px',
-                    transform: (!activeResponsive && (isFullScreenCanvas || isPresentMode)) ? `scale(${canvasScale})` : 'translateZ(0)',
+                    transform: !isResponsive ? `scale(${canvasScale})` : 'none',
                     transformOrigin: 'top left',
                     willChange: 'transform'
                   }}

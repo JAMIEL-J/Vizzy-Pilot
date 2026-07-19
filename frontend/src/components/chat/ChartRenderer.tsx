@@ -900,11 +900,42 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ type, data, title,
         );
     };
 
+    const renderMultiChart = () => {
+        const subCharts = data.charts || data.data?.charts || [];
+        if (!Array.isArray(subCharts) || subCharts.length === 0) {
+            return renderTable();
+        }
+        return (
+            <div className="w-full mt-4 space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {subCharts.map((sub: any, idx: number) => (
+                        <div key={idx} className="border border-border/40 rounded-xl p-4 bg-surface-2/60 shadow-sm flex flex-col">
+                            <h4 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider mb-2 pb-1.5 border-b border-border/20">
+                                {sub.title || `Chart #${idx + 1}`}
+                            </h4>
+                            <div className="h-56">
+                                <ChartRenderer
+                                    type={sub.type || 'bar'}
+                                    data={sub}
+                                    title={sub.title}
+                                    currency={currency}
+                                    variant="minimal"
+                                />
+                            </div>
+                        </div>
+                    ))}
+                </div>
+                {renderNullWarning()}
+            </div>
+        );
+    };
+
     switch (type) {
         case 'kpi': return renderKPI();
         case 'bar': return renderBarChart();
         case 'stacked_bar': return renderStackedBarChart();
         case 'stacked': return renderStackedBarChart();
+        case 'multi_chart': return renderMultiChart();
         case 'line': 
         case 'area': 
             return renderLineChart();

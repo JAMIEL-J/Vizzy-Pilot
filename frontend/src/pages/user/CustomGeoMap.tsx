@@ -373,10 +373,10 @@ export const CustomGeoMap: React.FC<CustomGeoMapProps> = ({
             initial={{ opacity: 0, scale: 0.9, y: 4 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.9 }}
-            className={`absolute pointer-events-none z-30 bg-surface/95 border backdrop-blur-md shadow-2xl flex flex-col ${
+            className={`absolute pointer-events-none z-[9999] bg-surface/95 border-2 border-accent-custom/40 backdrop-blur-md shadow-2xl flex flex-col ${
               isFullScreen 
-                ? 'px-4 py-2.5 rounded-2xl border-accent-custom/50 border-2 text-[12px] space-y-1' 
-                : 'px-3 py-2 rounded-xl border-border-custom text-[9px] space-y-0.5 font-mono'
+                ? 'px-4 py-3 rounded-2xl border-accent-custom/60 text-[14px] space-y-1' 
+                : 'px-3.5 py-2 rounded-xl text-[12px] space-y-0.5 font-mono'
             } text-text-custom`}
             style={{ 
               left: `${tooltip.x}px`, 
@@ -384,11 +384,11 @@ export const CustomGeoMap: React.FC<CustomGeoMapProps> = ({
               transform: 'translate(-50%, -100%)'
             }}
           >
-            <span className={`font-bold text-text-custom border-b border-border-custom/50 pb-0.5 truncate ${isFullScreen ? 'mb-2 text-[13px] max-w-[200px]' : 'mb-1.5 text-[9px] max-w-[140px]'}`}>{tooltip.title}</span>
+            <span className={`font-bold text-text-custom border-b border-border-custom/50 pb-1 truncate ${isFullScreen ? 'mb-2 text-[14px] max-w-[220px]' : 'mb-1 text-[12px] max-w-[160px]'}`}>{tooltip.title}</span>
             {Object.keys(tooltip.metrics).map(mKey => {
               const displayLabel = cleanMetricLabel(mKey);
               return (
-                <span key={mKey} className="font-semibold text-accent-custom whitespace-nowrap">
+                <span key={mKey} className={`font-semibold text-accent-custom whitespace-nowrap ${isFullScreen ? 'text-[13px]' : 'text-[11px]'}`}>
                   {displayLabel}: {formatKpiValue(tooltip.metrics[mKey], mKey, undefined, formatConfig)}
                 </span>
               );

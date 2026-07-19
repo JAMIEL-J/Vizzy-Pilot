@@ -71,7 +71,8 @@ export type CanvasChartType =
   | 'scatter'
   | 'bubble'
   | 'combo'
-  | 'hbar';
+  | 'hbar'
+  | 'multi_chart';
 
 // ── Aggregation type ─────────────────────────────────────────────────────
 

@@ -34,21 +34,29 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
   const isLargeView = isFullScreenCanvas || isPresentMode;
   const [hoveredIndex, setHoveredIndex] = React.useState<number | null>(null);
 
+  // Safely extract chartData array from widget.data (handles both flat array and object { rows: [...] })
+  const chartData = React.useMemo(() => {
+    if (!widget.data) return [];
+    if (Array.isArray(widget.data)) return widget.data;
+    if (Array.isArray((widget.data as any).rows)) return (widget.data as any).rows;
+    return [];
+  }, [widget.data]);
+
   // Aggregate helpers
   const maxVal = React.useMemo(() => {
-    if (!widget.data || widget.data.length === 0) return 1;
-    const values = widget.data.map(d => {
+    if (chartData.length === 0) return 1;
+    const values = chartData.map((d: any) => {
       const keys = Object.keys(d);
       const valKey = widget.yAxisKey || keys.find(k => k !== (widget.xAxisKey || 'label')) || 'value';
       return Number(d[valKey]) || 0;
     });
     return Math.max(...values, 1);
-  }, [widget.data, widget.yAxisKey, widget.xAxisKey]);
+  }, [chartData, widget.yAxisKey, widget.xAxisKey]);
 
   const totalPieVal = React.useMemo(() => {
     if (widget.type !== 'pie' && widget.type !== 'donut') return 0;
-    return widget.data.reduce((sum, item) => sum + (Number(item.val || item.value || 0) || 0), 0);
-  }, [widget.data, widget.type]);
+    return chartData.reduce((sum: number, item: any) => sum + (Number(item.val || item.value || 0) || 0), 0);
+  }, [chartData, widget.type]);
 
   // Render KPIs
   if (widget.type === 'kpi') {
@@ -127,7 +135,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
   }
 
   // Render Empty State
-  if (!widget.data || widget.data.length === 0) {
+  if (chartData.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center p-4 text-muted-custom border-2 border-dashed border-border-custom/50 rounded-xl bg-surface-2/10">
         <HelpCircle className="w-6 h-6 mb-2 text-muted-custom/60 animate-bounce" />
@@ -138,22 +146,27 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
 
   // Render Bar & Stacked Bar Charts
   if (widget.type === 'bar' || widget.type === 'stacked_bar') {
-    const key = widget.xAxisKey || 'label';
-    const valKey = widget.yAxisKey || 'value';
+    const firstRow = chartData[0] || {};
+    const rowKeys = Object.keys(firstRow);
+
+    const key = (widget.xAxisKey && firstRow[widget.xAxisKey] !== undefined)
+      ? widget.xAxisKey
+      : (rowKeys.find(k => typeof firstRow[k] === 'string' || isNaN(Number(firstRow[k]))) || rowKeys[0] || 'label');
+
     const defaultWidth = 375;
     const defaultHeight = 230;
     const width = widget.customWidth ?? defaultWidth;
     const height = widget.customHeight ?? defaultHeight;
 
-    // For stacked bar or multi-metric bar, get all keys except the label key.
-    const dataKeys = (widget.type === 'stacked_bar' || (widget.type === 'bar' && widget.targetMetricName && widget.targetMetricName.includes(','))) && widget.data.length > 0
-      ? Object.keys(widget.data[0]).filter(k => k !== key && typeof widget.data[0][k] === 'number')
-      : [valKey];
+    // For stacked bar or multi-metric bar, get all numeric keys except the label key.
+    const dataKeys = (widget.type === 'stacked_bar' || (widget.type === 'bar' && widget.targetMetricName && widget.targetMetricName.includes(',')))
+      ? rowKeys.filter(k => k !== key && (typeof firstRow[k] === 'number' || (!isNaN(Number(firstRow[k])) && firstRow[k] !== null && firstRow[k] !== '')))
+      : [widget.yAxisKey && firstRow[widget.yAxisKey] !== undefined ? widget.yAxisKey : (rowKeys.find(k => k !== key) || 'value')];
 
-    const localMaxVal = Math.max(...widget.data.map(d => {
+    const localMaxVal = Math.max(...chartData.map((d: any) => {
       const values = dataKeys.map(k => Number(d[k]) || 0);
       return widget.type === 'stacked_bar'
-        ? values.reduce((sum, v) => sum + v, 0)
+        ? values.reduce((sum: number, v: number) => sum + v, 0)
         : Math.max(...values, 0);
     })) || 1;
 
@@ -172,10 +185,10 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
           </div>
 
           <div className="flex-1 flex items-end justify-between space-x-2 px-1 pb-1.5 h-full relative">
-            {widget.data.map((item: any, idx) => {
+            {chartData.map((item: any, idx: number) => {
               const totalVal = dataKeys.reduce((sum, k) => sum + (Number(item[k]) || 0), 0);
               const heightPercent = localMaxVal ? (totalVal / localMaxVal) * 85 : 0;
-              const itemLabel = String(item[key]);
+              const itemLabel = String(item[key] ?? item.label ?? Object.values(item)[0] ?? '');
 
               const isHighlighted = (() => {
                 const activeFilters = customFilters.filter(f => f.selectedValue !== null);
@@ -199,25 +212,25 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
                     if (onFilterClick) onFilterClick(filterCol, itemLabel);
                   }}
                   className="flex flex-col items-center flex-1 group/bar relative h-full justify-end cursor-pointer"
-                  style={{ maxWidth: `${Math.max(20, Math.min(64, (width / widget.data.length) - 8))}px` }}
+                  style={{ maxWidth: `${Math.max(20, Math.min(64, (width / (chartData.length || 1)) - 8))}px` }}
                 >
                   {/* Bar hover label */}
-                  <div className={`absolute -top-7 scale-0 group-hover/bar:scale-100 bg-surface border shadow-2xl pointer-events-none whitespace-nowrap flex flex-col items-center z-20 transition-transform ${
+                  <div className={`absolute top-2 left-1/2 -translate-x-1/2 scale-0 group-hover/bar:scale-100 bg-surface/95 border-2 border-accent-custom/40 shadow-2xl pointer-events-none whitespace-nowrap flex flex-col items-center z-[9999] transition-transform backdrop-blur-md ${
                     isLargeView
-                      ? 'px-3 py-1.5 rounded-xl border-accent-custom/50 border-2 text-[12px] space-y-0.5 -translate-y-3' 
-                      : 'px-1.5 py-0.5 rounded border-border-custom text-[9px] font-mono'
+                      ? 'px-4 py-2.5 rounded-2xl border-accent-custom/60 text-[14px] space-y-0.5' 
+                      : 'px-3 py-1.5 rounded-xl text-[12px] font-mono'
                   }`}>
                     {dataKeys.length > 1 ? (
                       <div className="flex flex-col items-start space-y-0.5">
-                        <span className={`font-bold border-b border-border-custom/50 pb-0.5 w-full ${isLargeView ? 'text-[12px] mb-1' : 'text-[9px] mb-0.5'}`}>{sanitizeLabel(itemLabel)}</span>
+                        <span className={`font-bold text-text-custom border-b border-border-custom/50 pb-0.5 w-full ${isLargeView ? 'text-[13px] mb-1' : 'text-[11px] mb-0.5'}`}>{sanitizeLabel(itemLabel)}</span>
                         {dataKeys.map(k => (
-                          <span key={k} className={isLargeView ? 'text-[11px]' : 'text-[8px] text-muted-custom'}>
+                          <span key={k} className={`font-semibold text-accent-custom ${isLargeView ? 'text-[12px]' : 'text-[10px]'}`}>
                             {prettifyLabel(k)}: {formatKpiValue(item[k], k, widget.activeAgg, widget.numberFormat)}
                           </span>
                         ))}
                       </div>
                     ) : (
-                      <span className={isLargeView ? 'text-[12px]' : ''}>{sanitizeLabel(itemLabel)}: {formatKpiValue(totalVal, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg, widget.numberFormat)}</span>
+                      <span className={`font-bold text-text-custom ${isLargeView ? 'text-[13px]' : 'text-[11px]'}`}>{sanitizeLabel(itemLabel)}: <span className="text-accent-custom">{formatKpiValue(totalVal, widget.targetMetricName || widget.yAxisKey || '', widget.activeAgg, widget.numberFormat)}</span></span>
                     )}
                   </div>
 
@@ -383,12 +396,14 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
                   />
 
                   {/* Rich HTML Tooltip */}
-                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 scale-0 group-hover/dot:scale-100 bg-surface border shadow-2xl pointer-events-none whitespace-nowrap flex flex-col items-center z-[9999] transition-transform px-2 py-1 rounded border-border-custom text-[9px] font-mono">
-                    <span className="font-bold text-text-custom border-b border-border-custom/50 pb-0.5 mb-1 w-full text-center">
+                  <div className={`absolute ${yPercent < 50 ? 'top-full mt-2 left-1/2 -translate-x-1/2' : 'bottom-full mb-2 left-1/2 -translate-x-1/2'} scale-0 group-hover/dot:scale-100 bg-surface/95 border-2 border-accent-custom/40 shadow-2xl pointer-events-none whitespace-nowrap flex flex-col items-center z-[9999] transition-transform backdrop-blur-md ${
+                    isLargeView ? 'px-4 py-2.5 rounded-2xl text-[14px]' : 'px-3 py-2 rounded-xl text-[12px] font-mono'
+                  }`}>
+                    <span className={`font-bold text-text-custom border-b border-border-custom/50 pb-1 mb-1 w-full text-center ${isLargeView ? 'text-[13px]' : 'text-[11px]'}`}>
                       {sanitizeLabel(labelVal)}
                     </span>
                     {metrics.map((m, mIdx) => (
-                      <span key={m} className="text-muted-custom">
+                      <span key={m} className={`font-semibold text-accent-custom ${isLargeView ? 'text-[12px]' : 'text-[10px]'}`}>
                         {prettifyLabel(m)}: {formatKpiValue(Number(item[m]) || 0, m, widget.activeAgg, widget.numberFormat)}
                       </span>
                     ))}
@@ -593,13 +608,13 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
               className="flex flex-col space-y-1 cursor-pointer group/hbar relative overflow-visible"
             >
               {/* Tooltip */}
-              <div className={`absolute left-1/2 -top-8 -translate-x-1/2 scale-0 group-hover/hbar:scale-100 bg-surface border shadow-2xl pointer-events-none whitespace-nowrap z-50 transition-transform ${
+              <div className={`absolute ${idx === 0 ? 'top-full mt-1.5 left-1/2 -translate-x-1/2' : '-top-10 left-1/2 -translate-x-1/2'} scale-0 group-hover/hbar:scale-100 bg-surface/95 border-2 border-accent-custom/40 shadow-2xl pointer-events-none whitespace-nowrap z-[9999] transition-transform backdrop-blur-md ${
                 isLargeView
-                  ? 'px-3 py-1.5 rounded-xl border-accent-custom/50 border-2 text-[12px] -translate-y-1' 
-                  : 'px-1.5 py-0.5 rounded border-border-custom text-[9px] font-mono'
+                  ? 'px-4 py-2.5 rounded-2xl border-accent-custom/60 text-[14px]' 
+                  : 'px-3 py-1.5 rounded-xl text-[12px] font-mono'
               }`}>
-                <span className={isLargeView ? 'text-[12px] font-semibold text-text-custom' : 'text-text-custom'}>
-                  {sanitizeLabel(itemLabel)}: {formatKpiValue(val, widget.targetMetricName || valKey, widget.activeAgg, widget.numberFormat)}
+                <span className={`font-bold text-text-custom ${isLargeView ? 'text-[13px]' : 'text-[11px]'}`}>
+                  {sanitizeLabel(itemLabel)}: <span className="text-accent-custom">{formatKpiValue(val, widget.targetMetricName || valKey, widget.activeAgg, widget.numberFormat)}</span>
                 </span>
               </div>
 
@@ -623,6 +638,50 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({
             </div>
           );
         })}
+      </div>
+    );
+  }
+
+  // Render Multi-Chart Visual (Exploration / Multi-metric)
+  if (widget.type === 'multi_chart') {
+    const subCharts = (widget as any).charts || (widget.data as any)?.charts || [];
+    const displayCharts = subCharts.length > 0 ? subCharts : [widget];
+    return (
+      <div className="flex flex-col space-y-3 overflow-y-auto w-full h-full pr-1 font-mono text-[9px] relative">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 w-full">
+          {displayCharts.map((sub: any, idx: number) => {
+            const subWidget: CanvasWidget = {
+              ...widget,
+              id: `${widget.id}-sub-${idx}`,
+              title: sub.title || `Visual ${idx + 1}`,
+              type: sub.type || 'bar',
+              data: sub.data?.rows || sub.data || [],
+              xAxisKey: sub.dimension || widget.xAxisKey || 'label',
+              yAxisKey: sub.metric || widget.yAxisKey || 'value',
+              targetMetricName: sub.metric || widget.targetMetricName,
+              targetDimName: sub.dimension || widget.targetDimName,
+            };
+            return (
+              <div key={idx} className="border border-border-custom/40 rounded-xl p-2.5 bg-surface-2/20 flex flex-col h-[180px] min-w-0">
+                <span className="text-[10px] font-semibold text-text-custom truncate mb-1 border-b border-border-custom/20 pb-1">
+                  {sub.title || `Chart #${idx + 1}`}
+                </span>
+                <div className="flex-1 min-h-0 overflow-hidden">
+                  <ChartRenderer
+                    widget={subWidget}
+                    isFullScreenCanvas={isFullScreenCanvas}
+                    isPresentMode={isPresentMode}
+                    geoFilters={geoFilters}
+                    setGeoFilters={setGeoFilters}
+                    addLog={addLog}
+                    onFilterClick={onFilterClick}
+                    customFilters={customFilters}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     );
   }

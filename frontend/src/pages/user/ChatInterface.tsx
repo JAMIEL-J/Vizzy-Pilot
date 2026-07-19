@@ -27,9 +27,9 @@ const isInsightMessage = (msg: ChatMessage) => {
 
 const hasRenderableOutput = (outputData: any) => {
     if (!outputData || outputData.type === 'clarification') return false;
-    if (outputData.type === 'kpi') return true;
+    if (outputData.type === 'kpi' || outputData.type === 'multi_chart' || outputData.chart?.type === 'multi_chart') return true;
     if (outputData.type === 'nl2sql') {
-        if (outputData.chart?.type === 'kpi') return true;
+        if (outputData.chart?.type === 'kpi' || outputData.chart?.type === 'multi_chart') return true;
         if (outputData.response_type === 'text') return false;
         return Boolean(outputData.chart);
     }

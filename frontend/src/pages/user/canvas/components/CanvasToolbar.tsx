@@ -1,11 +1,15 @@
 // CanvasToolbar.tsx — top actions control bar — extracted from CanvasPage.tsx
 import React from 'react';
 import {
-  Database, Play, Undo2, Redo2, Grid, Sliders, Maximize2, Minimize2, Save as SaveIcon, FolderOpen, Loader2, ArrowRightLeft
+  Database, Play, Undo2, Redo2, Grid, Sliders, Maximize2, Minimize2, Save as SaveIcon, FolderOpen, Loader2, ArrowRightLeft, PanelLeft
 } from 'lucide-react';
 import type { Dataset, DatasetVersionSummary } from '../../../../lib/api/dataset';
 
 interface CanvasToolbarProps {
+  // Sidebar state
+  isSidebarCollapsed: boolean;
+  setIsSidebarCollapsed: (v: boolean) => void;
+
   // Datasets
   datasets: Dataset[];
   selectedDatasetId: string;
@@ -54,6 +58,7 @@ interface CanvasToolbarProps {
 }
 
 export const CanvasToolbar: React.FC<CanvasToolbarProps> = ({
+  isSidebarCollapsed, setIsSidebarCollapsed,
   datasets, selectedDatasetId, handleDatasetChange,
   versions, selectedVersionId, handleVersionChange, isLoadingColumns,
   isCompiling,
@@ -71,6 +76,18 @@ export const CanvasToolbar: React.FC<CanvasToolbarProps> = ({
     <div className="border-b border-border-custom bg-surface-2/40 px-6 py-3.5 flex flex-wrap items-center justify-between gap-4 font-mono text-xs select-none">
       <div className="flex items-center space-x-6 flex-wrap gap-y-2">
         <div className="flex items-center space-x-2.5">
+          <button
+            type="button"
+            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+            className={`p-1.5 border rounded-xl transition-all cursor-pointer text-xs font-semibold ${
+              isSidebarCollapsed
+                ? 'bg-accent-custom/10 border-accent-custom/30 text-accent-custom'
+                : 'bg-surface border-border-custom text-muted-custom hover:text-text-custom'
+            }`}
+            title={isSidebarCollapsed ? "Expand Sidebar Pane" : "Collapse Sidebar Pane"}
+          >
+            <PanelLeft className="w-4 h-4" />
+          </button>
           <span className="font-semibold text-text-custom tracking-wider uppercase">Vizzy Pilot Canvas</span>
           <span className="text-muted-custom">|</span>
           <span className="text-muted-custom">Snap: <span className="text-accent-custom font-bold">16px</span></span>
@@ -228,23 +245,21 @@ export const CanvasToolbar: React.FC<CanvasToolbarProps> = ({
         <span className="text-border-custom/50 text-xs px-1 hidden lg:inline">|</span>
 
         {/* View mode toggle (FullScreen/Present/Zoom controls) */}
-        {isFullScreenCanvas && (
-          <div className="flex items-center bg-surface border border-border-custom rounded-xl p-1 shadow-xs mr-1 text-[11px]">
-            <span className="text-muted-custom px-2 uppercase font-bold text-[9px] tracking-wider">Zoom:</span>
-            <select
-              value={canvasZoom}
-              onChange={(e) => setCanvasZoom(e.target.value as any)}
-              className="bg-transparent border-none text-[11px] font-semibold text-text-custom outline-none pr-5 cursor-pointer"
-            >
-              <option value="fit-width">Fit Width</option>
-              <option value="fit-page">Fit Page</option>
-              <option value="fit-canvas">Fit Canvas</option>
-              <option value="100">100%</option>
-              <option value="75">75%</option>
-              <option value="50">50%</option>
-            </select>
-          </div>
-        )}
+        <div className="flex items-center bg-surface border border-border-custom rounded-xl p-1 shadow-xs mr-1 text-[11px]">
+          <span className="text-muted-custom px-2 uppercase font-bold text-[9px] tracking-wider">Zoom:</span>
+          <select
+            value={canvasZoom}
+            onChange={(e) => setCanvasZoom(e.target.value as any)}
+            className="bg-transparent border-none text-[11px] font-semibold text-text-custom outline-none pr-5 cursor-pointer"
+          >
+            <option value="fit-width">Fit Width</option>
+            <option value="fit-page">Fit Page</option>
+            <option value="fit-canvas">Fit Canvas</option>
+            <option value="100">100%</option>
+            <option value="75">75%</option>
+            <option value="50">50%</option>
+          </select>
+        </div>
 
         <button
           type="button"

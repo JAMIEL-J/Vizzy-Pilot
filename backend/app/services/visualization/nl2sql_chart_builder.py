@@ -111,22 +111,38 @@ def _normalize_metric_value(value: Any, use_whole_number: bool) -> Any:
     return int(round(float(value))) if use_whole_number else value
 
 
+def _is_numeric_val(val: Any) -> bool:
+    """Check if a value is numeric (int, float, Decimal, or convertible string number)."""
+    if isinstance(val, bool):
+        return False
+    if isinstance(val, (int, float)):
+        return True
+    if val is not None:
+        try:
+            float(val)
+            return True
+        except (ValueError, TypeError):
+            pass
+    return False
+
+
 def _auto_chart_type(chart_type: str, data: List[Dict[str, Any]], columns: List[str]) -> str:
     """Upgrade generic chart hints to better chart types based on result shape."""
     if not data or not columns:
         return chart_type
 
     first_row = data[0] if isinstance(data[0], dict) else {}
-    numeric_cols = [c for c in columns if isinstance(first_row.get(c), (int, float))]
+    numeric_cols = [c for c in columns if _is_numeric_val(first_row.get(c))]
     non_numeric_cols = [c for c in columns if c not in numeric_cols]
 
     # If there is exactly one row and all columns are numeric, it should render as a KPI.
     if len(data) == 1 and len(numeric_cols) >= 1 and len(non_numeric_cols) == 0:
         return "kpi"
 
-    # Multi-metric category comparisons should render as stacked bars.
-    if len(non_numeric_cols) >= 1 and len(numeric_cols) >= 2 and chart_type in {"bar", "table", "stacked"}:
-        return "stacked_bar"
+    # Multi-metric category comparisons (e.g., Product Name with Sales and Profit) should render as stacked bars.
+    if len(non_numeric_cols) >= 1 and len(numeric_cols) >= 2 and chart_type in {"bar", "table", "stacked", "stacked_bar", "multi_chart"}:
+        if len(non_numeric_cols) == 1 or chart_type in {"bar", "stacked", "stacked_bar"}:
+            return "stacked_bar"
 
     # Top-N/tabular category comparisons are better as bars than raw tables.
     if len(non_numeric_cols) >= 1 and len(numeric_cols) == 1 and chart_type == "table":
@@ -245,7 +261,8 @@ def build_chart_from_nl2sql(nl2sql_result: dict) -> Dict[str, Any]:
     builders = {
         "kpi": _build_kpi,
         "bar": _build_bar,
-        "stacked_bar": _build_multi_chart,
+        "stacked_bar": _build_stacked_bar,
+        "stacked": _build_stacked_bar,
         "multi_chart": _build_multi_chart,
         "exploration": _build_multi_chart,
         "line": _build_line,
@@ -439,7 +456,7 @@ def _build_stacked_bar(data: list, columns: list, title: str, x_axis: str, y_axi
         return _build_table(data, columns, title, x_axis, y_axis, column_metadata)
 
     first_row = data[0] if isinstance(data[0], dict) else {}
-    numeric_cols = [c for c in columns if isinstance(first_row.get(c), (int, float))]
+    numeric_cols = [c for c in columns if _is_numeric_val(first_row.get(c))]
     category_candidates = [c for c in columns if c not in numeric_cols]
 
     # Fallback to basic bar if shape is not suitable for stacked output.

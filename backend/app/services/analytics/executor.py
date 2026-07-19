@@ -614,6 +614,8 @@ class Executor:
                 llm_time_ms += round((time.perf_counter() - t_coder_start) * 1000)
                 
                 raw_sql = coder_result.get("sql", "").strip()
+                from ..security.sandbox import auto_quote_schema_columns
+                raw_sql = auto_quote_schema_columns(raw_sql, available_cols)
                 last_sql = raw_sql
                 final_coder_meta = coder_result
                 
@@ -675,6 +677,8 @@ class Executor:
                 
                 llm_time_ms += round((time.perf_counter() - t_coder_start) * 1000)
                 raw_sql = coder_result.get("sql", "").strip()
+                from ..security.sandbox import auto_quote_schema_columns
+                raw_sql = auto_quote_schema_columns(raw_sql, available_cols)
                 last_sql = raw_sql
                 final_coder_meta = coder_result
 
