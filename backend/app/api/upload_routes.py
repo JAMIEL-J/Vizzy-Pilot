@@ -210,7 +210,8 @@ async def upload_dataset_file(
         file_stream = file.file
         
         logger.info("Starting ingestion...")
-        result = ingest_file_upload(
+        result = await asyncio.to_thread(
+            ingest_file_upload,
             session=session,
             dataset_id=dataset_id,
             user_id=UUID(current_user.user_id),
@@ -340,7 +341,8 @@ async def upload_dataset(
         file_stream = file.file
 
         logger.info("Starting ingestion...")
-        result = ingest_file_upload(
+        result = await asyncio.to_thread(
+            ingest_file_upload,
             session=session,
             dataset_id=dataset_id,
             user_id=UUID(current_user.user_id),

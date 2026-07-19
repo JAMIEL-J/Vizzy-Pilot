@@ -199,30 +199,116 @@ def _batch_nullify_strings(conn: duckdb.DuckDBPyConnection, table_name: str, var
 
 
 def run_coercion_pipeline(conn: duckdb.DuckDBPyConnection, table_name: str) -> List[ColumnCoercionResult]:
-    """Run coercion on all VARCHAR columns in a table."""
+    """Run single-pass coercion on all VARCHAR columns in a table (Option 3b).
+
+    Collapses N sequential ALTER TABLE / UPDATE statements into a single
+    CREATE TABLE ... AS SELECT pass, replacing N full-table disk rewrites
+    with 1 single vectorized pass.
+    """
     import time as _time
     _t0 = _time.perf_counter()
 
     results = []
     schema_df = execute(conn, f'DESCRIBE {safe_identifier(table_name)}').df()
     varchar_cols = schema_df[schema_df['column_type'] == 'VARCHAR']['column_name'].tolist()
-    
-    if varchar_cols:
-        _batch_nullify_strings(conn, table_name, varchar_cols)
-        _t_nullify = _time.perf_counter()
-        nullify_time = _t_nullify - _t0
-        if nullify_time > 0.5:
-            logger.info("coercion: batch nullify %d VARCHAR cols in %.2fs", len(varchar_cols), nullify_time)
 
-    for col in varchar_cols:
-        res = coerce_column(conn, table_name, col)
-        if res:
-            results.append(res)
-            logger.info(f"Coerced column {col}: {res.coercion_applied} -> DOUBLE")
-    
+    if not varchar_cols:
+        return results
+
+    in_clause, null_params = build_in_clause(list(NULL_STRINGS))
+    select_exprs = []
+    coercion_specs: Dict[str, Tuple[str, str, Optional[Dict[str, str]]]] = {}
+    param_list: List[Any] = []
+
+    for _, row in schema_df.iterrows():
+        col = row['column_name']
+        col_type = row['column_type']
+        safe_col = safe_identifier(col)
+
+        if col in varchar_cols:
+            # Sample up to 500 non-null values with deterministic ordering to test pattern matching
+            sample_df = execute(conn, f"""
+                SELECT {safe_col}
+                FROM {safe_identifier(table_name)}
+                WHERE {safe_col} IS NOT NULL
+                ORDER BY {safe_col}
+                LIMIT 500
+            """).df()
+
+            detected_pattern = None
+            if not sample_df.empty:
+                non_null_values = sample_df[col].astype(str).str.strip().tolist()
+                max_match_rate = 0.0
+                for pattern, pattern_name in DIRTY_NUMERIC_PATTERNS:
+                    matches = sum(1 for v in non_null_values if re.match(pattern, v))
+                    rate = matches / len(non_null_values)
+                    if rate > 0.85 and rate > max_match_rate:
+                        detected_pattern = pattern_name
+                        max_match_rate = rate
+
+            if detected_pattern:
+                clean_expr = build_clean_expression(col, detected_pattern)
+                expr = f"CASE WHEN LOWER(TRIM({safe_col})) {in_clause} THEN NULL ELSE TRY_CAST({clean_expr} AS DOUBLE) END AS {safe_col}"
+                coercion_specs[col] = (detected_pattern, clean_expr, FORMATTING_MAP.get(detected_pattern))
+            else:
+                # Test if standard TRY_CAST to DOUBLE succeeds for >= 95% of non-null values
+                test_cast = execute(conn, f"""
+                    SELECT 
+                        COUNT(*) FILTER (WHERE TRY_CAST({safe_col} AS DOUBLE) IS NOT NULL) as valid_num,
+                        COUNT(*) as total_non_null
+                    FROM {safe_identifier(table_name)}
+                    WHERE {safe_col} IS NOT NULL AND LOWER(TRIM({safe_col})) NOT IN ('null', 'n/a', '-', '', 'none', 'nan', 'undefined')
+                """).fetchone()
+                
+                valid_num, total_non_null = test_cast or (0, 0)
+                if total_non_null > 0 and (valid_num / total_non_null) >= 0.95:
+                    detected_pattern = "standard_numeric"
+                    clean_expr = safe_col
+                    expr = f"CASE WHEN LOWER(TRIM({safe_col})) {in_clause} THEN NULL ELSE TRY_CAST({safe_col} AS DOUBLE) END AS {safe_col}"
+                    coercion_specs[col] = (detected_pattern, clean_expr, None)
+                else:
+                    expr = f"CASE WHEN LOWER(TRIM({safe_col})) {in_clause} THEN NULL ELSE {safe_col} END AS {safe_col}"
+
+            select_exprs.append(expr)
+            param_list.extend(null_params)
+        else:
+            select_exprs.append(f"{safe_col} AS {safe_col}")
+
+    tmp_table = f"{table_name}__coerced_tmp"
+    conn.execute(f'DROP TABLE IF EXISTS {safe_identifier(tmp_table)}')
+    sql = f"CREATE TABLE {safe_identifier(tmp_table)} AS SELECT {', '.join(select_exprs)} FROM {safe_identifier(table_name)}"
+    execute(conn, sql, params=param_list)
+
+    # Post-validation: Record results for coerced columns
+    for col, (pattern_name, clean_expr, display_fmt) in coercion_specs.items():
+        safe_col = safe_identifier(col)
+        stats = conn.execute(f"""
+            SELECT 
+                COUNT(*) FILTER (WHERE {safe_col} IS NULL) as null_after,
+                COUNT(*) as total_rows
+            FROM {safe_identifier(tmp_table)}
+        """).fetchone()
+
+        null_after, total_rows = stats or (0, 0)
+        results.append(ColumnCoercionResult(
+            original_name=col,
+            original_type="VARCHAR",
+            coerced_type="DOUBLE",
+            coercion_applied=pattern_name,
+            null_count_before=0,
+            null_count_after=null_after,
+            failed_conversion_count=0,
+            sample_problematic_values=[],
+            display_format=display_fmt
+        ))
+        logger.info("Single-pass coerced column %s: %s -> DOUBLE", col, pattern_name)
+
+    # Swap temp table for original table in 1 atomic operation
+    conn.execute(f'DROP TABLE IF EXISTS {safe_identifier(table_name)}')
+    conn.execute(f'ALTER TABLE {safe_identifier(tmp_table)} RENAME TO {safe_identifier(table_name)}')
+
     _t_total = _time.perf_counter()
     total_time = _t_total - _t0
-    if total_time > 0.5:
-        logger.info("coercion pipeline total: %.2fs (%d cols, %d coercions)", total_time, len(varchar_cols), len(results))
-            
+    logger.info("Single-pass coercion pipeline total: %.2fs (%d cols, %d coercions)", total_time, len(varchar_cols), len(results))
+
     return results

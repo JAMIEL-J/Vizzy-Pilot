@@ -60,7 +60,10 @@ def init_db() -> None:
     import os
     from alembic.config import Config
     from alembic import command
-    
+    from app.core.logger import get_logger
+
+    logger = get_logger(__name__)
+
     # Resolve absolute paths to alembic config and directories
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     ini_path = os.path.join(base_dir, "alembic.ini")
@@ -69,7 +72,19 @@ def init_db() -> None:
     alembic_cfg.set_main_option("script_location", os.path.join(base_dir, "alembic"))
     
     # Run the database migrations programmatically
-    command.upgrade(alembic_cfg, "head")
+    try:
+        command.upgrade(alembic_cfg, "head")
+    except Exception as e:
+        err_msg = str(e).lower()
+        if "already exists" in err_msg:
+            logger.warning(f"Database tables pre-exist without Alembic version tag. Stamping head revision.")
+            try:
+                command.stamp(alembic_cfg, "head")
+            except Exception as stamp_err:
+                logger.error(f"Failed to stamp database head revision: {stamp_err}")
+        else:
+            raise e
+
 
 
 def get_session() -> Generator[Session, None, None]:

@@ -332,9 +332,15 @@ def _stream_to_path(file_stream: BinaryIO, dest_path: Path, max_size_bytes: int)
 
 
 def _count_csv_rows(file_path: Path) -> int:
-    """Count rows in CSV file (excluding header)."""
-    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-        return max(sum(1 for _ in f) - 1, 0)
+    """Count rows in CSV file (excluding header) using native DuckDB read_csv_auto."""
+    import duckdb
+    try:
+        res = duckdb.execute("SELECT COUNT(*) FROM read_csv_auto(?)", [str(file_path)]).fetchone()
+        return res[0] if res else 0
+    except Exception:
+        # Fallback to Python line iteration if DuckDB cannot read the raw file directly
+        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            return max(sum(1 for _ in f) - 1, 0)
 
 
 async def generate_initial_dashboard(

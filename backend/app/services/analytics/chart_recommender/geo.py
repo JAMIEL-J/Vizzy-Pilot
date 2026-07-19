@@ -48,20 +48,20 @@ def _detect_map_type(col_values: List[str]) -> Optional[str]:
 
     sample_raw = [str(v).lower().strip() for v in col_values[:100]]
 
-    # 1. Check for explicit "World" indicators
-    world_indicator_matches = sum(1 for v in sample_raw if v in WORLD_KEYWORDS)
-    if world_indicator_matches > 0:
-        return 'world'
-
-    # 2. Check for US State abbreviations (e.g. CA, TX, NY)
+    # 1. Check for US State abbreviations (e.g. CA, TX, NY)
     abbrev_matches = sum(1 for v in sample_raw if v in US_STATE_ABBREVS)
     if abbrev_matches / max(len(sample_raw), 1) > 0.3:
         return 'us_states'
 
-    # 3. Check for US State full names
+    # 2. Check for US State full names
     full_matches = sum(1 for v in sample_raw if v in US_STATE_FULL_NAMES)
     if full_matches / max(len(sample_raw), 1) > 0.3:
         return 'us_states'
+
+    # 3. Check for explicit "World" indicators
+    world_indicator_matches = sum(1 for v in sample_raw if v in WORLD_KEYWORDS)
+    if world_indicator_matches > 0:
+        return 'world'
 
     # 4. Require at least SOME matches to call it a world map, otherwise None
     if world_indicator_matches > 0 or abbrev_matches > 0 or full_matches > 0:

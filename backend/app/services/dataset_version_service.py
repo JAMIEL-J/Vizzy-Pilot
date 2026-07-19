@@ -523,7 +523,18 @@ def preview_remap_impact(
     }
 
 def resolve_semantic_map(session: Session, version: DatasetVersion) -> str | None:
-    return version.semantic_map_json
+    if version.semantic_map_json:
+        return version.semantic_map_json
+    sibling = session.exec(
+        select(DatasetVersion)
+        .where(
+            DatasetVersion.dataset_id == version.dataset_id,
+            DatasetVersion.is_active == True,
+            DatasetVersion.semantic_map_json.is_not(None),
+        )
+        .order_by(DatasetVersion.version_number.desc())
+    ).first()
+    return sibling.semantic_map_json if sibling else None
 
 
 def delete_version(

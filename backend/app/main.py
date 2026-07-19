@@ -29,6 +29,21 @@ from app.api.router import api_router
 logger = get_logger(__name__)
 settings = get_settings()
 
+import time
+
+
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    """Middleware to log HTTP request method, path, status code, and latency."""
+    async def dispatch(self, request: Request, call_next):
+        start_time = time.perf_counter()
+        response = await call_next(request)
+        process_time = (time.perf_counter() - start_time) * 1000
+        logger.info(
+            f"[HTTP] {request.method} {request.url.path} -> {response.status_code} ({process_time:.1f}ms)"
+        )
+        return response
+
+
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """
     Middleware to add security headers to all responses.
@@ -104,6 +119,9 @@ app = FastAPI(
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Request Logging Middleware (logs method, path, status, latency)
+app.add_middleware(RequestLoggingMiddleware)
 
 # Security Headers Middleware
 app.add_middleware(SecurityHeadersMiddleware)
