@@ -1,6 +1,6 @@
 <div align="center">
 
-<h1>⚡ Vizzy Analytics</h1>
+<h1>⚡ Vizzy Pilot</h1>
 
 <p><strong>Natural language to validated SQL. Hybrid execution engine. Immutable audit trail.</strong><br>
 Ask your data a question. Get a chart. Every transformation tracked.</p>
@@ -8,8 +8,8 @@ Ask your data a question. Get a chart. Every transformation tracked.</p>
 <p>
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square" alt="License"/>
   <img src="https://img.shields.io/badge/Live%20Demo-Online-brightgreen?style=flat-square&logo=vercel&logoColor=white" alt="Live Demo"/>
-  <img src="https://img.shields.io/github/last-commit/JAMIEL-J/Vizzy-Analytics?style=flat-square&logo=github" alt="Last Commit"/>
-  <img src="https://img.shields.io/github/repo-size/JAMIEL-J/Vizzy-Analytics?style=flat-square" alt="Repo Size"/>
+  <img src="https://img.shields.io/github/last-commit/JAMIEL-J/Vizzy-Pilot?style=flat-square&logo=github" alt="Last Commit"/>
+  <img src="https://img.shields.io/github/repo-size/JAMIEL-J/Vizzy-Pilot?style=flat-square" alt="Repo Size"/>
 </p>
 
 <p>
@@ -24,7 +24,7 @@ Ask your data a question. Get a chart. Every transformation tracked.</p>
 
 <p>
   <a href="https://vizzy-ai-dqgw.vercel.app">🚀 Live Demo</a> &nbsp;·&nbsp;
-  <a href="https://github.com/JAMIEL-J/Vizzy-Analytics">📂 GitHub</a> &nbsp;·&nbsp;
+  <a href="https://github.com/JAMIEL-J/Vizzy-Pilot">📂 GitHub</a> &nbsp;·&nbsp;
   <a href="#%EF%B8%8F-how-it-works">⚙️ How It Works</a> &nbsp;·&nbsp;
   <a href="#-performance-numbers">🔖 Benchmarks</a>
 </p>
