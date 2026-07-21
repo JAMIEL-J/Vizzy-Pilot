@@ -20,7 +20,11 @@ logger = logging.getLogger(__name__)
 
 def _get_duckdb_status_marker_paths(dataset_id: UUID, version_id: UUID) -> Dict[str, Path]:
     """Return marker file paths used to track asynchronous DuckDB build state."""
-    version_dir = get_duckdb_path(dataset_id, version_id).parent
+    # We must use local disk for markers even if S3 is used for DuckDB file
+    from app.core.config import get_settings
+    import os
+    version_dir = Path(get_settings().storage.data_dir) / str(dataset_id) / str(version_id)
+    os.makedirs(version_dir, exist_ok=True)
     return {
         "building": version_dir / ".duckdb_building",
         "failed": version_dir / ".duckdb_failed.json",
@@ -58,12 +62,14 @@ def mark_duckdb_failed(dataset_id: UUID, version_id: UUID, error: str) -> None:
     markers["failed"].write_text(json.dumps(payload), encoding="utf-8")
 
 
+from app.services.storage import get_storage
+
 def get_duckdb_build_status(dataset_id: UUID, version_id: UUID) -> Dict[str, Any]:
     """Return one of: building, ready, failed."""
     duckdb_path = get_duckdb_path(dataset_id, version_id)
     markers = _get_duckdb_status_marker_paths(dataset_id, version_id)
 
-    if duckdb_path.exists():
+    if get_storage().exists(duckdb_path):
         return {"status": "ready", "error": None, "duckdb_path": str(duckdb_path)}
 
     if markers["failed"].exists():
@@ -118,7 +124,7 @@ async def build_duckdb_from_csv(
     duckdb_path = get_duckdb_path(dataset_id, version_id)
 
     # Check if already exists
-    if duckdb_path.exists() and not force_rebuild:
+    if get_storage().exists(duckdb_path) and not force_rebuild:
         logger.info(f"DuckDB file already exists: {duckdb_path}")
         mark_duckdb_ready(dataset_id, version_id)
         return duckdb_path
@@ -131,16 +137,20 @@ async def build_duckdb_from_csv(
         # Create database engine pointing to persistent file
         db_engine = DBEngine(db_path=str(duckdb_path))
 
+        from app.services.storage import get_storage
+        local_csv_path = get_storage().download_to_temp(csv_path)
+
         try:
             # Load CSV into DuckDB (creates table + runs coercion pipeline)
-            await db_engine.load_csv(table_name, csv_path)
+            await db_engine.load_csv(table_name, local_csv_path, storage_key=csv_path)
         finally:
+            get_storage().cleanup_temp(local_csv_path)
             # Close connection to finalize file
             db_engine.close()
 
         mark_duckdb_ready(dataset_id, version_id)
 
-        file_size_mb = duckdb_path.stat().st_size / 1024 / 1024
+        file_size_mb = 0 / 1024 / 1024
         logger.info(f"✅ DuckDB file created: {duckdb_path} ({file_size_mb:.2f} MB)")
 
         return duckdb_path
@@ -148,9 +158,9 @@ async def build_duckdb_from_csv(
     except Exception as e:
         logger.error(f"Failed to build DuckDB file: {e}")
         # Clean up partial file if it exists
-        if duckdb_path.exists():
+        if get_storage().exists(duckdb_path):
             try:
-                duckdb_path.unlink()
+                get_storage().delete(duckdb_path)
             except Exception as unlink_err:
                 logger.warning(f"Failed to delete partial DuckDB file: {unlink_err}")
         mark_duckdb_failed(dataset_id, version_id, str(e))
@@ -165,7 +175,7 @@ async def get_or_build_duckdb(dataset_id: UUID, version_id: UUID, csv_path: str)
     """
     duckdb_path = get_duckdb_path(dataset_id, version_id)
 
-    if duckdb_path.exists():
+    if get_storage().exists(duckdb_path):
         return duckdb_path
 
     return await build_duckdb_from_csv(dataset_id, version_id, csv_path)
@@ -194,13 +204,19 @@ async def add_table_to_duckdb(
     try:
         mark_duckdb_building(dataset_id, version_id)
 
-        db_engine = DBEngine(db_path=str(duckdb_path))
-        await db_engine.load_csv(table_name, csv_path)
-        db_engine.close()
+        from app.services.storage import get_storage
+        local_csv_path = get_storage().download_to_temp(csv_path)
+
+        try:
+            db_engine = DBEngine(db_path=str(duckdb_path))
+            await db_engine.load_csv(table_name, local_csv_path, storage_key=csv_path)
+            db_engine.close()
+        finally:
+            get_storage().cleanup_temp(local_csv_path)
 
         mark_duckdb_ready(dataset_id, version_id)
 
-        file_size_mb = duckdb_path.stat().st_size / 1024 / 1024
+        file_size_mb = 0 / 1024 / 1024
         logger.info(f"✅ Table '{table_name}' added to DuckDB ({file_size_mb:.2f} MB total)")
 
         return duckdb_path

@@ -20,13 +20,16 @@ class DBEngine:
     
     def __init__(self, db_path: Optional[str] = None, read_only: bool = False):
         from app.core.config import get_settings
+        from app.services.storage import get_storage
         settings = get_settings()
-        self._db_path = db_path or settings.storage.duckdb_path
-
-        # Ensure parent directory exists for file-based paths
-        if self._db_path != ":memory:":
-            import os
-            os.makedirs(os.path.dirname(self._db_path) or ".", exist_ok=True)
+        self._storage_key = db_path or settings.storage.duckdb_path
+        self._read_only = read_only
+        self._storage = get_storage()
+        
+        if self._storage_key != ":memory:":
+            self._db_path = self._storage.download_to_temp(self._storage_key)
+        else:
+            self._db_path = ":memory:"
 
         self._write_con = duckdb.connect(database=self._db_path, read_only=read_only)
         try:
@@ -84,7 +87,7 @@ class DBEngine:
             create_performance_indices(self._write_con, table_name)
             self._lock_down_read_con()
 
-    async def load_csv(self, table_name: str, file_path: str):
+    async def load_csv(self, table_name: str, file_path: str, storage_key: Optional[str] = None):
         """Load a CSV file directly into DuckDB and run coercion.
 
         Acquires the async lock on the event loop, then offloads synchronous
@@ -92,9 +95,9 @@ class DBEngine:
         worker thread via asyncio.to_thread.
         """
         async with _write_lock:
-            await asyncio.to_thread(self._sync_load_and_coerce, table_name, file_path)
+            await asyncio.to_thread(self._sync_load_and_coerce, table_name, file_path, storage_key)
 
-    def _sync_load_and_coerce(self, table_name: str, file_path: str):
+    def _sync_load_and_coerce(self, table_name: str, file_path: str, storage_key: Optional[str] = None):
         """Synchronous worker thread handler for CSV loading and single-pass coercion."""
         _phase_times: Dict[str, float] = {}
         _t0 = time.perf_counter()
@@ -102,89 +105,106 @@ class DBEngine:
         effective_path = file_path
         loaded = False
         try:
-            self._write_con.execute(f'DROP TABLE IF EXISTS {safe_identifier(table_name)}')
-            self._write_con.execute(
-                f"CREATE TABLE {safe_identifier(table_name)} AS SELECT * FROM read_csv_auto(?)",
-                [effective_path]
-            )
-            _phase_times["read_csv_auto"] = time.perf_counter() - _t0
-            loaded = True
-        except duckdb.Error as first_err:
-            err_msg = str(first_err).lower()
-            is_encoding_error = any(
-                tok in err_msg
-                for tok in ["unicode", "utf-8", "utf8", "codec", "encoding", "byte sequence"]
-            )
-            if not is_encoding_error:
-                logger.error(f"Failed to load CSV via DuckDB: {first_err}")
-                raise ValueError(f"Direct CSV load failed: {first_err}")
-
-            logger.warning(
-                "DuckDB detected encoding issue in %s. Attempting re-encoding to UTF-8.",
-                file_path,
-            )
-
-            _t_reencode = time.perf_counter()
-            effective_path = self._reencode_csv_to_utf8(file_path)
-
             try:
                 self._write_con.execute(f'DROP TABLE IF EXISTS {safe_identifier(table_name)}')
                 self._write_con.execute(
                     f"CREATE TABLE {safe_identifier(table_name)} AS SELECT * FROM read_csv_auto(?)",
                     [effective_path]
                 )
-                _phase_times["read_csv_auto_retry"] = time.perf_counter() - _t_reencode
+                _phase_times["read_csv_auto"] = time.perf_counter() - _t0
                 loaded = True
-            except duckdb.Error:
+            except duckdb.Error as first_err:
+                err_msg = str(first_err).lower()
+                is_encoding_error = any(
+                    tok in err_msg
+                    for tok in ["unicode", "utf-8", "utf8", "codec", "encoding", "byte sequence"]
+                )
+                if not is_encoding_error:
+                    logger.error(f"Failed to load CSV via DuckDB: {first_err}")
+                    raise ValueError(f"Direct CSV load failed: {first_err}")
+
                 logger.warning(
-                    "Re-encoded file still failed. Retrying with ignore_errors=true for %s",
+                    "DuckDB detected encoding issue in %s. Attempting re-encoding to UTF-8.",
                     file_path,
                 )
+
+                _t_reencode = time.perf_counter()
+                effective_path = self._reencode_csv_to_utf8(file_path, storage_key)
+
                 try:
                     self._write_con.execute(f'DROP TABLE IF EXISTS {safe_identifier(table_name)}')
                     self._write_con.execute(
-                        f"CREATE TABLE {safe_identifier(table_name)} AS SELECT * FROM "
-                        f"read_csv_auto(?, ignore_errors=true)",
+                        f"CREATE TABLE {safe_identifier(table_name)} AS SELECT * FROM read_csv_auto(?)",
                         [effective_path]
                     )
+                    _phase_times["read_csv_auto_retry"] = time.perf_counter() - _t_reencode
                     loaded = True
-                except duckdb.Error as final_err:
-                    logger.error(f"All CSV load strategies failed: {final_err}")
-                    raise ValueError(f"Direct CSV load failed: {final_err}")
+                except duckdb.Error:
+                    logger.warning(
+                        "Re-encoded file still failed. Retrying with ignore_errors=true for %s",
+                        file_path,
+                    )
+                    try:
+                        self._write_con.execute(f'DROP TABLE IF EXISTS {safe_identifier(table_name)}')
+                        self._write_con.execute(
+                            f"CREATE TABLE {safe_identifier(table_name)} AS SELECT * FROM "
+                            f"read_csv_auto(?, ignore_errors=true)",
+                            [effective_path]
+                        )
+                        loaded = True
+                    except duckdb.Error as final_err:
+                        logger.error(f"All CSV load strategies failed: {final_err}")
+                        raise ValueError(f"Direct CSV load failed: {final_err}")
 
-        if loaded:
-            _t_coerce = time.perf_counter()
-            try:
-                self.coercion_results = run_coercion_pipeline(self._write_con, table_name)
-            except Exception as coercion_err:
-                logger.warning(f"Coercion pipeline failed (non-fatal): {coercion_err}")
-                self.coercion_results = []
-            _phase_times["coercion"] = time.perf_counter() - _t_coerce
+            if loaded:
+                _t_coerce = time.perf_counter()
+                try:
+                    self.coercion_results = run_coercion_pipeline(self._write_con, table_name)
+                except Exception as coercion_err:
+                    logger.warning(f"Coercion pipeline failed (non-fatal): {coercion_err}")
+                    self.coercion_results = []
+                _phase_times["coercion"] = time.perf_counter() - _t_coerce
 
-            _t_index = time.perf_counter()
-            create_performance_indices(self._write_con, table_name)
-            _phase_times["indexing"] = time.perf_counter() - _t_index
+                _t_index = time.perf_counter()
+                create_performance_indices(self._write_con, table_name)
+                _phase_times["indexing"] = time.perf_counter() - _t_index
 
-            _phase_times["total"] = time.perf_counter() - _t0
-            if any(v >= _TIMING_LOG_THRESHOLD for v in _phase_times.values()):
-                _timing_summary = " | ".join(
-                    f"{k}={v:.2f}s" for k, v in _phase_times.items() if v >= _TIMING_LOG_THRESHOLD
-                )
-                logger.info(
-                    "DBEngine.load_csv timing for table '%s': %s | total=%.2fs",
-                    table_name, _timing_summary, _phase_times["total"]
-                )
+                _phase_times["total"] = time.perf_counter() - _t0
+                if any(v >= _TIMING_LOG_THRESHOLD for v in _phase_times.values()):
+                    _timing_summary = " | ".join(
+                        f"{k}={v:.2f}s" for k, v in _phase_times.items() if v >= _TIMING_LOG_THRESHOLD
+                    )
+                    logger.info(
+                        "DBEngine.load_csv timing for table '%s': %s | total=%.2fs",
+                        table_name, _timing_summary, _phase_times["total"]
+                    )
 
-            self._lock_down_read_con()
+                self._lock_down_read_con()
+        finally:
+            if effective_path != file_path:
+                try:
+                    self._storage.cleanup_temp(effective_path)
+                except Exception as cleanup_err:
+                    logger.warning(f"Failed to cleanup re-encoded temp file {effective_path}: {cleanup_err}")
 
-    @staticmethod
-    def _reencode_csv_to_utf8(file_path: str) -> str:
-        """Detect CSV encoding and write a UTF-8 copy next to the original.
+    def _reencode_csv_to_utf8(self, file_path: str, storage_key: Optional[str] = None) -> str:
+        """Detect CSV encoding and write a UTF-8 copy.
 
         Returns the path to the UTF-8 file (may be the original if already UTF-8).
+        If storage_key is provided, checks storage backend for a cached re-encoded
+        version and downloads it if it exists. Otherwise, performs re-encoding
+        and uploads the result to the storage backend to cache it.
         """
         import os
         from pathlib import Path
+
+        derived_key = None
+        if storage_key:
+            src_path_obj = Path(storage_key)
+            derived_key = str(src_path_obj.with_name(src_path_obj.stem + "_utf8" + src_path_obj.suffix)).replace("\\", "/")
+            if self._storage.exists(derived_key):
+                logger.info("Re-encoded UTF-8 file found in storage cache: %s", derived_key)
+                return self._storage.download_to_temp(derived_key)
 
         src = Path(file_path)
         utf8_path = src.with_name(src.stem + "_utf8" + src.suffix)
@@ -214,6 +234,14 @@ class DBEngine:
             encodings_to_try.append(detected_encoding)
         encodings_to_try.extend(["utf-8-sig", "latin-1", "cp1252", "iso-8859-1", "utf-16"])
 
+        def persist_to_storage_if_needed():
+            if derived_key:
+                try:
+                    self._storage.upload_from_temp(derived_key, str(utf8_path))
+                    logger.info("Saved re-encoded UTF-8 file to storage: %s", derived_key)
+                except Exception as e:
+                    logger.warning("Failed to save re-encoded file to storage: %s", e)
+
         for enc in encodings_to_try:
             try:
                 with open(src, "r", encoding=enc, errors="strict") as fin:
@@ -221,6 +249,7 @@ class DBEngine:
                         for chunk in iter(lambda: fin.read(1024 * 256), ""):
                             fout.write(chunk)
                 logger.info("Re-encoded %s from %s → UTF-8 at %s", file_path, enc, utf8_path)
+                persist_to_storage_if_needed()
                 return str(utf8_path)
             except (UnicodeDecodeError, UnicodeError, LookupError):
                 continue
@@ -232,6 +261,7 @@ class DBEngine:
                     for chunk in iter(lambda: fin.read(1024 * 256), ""):
                         fout.write(chunk)
             logger.warning("Used lossy UTF-8 replace for %s", file_path)
+            persist_to_storage_if_needed()
             return str(utf8_path)
         except Exception as e:
             logger.error("All re-encoding attempts failed for %s: %s", file_path, e)
@@ -294,6 +324,12 @@ class DBEngine:
                 self._write_con.close()
             except Exception:
                 pass
+                
+        if hasattr(self, '_storage_key') and self._storage_key != ":memory:":
+            if hasattr(self, '_storage') and hasattr(self, '_db_path'):
+                if not getattr(self, '_read_only', False):
+                    self._storage.upload_from_temp(self._storage_key, self._db_path)
+                self._storage.cleanup_temp(self._db_path)
 
 # Singleton instance
 _engine_instance: Optional[DBEngine] = None

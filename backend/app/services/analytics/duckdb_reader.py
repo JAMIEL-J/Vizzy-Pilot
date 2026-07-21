@@ -71,18 +71,15 @@ class DuckDBReader:
             FileNotFoundError: If the .duckdb file doesn't exist
             duckdb.Error: If DuckDB cannot open the file
         """
-        import pathlib
-        path = pathlib.Path(duckdb_path)
-        if not path.exists():
-            raise FileNotFoundError(
-                f"DuckDB file not found: {duckdb_path}"
-            )
-        if not path.is_file():
-            raise FileNotFoundError(
-                f"DuckDB path is not a file: {duckdb_path}"
-            )
-
-        self._path = str(path.resolve())
+        from app.services.storage import get_storage
+        self._storage = get_storage()
+        self._storage_key = duckdb_path
+        
+        if not self._storage.exists(self._storage_key):
+             raise FileNotFoundError(f"DuckDB file not found: {duckdb_path}")
+             
+        self._temp_path = self._storage.download_to_temp(self._storage_key)
+        self._path = str(self._temp_path)
         self._conn = duckdb.connect(database=self._path, read_only=True)
         self._table: str = safe_identifier(table_name)
 
@@ -101,6 +98,8 @@ class DuckDBReader:
             except Exception:
                 pass
             self._conn = None
+        if hasattr(self, '_storage') and hasattr(self, '_temp_path'):
+            self._storage.cleanup_temp(self._temp_path)
 
     def __enter__(self):
         return self

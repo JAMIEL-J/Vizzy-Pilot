@@ -19,7 +19,17 @@ def execute_and_save_cleaning(
     cleaned_df = execute_plan(df, proposed_actions)
 
     cleaned_path = get_cleaned_data_path(dataset_id, version_id)
-    cleaned_df.to_csv(cleaned_path, index=False)
+    from app.services.storage import get_storage
+    import tempfile, uuid, os
+    tmp_path = os.path.join(tempfile.gettempdir(), f"csv_{uuid.uuid4().hex}")
+    
+    try:
+        cleaned_df.to_csv(tmp_path, index=False)
+        with open(tmp_path, "rb") as f:
+            get_storage().save(cleaned_path, f)
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
     return {
         "cleaned_path": str(cleaned_path),

@@ -163,7 +163,16 @@ def ingest_file_upload(
 
         try:
             raw_path = get_raw_data_path(dataset_id, version.id)
-            df.to_csv(raw_path, index=False)
+            from app.services.storage import get_storage
+            import tempfile, uuid, os
+            tmp_path = os.path.join(tempfile.gettempdir(), f"csv_{uuid.uuid4().hex}")
+            try:
+                df.to_csv(tmp_path, index=False)
+                with open(tmp_path, "rb") as f:
+                    get_storage().save(raw_path, f)
+            finally:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
 
             version.source_reference = str(raw_path)
             version.status = "converting"
@@ -273,7 +282,16 @@ def ingest_sql_query(
     # 5. Save to CSV
     try:
         raw_path = get_raw_data_path(dataset_id, version.id)
-        df.to_csv(raw_path, index=False)
+        from app.services.storage import get_storage
+        import tempfile, uuid, os
+        tmp_path = os.path.join(tempfile.gettempdir(), f"csv_{uuid.uuid4().hex}")
+        try:
+            df.to_csv(tmp_path, index=False)
+            with open(tmp_path, "rb") as f:
+                get_storage().save(raw_path, f)
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
 
         version.source_reference = str(raw_path)
         version.status = "converting"
@@ -314,33 +332,45 @@ def ingest_sql_query(
     }
 
 
-def _stream_to_path(file_stream: BinaryIO, dest_path: Path, max_size_bytes: int) -> int:
+def _stream_to_path(file_stream: BinaryIO, dest_key: str, max_size_bytes: int) -> int:
     """Stream file content to disk, enforcing max size."""
-    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    from app.services.storage import get_storage
+    import tempfile, uuid, os
+    tmp_path = os.path.join(tempfile.gettempdir(), f"csv_{uuid.uuid4().hex}")
     total = 0
-    with open(dest_path, "wb") as out_file:
-        for chunk in iter(lambda: file_stream.read(1024 * 1024), b""):
-            total += len(chunk)
-            if total > max_size_bytes:
-                raise InvalidOperation(
-                    operation="ingest_file",
-                    reason="File exceeds maximum allowed size",
-                    details=f"Maximum size: {get_settings().storage.max_file_size_mb}MB",
-                )
-            out_file.write(chunk)
+    try:
+        with open(tmp_path, "wb") as out_file:
+            for chunk in iter(lambda: file_stream.read(1024 * 1024), b""):
+                total += len(chunk)
+                if total > max_size_bytes:
+                    raise InvalidOperation(
+                        operation="ingest_file",
+                        reason="File exceeds maximum allowed size",
+                        details=f"Maximum size: {get_settings().storage.max_file_size_mb}MB",
+                    )
+                out_file.write(chunk)
+        with open(tmp_path, "rb") as f:
+            get_storage().save(dest_key, f)
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
     return total
 
 
-def _count_csv_rows(file_path: Path) -> int:
+def _count_csv_rows(file_key: str) -> int:
     """Count rows in CSV file (excluding header) using native DuckDB read_csv_auto."""
+    from app.services.storage import get_storage
     import duckdb
+    local_path = get_storage().download_to_temp(file_key)
     try:
-        res = duckdb.execute("SELECT COUNT(*) FROM read_csv_auto(?)", [str(file_path)]).fetchone()
+        res = duckdb.execute("SELECT COUNT(*) FROM read_csv_auto(?)", [local_path]).fetchone()
         return res[0] if res else 0
     except Exception:
         # Fallback to Python line iteration if DuckDB cannot read the raw file directly
-        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+        with open(local_path, "r", encoding="utf-8", errors="ignore") as f:
             return max(sum(1 for _ in f) - 1, 0)
+    finally:
+        get_storage().cleanup_temp(local_path)
 
 
 async def generate_initial_dashboard(

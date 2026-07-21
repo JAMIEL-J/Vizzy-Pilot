@@ -57,35 +57,50 @@ def _validate_file_size(file_size: int) -> None:
         )
 
 
-def _read_csv_with_encodings(source: Union[Path, BinaryIO], **kwargs: Any) -> pd.DataFrame:
+def _read_csv_with_encodings(source: Union[str, Path, BinaryIO], **kwargs: Any) -> pd.DataFrame:
     """Read CSV with multiple encoding attempts."""
     last_error = None
+    local_path = None
+    
+    if isinstance(source, str):
+        from app.services.storage import get_storage
+        local_path = get_storage().download_to_temp(source)
+        source_to_read = local_path
+    else:
+        source_to_read = source
 
-    for encoding in _CSV_ENCODINGS:
-        try:
-            if hasattr(source, "seek"):
-                source.seek(0)
-
-            return pd.read_csv(
-                source,
-                encoding=encoding,
-                on_bad_lines="warn",
-                low_memory=False,
-                **kwargs,
-            )
-        except UnicodeDecodeError:
-            last_error = f"Encoding {encoding} failed"
-            continue
-        except Exception as e:
-            last_error = str(e)
-            if "codec" not in str(e).lower() and "decode" not in str(e).lower():
-                break
-
-    raise InvalidOperation(
-        operation="load_csv",
-        reason="Failed to parse CSV file",
-        details=f"Tried encodings: {_CSV_ENCODINGS}. Last error: {last_error}",
-    )
+    try:
+        for encoding in _CSV_ENCODINGS:
+            try:
+                if hasattr(source_to_read, "seek"):
+                    source_to_read.seek(0)
+    
+                return pd.read_csv(
+                    source_to_read,
+                    encoding=encoding,
+                    on_bad_lines="warn",
+                    low_memory=False,
+                    **kwargs,
+                )
+            except UnicodeDecodeError as e:
+                last_error = e
+                continue
+            except Exception as e:
+                raise InvalidOperation(
+                    operation="read_csv",
+                    reason="Failed to read CSV file",
+                    details=str(e),
+                )
+    
+        raise InvalidOperation(
+            operation="read_csv",
+            reason="Could not determine file encoding",
+            details=f"Tried: {', '.join(_CSV_ENCODINGS)}. Last error: {str(last_error)}",
+        )
+    finally:
+        if local_path:
+            from app.services.storage import get_storage
+            get_storage().cleanup_temp(local_path)
 
 
 def _load_csv(source: Union[Path, BinaryIO]) -> pd.DataFrame:
