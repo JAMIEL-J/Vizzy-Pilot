@@ -110,9 +110,10 @@ def download_raw_dataset(
     if not version.source_reference or version.source_reference == "PENDING":
         raise HTTPException(status_code=404, detail="Raw data file not ready")
 
-    file_path = Path(version.source_reference)
+    from app.services.storage import get_storage
+    file_path = version.source_reference
 
-    if not file_path.exists():
+    if not get_storage().exists(file_path):
         raise HTTPException(status_code=404, detail="Raw data file not found")
 
     record_audit_event(
@@ -128,10 +129,14 @@ def download_raw_dataset(
         },
     )
 
+    from starlette.background import BackgroundTask
+    import os
+    local_path = get_storage().download_to_temp(file_path)
     return FileResponse(
-        path=str(file_path),
+        path=local_path,
         filename=f"raw_data_{version_id}.csv",
         media_type="text/csv",
+        background=BackgroundTask(os.remove, local_path)
     )
 
 
@@ -173,9 +178,10 @@ def download_cleaned_dataset(
         raise HTTPException(status_code=400, detail="Dataset has not been cleaned yet")
 
     # Get file path
-    file_path = Path(version.cleaned_reference)
+    from app.services.storage import get_storage
+    file_path = version.cleaned_reference
 
-    if not file_path.exists():
+    if not get_storage().exists(file_path):
         raise HTTPException(status_code=404, detail="Cleaned data file not found")
 
     record_audit_event(
@@ -191,10 +197,14 @@ def download_cleaned_dataset(
         },
     )
 
+    from starlette.background import BackgroundTask
+    import os
+    local_path = get_storage().download_to_temp(file_path)
     return FileResponse(
-        path=str(file_path),
+        path=local_path,
         filename=f"cleaned_data_{version_id}.csv",
         media_type="text/csv",
+        background=BackgroundTask(os.remove, local_path)
     )
 
 
@@ -230,9 +240,10 @@ def download_latest_raw_dataset(
     if not version.source_reference or version.source_reference == "PENDING":
         raise HTTPException(status_code=404, detail="Raw data file not ready")
 
-    file_path = Path(version.source_reference)
+    from app.services.storage import get_storage
+    file_path = version.source_reference
 
-    if not file_path.exists():
+    if not get_storage().exists(file_path):
         raise HTTPException(status_code=404, detail="Raw data file not found")
 
     record_audit_event(
@@ -248,10 +259,14 @@ def download_latest_raw_dataset(
         },
     )
 
+    from starlette.background import BackgroundTask
+    import os
+    local_path = get_storage().download_to_temp(file_path)
     return FileResponse(
-        path=str(file_path),
+        path=local_path,
         filename=f"raw_data_latest.csv",
         media_type="text/csv",
+        background=BackgroundTask(os.remove, local_path)
     )
 
 
@@ -287,9 +302,10 @@ def download_latest_cleaned_dataset(
         raise HTTPException(status_code=400, detail="Dataset has not been cleaned yet")
 
     # Get file path
-    file_path = Path(version.cleaned_reference)
+    from app.services.storage import get_storage
+    file_path = version.cleaned_reference
 
-    if not file_path.exists():
+    if not get_storage().exists(file_path):
         raise HTTPException(status_code=404, detail="Cleaned data file not found")
 
     record_audit_event(
@@ -305,10 +321,14 @@ def download_latest_cleaned_dataset(
         },
     )
 
+    from starlette.background import BackgroundTask
+    import os
+    local_path = get_storage().download_to_temp(file_path)
     return FileResponse(
-        path=str(file_path),
+        path=local_path,
         filename=f"cleaned_data_latest.csv",
         media_type="text/csv",
+        background=BackgroundTask(os.remove, local_path)
     )
 
 
@@ -407,18 +427,23 @@ async def export_query_results(
     )
 
     # Discover available tables
+    from app.services.storage import get_storage
     from app.core.storage import get_duckdb_path
     available_tables = ["data"]
     duckdb_path = get_duckdb_path(dataset_id, latest_version.id)
-    if duckdb_path.exists():
+    if get_storage().exists(duckdb_path):
         try:
-            con_temp = duckdb.connect(str(duckdb_path), read_only=True)
+            local_path = get_storage().download_to_temp(duckdb_path)
             try:
-                res_temp = con_temp.execute("SHOW TABLES").df()
-                if not res_temp.empty:
-                    available_tables = res_temp["name"].tolist()
+                con_temp = duckdb.connect(str(local_path), read_only=True)
+                try:
+                    res_temp = con_temp.execute("SHOW TABLES").df()
+                    if not res_temp.empty:
+                        available_tables = res_temp["name"].tolist()
+                finally:
+                    con_temp.close()
             finally:
-                con_temp.close()
+                get_storage().cleanup_temp(local_path)
         except Exception:
             pass
 
@@ -431,7 +456,8 @@ async def export_query_results(
     limited_sql = enforce_export_limit(request.sql, MAX_EXPORT_ROWS)
 
     duckdb_path = await get_or_build_duckdb(dataset_id, latest_version.id, file_path)
-    conn = duckdb.connect(str(duckdb_path), read_only=True)
+    local_duckdb_path = get_storage().download_to_temp(duckdb_path)
+    conn = duckdb.connect(str(local_duckdb_path), read_only=True)
     try:
         # Execute query (without sandbox timeout for export — use a generous limit)
         try:
@@ -504,6 +530,10 @@ async def export_query_results(
 
     finally:
         conn.close()
+        try:
+            get_storage().cleanup_temp(local_duckdb_path)
+        except Exception:
+            pass
 
 
 @router.get(
@@ -551,10 +581,12 @@ async def export_table(
     )
 
     duckdb_path = await get_or_build_duckdb(dataset_id, latest_version.id, file_path)
-    if not duckdb_path.exists():
+    from app.services.storage import get_storage
+    if not get_storage().exists(duckdb_path):
         raise HTTPException(status_code=404, detail="DuckDB not ready. Please wait for processing.")
 
-    conn = duckdb.connect(str(duckdb_path), read_only=True)
+    local_duckdb_path = get_storage().download_to_temp(duckdb_path)
+    conn = duckdb.connect(str(local_duckdb_path), read_only=True)
     try:
         # Verify table exists
         tables = conn.execute("SHOW TABLES").df()["name"].tolist()
@@ -628,3 +660,7 @@ async def export_table(
 
     finally:
         conn.close()
+        try:
+            get_storage().cleanup_temp(local_duckdb_path)
+        except Exception:
+            pass

@@ -211,7 +211,7 @@ def _save_join_registry(
 def _discover_tables_in_duckdb(dataset_id: UUID, version_id: UUID) -> List[str]:
     """Return list of table names in the DuckDB file."""
     duckdb_path = get_duckdb_path(dataset_id, version_id)
-    if not duckdb_path.exists():
+    if not get_storage().exists(duckdb_path):
         return []
 
     import duckdb
@@ -233,7 +233,7 @@ def _get_table_columns(
 ) -> List[Dict[str, str]]:
     """Get column names and types for a table in DuckDB."""
     duckdb_path = get_duckdb_path(dataset_id, version_id)
-    if not duckdb_path.exists():
+    if not get_storage().exists(duckdb_path):
         return []
 
     import duckdb
@@ -578,7 +578,7 @@ async def create_join(
     import duckdb
 
     duckdb_path = get_duckdb_path(dataset_id, latest_version.id)
-    if not duckdb_path.exists():
+    if not get_storage().exists(duckdb_path):
         raise HTTPException(
             status_code=400,
             detail="DuckDB not ready. Please wait for upload processing.",
@@ -755,7 +755,7 @@ async def validate_join(
         raise HTTPException(status_code=404, detail="Dataset version not found")
 
     duckdb_path = get_duckdb_path(dataset_id, latest_version.id)
-    if not duckdb_path.exists():
+    if not get_storage().exists(duckdb_path):
         return JoinValidationResponse(
             is_valid=False,
             reason="DuckDB not ready. Please wait for upload processing.",
@@ -862,7 +862,7 @@ async def apply_joins(
         raise HTTPException(status_code=404, detail="Dataset version not found")
 
     duckdb_path = get_duckdb_path(dataset_id, version_id)
-    if not duckdb_path.exists():
+    if not get_storage().exists(duckdb_path):
         raise HTTPException(
             status_code=400,
             detail="DuckDB not ready. Please wait for upload processing.",

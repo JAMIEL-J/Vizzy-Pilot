@@ -142,7 +142,7 @@ async def dashboard_event_generator(
         from app.services.analytics.db_engine import DBEngine
 
         duckdb_path = get_duckdb_path(version.dataset_id, version.id)
-        if not duckdb_path.exists():
+        if not get_storage().exists(duckdb_path):
             yield f"data: {_dumps({'error': 'DuckDB file not found for this version'})}\n\n"
             return
 

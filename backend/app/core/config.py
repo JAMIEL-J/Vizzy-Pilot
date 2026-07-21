@@ -212,6 +212,14 @@ class StorageSettings(BaseSettings):
     duckdb_path: str = Field(default="data/vizzy_analytics.duckdb")
     max_file_size_mb: int = Field(default=500, ge=1, le=1000)
 
+    # Storage backend selection (local or s3)
+    backend: Literal["local", "s3"] = Field(default="local")
+    
+    # S3 specific configuration
+    s3_bucket: Optional[str] = Field(default=None)
+    s3_endpoint_url: Optional[str] = Field(default=None)
+    s3_region: Optional[str] = Field(default=None)
+
 
 class LLMSettings(BaseSettings):
     """LLM provider configuration."""

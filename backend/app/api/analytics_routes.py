@@ -647,11 +647,16 @@ async def auto_render_dashboard(
         
         if _ddb_exists:
             duckdb_path = _ddb_path
-            try:
-                reader = DuckDBReader(str(duckdb_path))
-            except Exception as e:
-                logger.warning("auto_render: DuckDBReader failed for %s: %s", duckdb_path, e)
-                duckdb_fallback_to_pandas = True
+            from app.services.storage import get_storage
+            from contextlib import ExitStack
+            
+            with ExitStack() as stack:
+                try:
+                    local_db_path = stack.enter_context(get_storage().duckdb_path(duckdb_path, read_only=True))
+                    reader = DuckDBReader(str(duckdb_path))
+                except Exception as e:
+                    logger.warning("auto_render: DuckDBReader failed for %s: %s", duckdb_path, e)
+                    duckdb_fallback_to_pandas = True
 
             if reader is not None:
                 try:

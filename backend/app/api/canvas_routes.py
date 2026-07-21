@@ -666,18 +666,23 @@ async def compile_canvas_prompt(
 
     db_engine = None
     try:
-        if duckdb_path.exists():
+        if get_storage().exists(duckdb_path):
             db_engine = DBEngine(db_path=str(duckdb_path), read_only=True)
             db_engine._lock_down_read_con()
         else:
             data_path = version.cleaned_reference or version.source_reference
             db_engine = DBEngine()
+            from app.services.storage import get_storage
+            local_csv_path = get_storage().download_to_temp(data_path)
             try:
-                await db_engine.load_csv(table_name, data_path)
-            except Exception as csv_err:
-                logger.warning(f"Direct CSV load failed, falling back to Pandas: {csv_err}")
-                df = pd.read_csv(data_path)
-                await db_engine.load_dataframe(table_name, df)
+                try:
+                    await db_engine.load_csv(table_name, local_csv_path, storage_key=data_path)
+                except Exception as csv_err:
+                    logger.warning(f"Direct CSV load failed, falling back to Pandas: {csv_err}")
+                    df = pd.read_csv(local_csv_path)
+                    await db_engine.load_dataframe(table_name, df)
+            finally:
+                get_storage().cleanup_temp(local_csv_path)
 
         executor = Executor()
         nl2sql_result = await executor.run_query(

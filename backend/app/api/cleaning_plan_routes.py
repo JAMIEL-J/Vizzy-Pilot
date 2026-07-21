@@ -369,22 +369,33 @@ async def execute_cleaning_plan(
             version_id=new_version_id,
         )
 
-        if not normalized_actions.get("steps"):
-            df.to_csv(str(cleaned_path), index=False)
-            rows_after = len(df)
-            summary = {
-                "steps_executed": 0,
-                "rows_dropped": 0,
-                "cells_modified": 0,
-                "changes": [],
-            }
-        else:
-            # Execute cleaning
-            result = execute_cleaning(df, normalized_actions)
-            cleaned_df: pd.DataFrame = result["cleaned_df"]
-            cleaned_df.to_csv(str(cleaned_path), index=False)
-            rows_after = len(cleaned_df)
-            summary = result["execution_summary"]
+        from app.services.storage import get_storage
+        import tempfile, uuid, os
+        tmp_path = os.path.join(tempfile.gettempdir(), f"csv_{uuid.uuid4().hex}")
+        
+        try:
+            if not normalized_actions.get("steps"):
+                df.to_csv(tmp_path, index=False)
+                rows_after = len(df)
+                summary = {
+                    "steps_executed": 0,
+                    "rows_dropped": 0,
+                    "cells_modified": 0,
+                    "changes": [],
+                }
+            else:
+                # Execute cleaning
+                result = execute_cleaning(df, normalized_actions)
+                cleaned_df: pd.DataFrame = result["cleaned_df"]
+                cleaned_df.to_csv(tmp_path, index=False)
+                rows_after = len(cleaned_df)
+                summary = result["execution_summary"]
+            
+            with open(tmp_path, "rb") as f:
+                get_storage().save(cleaned_path, f)
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
 
         # Create new dataset version
         new_version = DatasetVersion(
