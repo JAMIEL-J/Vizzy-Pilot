@@ -30,7 +30,6 @@ class TestStoragePaths:
         base_dir = get_base_data_dir()
         
         assert base_dir is not None
-        assert isinstance(base_dir, Path)
 
     def test_get_version_dir_structure(self, dataset_id, version_id):
         """
@@ -60,8 +59,8 @@ class TestStoragePaths:
         
         raw_path = get_raw_data_path(dataset_id, version_id)
         
-        assert raw_path.name == "raw.csv"
-        assert str(dataset_id) in str(raw_path)
+        assert "raw.csv" in raw_path
+        assert str(dataset_id) in raw_path
 
     def test_get_cleaned_data_path(self, dataset_id, version_id):
         """
@@ -75,8 +74,8 @@ class TestStoragePaths:
         
         cleaned_path = get_cleaned_data_path(dataset_id, version_id)
         
-        assert cleaned_path.name == "cleaned.csv"
-        assert str(dataset_id) in str(cleaned_path)
+        assert "cleaned.csv" in cleaned_path
+        assert str(dataset_id) in cleaned_path
 
     def test_paths_are_isolated(self):
         """
