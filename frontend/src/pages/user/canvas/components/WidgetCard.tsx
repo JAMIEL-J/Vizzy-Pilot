@@ -83,7 +83,7 @@ export const WidgetCard: React.FC<WidgetCardProps> = ({
       tabIndex={0}
       aria-selected={isSelected}
       onContextMenu={(e) => onWidgetRightClick(e, widget.id)}
-      className={`canvas-widget bg-surface border rounded-2xl flex flex-col shadow-xs group/card overflow-visible select-none outline-none ${
+      className={`canvas-widget bg-surface border rounded-2xl flex flex-col shadow-xs group/card overflow-hidden select-none outline-none ${
         isResponsive ? 'w-full h-[320px]' : ''
       } ${
         isPrimarySelected 
@@ -94,19 +94,23 @@ export const WidgetCard: React.FC<WidgetCardProps> = ({
       }`}
       style={style}
     >
-      {/* Header controls (only when not in present mode) */}
-      {!isPresentMode && (
-        <div 
-          className="px-4 py-2 border-b border-border-custom/50 flex items-center justify-between bg-surface-2/20 cursor-grab active:cursor-grabbing relative select-none rounded-t-2xl"
-          onPointerDown={(e) => handleDragStart(e, widget.id)}
-        >
-          <div className="flex items-center space-x-1.5 min-w-0">
+      {/* Header title & controls */}
+      <div 
+        className={`px-4 py-2 border-b border-border-custom/40 flex items-center justify-between bg-surface-2/20 select-none rounded-t-2xl shrink-0 ${
+          !isPresentMode ? 'cursor-grab active:cursor-grabbing' : ''
+        }`}
+        onPointerDown={(e) => !isPresentMode && handleDragStart(e, widget.id)}
+      >
+        <div className="flex items-center space-x-1.5 min-w-0">
+          {!isPresentMode && (
             <GripVertical className="w-3 h-3 text-muted-custom/60 shrink-0 select-none pointer-events-none" />
-            <span className="text-[11px] font-semibold text-text-custom truncate font-sans">
-              {widget.title}
-            </span>
-          </div>
+          )}
+          <span className="text-[11px] font-bold text-text-custom truncate font-sans">
+            {widget.title}
+          </span>
+        </div>
 
+        {!isPresentMode && (
           <div className="flex items-center space-x-1 opacity-0 group-hover/card:opacity-100 transition-opacity">
             {onRecompile && (
               <button
@@ -129,11 +133,11 @@ export const WidgetCard: React.FC<WidgetCardProps> = ({
               <Trash2 className="w-3 h-3" />
             </button>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Render Chart Content Area */}
-      <div className="flex-1 p-4 overflow-hidden relative">
+      <div className="flex-1 p-4 overflow-hidden relative z-0 min-h-0 min-w-0">
         <ChartRenderer 
           widget={widget} 
           isFullScreenCanvas={isFullScreenCanvas} 
@@ -149,13 +153,13 @@ export const WidgetCard: React.FC<WidgetCardProps> = ({
       {/* Resize grip handle (PowerBI style bottom-right resize, skip when in present/responsive) */}
       {!isPresentMode && !isResponsive && (
         <div 
-          className="absolute bottom-1 right-1 w-3.5 h-3.5 flex items-center justify-center cursor-se-resize select-none active:scale-95 text-muted-custom/30 hover:text-muted-custom"
+          className="absolute bottom-0 right-0 w-6 h-6 flex items-end justify-end p-1 cursor-se-resize select-none z-50 text-muted-custom/40 hover:text-accent-custom hover:bg-accent-custom/10 rounded-tl-lg transition-colors"
           onPointerDown={(e) => handleResizeStart(e, widget.id)}
           aria-label="Resize widget"
-          title="Drag to resize"
+          title="Drag to resize card"
         >
-          <svg width="8" height="8" viewBox="0 0 8 8" className="fill-current">
-            <path d="M6 0v6H0v2h8V0z"/>
+          <svg width="10" height="10" viewBox="0 0 10 10" className="fill-current pointer-events-none">
+            <path d="M8 0v8H0v2h10V0z"/>
           </svg>
         </div>
       )}
