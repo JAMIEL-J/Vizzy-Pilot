@@ -56,6 +56,13 @@ Thumbs.db
 BUG_FIX_CONTEXT.md
 CLAUDE.md
 bugs_identified.md
+CODEBASE.md
+limitations_and_flaws_report.md
+multi_step_execution_loop_spec.md
+vizzy_brutal_review.md
+vizzy_phase1_changelog.md
+vizzy_production_council_v2.html
+vizzy_production_fix_context.md
 
 # Logs and Debugging
 *.log
