@@ -93,24 +93,14 @@ def _df_to_records_safe(df: pd.DataFrame, max_rows: int) -> tuple[list[dict[str,
     import numpy as np
 
     if len(df) > max_rows:
-        df = df.head(max_rows)
+        df = df.iloc[:max_rows]
         truncated = True
     else:
         truncated = False
 
-    # Replace inf values with NaN first, then convert all NaN to None
-    # Use iterrows + manual cleaning to handle float-dtype columns where fillna(None) doesn't work
-    records = []
-    for _, row in df.iterrows():
-        clean = {}
-        for col, val in row.items():
-            if hasattr(val, "item"):
-                val = val.item()
-            if isinstance(val, float) and (np.isnan(val) or np.isinf(val)):
-                clean[col] = None
-            else:
-                clean[col] = val
-        records.append(clean)
+    # ponytail: Vectorized C-level replacement eliminates O(N*C) iterrows Python object checks
+    cleaned_df = df.replace([np.inf, -np.inf], np.nan).astype(object).where(pd.notnull(df), None)
+    records = cleaned_df.to_dict(orient="records")
     return records, truncated
 
 

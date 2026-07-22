@@ -40,18 +40,19 @@ _executor = ThreadPoolExecutor(max_workers=4)
 def auto_quote_schema_columns(sql: str, known_columns: Optional[list[str]] = None) -> str:
     """
     Scans SQL for unquoted occurrences of schema column names containing spaces, hyphens,
-    slashes, or special characters, and wraps them in double quotes.
+    slashes, or special characters, and wraps them in double quotes in a single pass.
     """
     if not sql or not known_columns:
         return sql
-    fixed_sql = sql
-    sorted_cols = sorted(known_columns, key=len, reverse=True)
-    for col in sorted_cols:
-        if any(char in col for char in (' ', '-', '/', '%', '#')) and not col.startswith('"'):
-            escaped_col = re.escape(col)
-            pattern = r'(?<!")\b' + escaped_col + r'\b(?!")'
-            fixed_sql = re.sub(pattern, f'"{col}"', fixed_sql, flags=re.IGNORECASE)
-    return fixed_sql
+
+    cols_to_quote = [c for c in known_columns if any(char in c for char in (' ', '-', '/', '%', '#')) and not c.startswith('"')]
+    if not cols_to_quote:
+        return sql
+
+    # ponytail: Single-pass combined regex replaces K sequential re.sub passes over query text
+    sorted_cols = sorted(cols_to_quote, key=len, reverse=True)
+    pattern = r'(?<!")\b(' + '|'.join(re.escape(c) for c in sorted_cols) + r')\b(?!")'
+    return re.sub(pattern, lambda m: f'"{m.group(1)}"', sql, flags=re.IGNORECASE)
 
 def validate_sql(
     sql: str,
