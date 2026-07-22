@@ -60,7 +60,6 @@ def get_download_history(
     
     history = []
     for e in download_events:
-        metadata = e.get("metadata") or {}
         history.append(
             DownloadHistoryItem(
                 dataset_id=e.get("resource_id") or "",
@@ -74,10 +73,22 @@ def get_download_history(
     return history
 
 
+def _safe_cleanup_temp(temp_path: str, source_key: str):
+    import os
+    from app.services.storage import get_storage
+    try:
+        if os.path.exists(temp_path) and os.path.exists(source_key):
+            if not os.path.samefile(temp_path, source_key):
+                get_storage().cleanup_temp(temp_path)
+        elif temp_path != source_key and os.path.exists(temp_path):
+            get_storage().cleanup_temp(temp_path)
+    except Exception:
+        pass
+
 
 @router.get(
     "/datasets/{dataset_id}/versions/{version_id}/download/raw",
-    summary="Download raw dataset",
+    summary="Download raw dataset for version",
     response_class=FileResponse,
 )
 def download_raw_dataset(
@@ -87,7 +98,7 @@ def download_raw_dataset(
     current_user: AuthenticatedUser,
 ) -> FileResponse:
     """
-    Download the original uploaded dataset as CSV.
+    Download the raw (original) dataset CSV for a specific version.
     """
     # Validate ownership
     try:
@@ -110,7 +121,6 @@ def download_raw_dataset(
     if not version.source_reference or version.source_reference == "PENDING":
         raise HTTPException(status_code=404, detail="Raw data file not ready")
 
-    from app.services.storage import get_storage
     file_path = version.source_reference
 
     if not get_storage().exists(file_path):
@@ -130,15 +140,13 @@ def download_raw_dataset(
     )
 
     from starlette.background import BackgroundTask
-    import os
     local_path = get_storage().download_to_temp(file_path)
     return FileResponse(
         path=local_path,
         filename=f"raw_data_{version_id}.csv",
         media_type="text/csv",
-        background=BackgroundTask(os.remove, local_path)
+        background=BackgroundTask(_safe_cleanup_temp, local_path, file_path)
     )
-
 
 
 @router.get(
@@ -154,10 +162,8 @@ def download_cleaned_dataset(
 ) -> FileResponse:
     """
     Download the cleaned dataset as CSV.
-    
     The cleaned dataset includes all transformations from the cleaning plan.
     """
-    # Validate ownership
     try:
         dataset = dataset_service.get_dataset_by_id(
             session=session,
@@ -174,15 +180,16 @@ def download_cleaned_dataset(
     except (ResourceNotFound, AuthorizationError) as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-    if not version.cleaned_reference:
-        raise HTTPException(status_code=400, detail="Dataset has not been cleaned yet")
+    # Resolve cleaned file path
+    from app.models.dataset_version import SourceType
+    file_path = version.cleaned_reference or (version.source_reference if version.source_type == SourceType.CLEAN else None)
 
-    # Get file path
+    if not file_path:
+        raise HTTPException(status_code=400, detail="Dataset version has not been cleaned yet")
+
     from app.services.storage import get_storage
-    file_path = version.cleaned_reference
-
     if not get_storage().exists(file_path):
-        raise HTTPException(status_code=404, detail="Cleaned data file not found")
+        raise HTTPException(status_code=404, detail="Cleaned data file not found on disk")
 
     record_audit_event(
         event_type="DATASET_DOWNLOADED",
@@ -198,13 +205,12 @@ def download_cleaned_dataset(
     )
 
     from starlette.background import BackgroundTask
-    import os
     local_path = get_storage().download_to_temp(file_path)
     return FileResponse(
         path=local_path,
         filename=f"cleaned_data_{version_id}.csv",
         media_type="text/csv",
-        background=BackgroundTask(os.remove, local_path)
+        background=BackgroundTask(_safe_cleanup_temp, local_path, file_path)
     )
 
 
@@ -221,7 +227,6 @@ def download_latest_raw_dataset(
     """
     Download the original uploaded dataset for the latest version as CSV.
     """
-    # Validate ownership
     try:
         dataset = dataset_service.get_dataset_by_id(
             session=session,
@@ -236,7 +241,21 @@ def download_latest_raw_dataset(
     except (ResourceNotFound, AuthorizationError) as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-    # Get file path
+    # Prefer raw version if dataset has multiple versions
+    from sqlmodel import select
+    from app.models.dataset_version import DatasetVersion, SourceType
+    raw_version = session.exec(
+        select(DatasetVersion)
+        .where(
+            DatasetVersion.dataset_id == dataset.id,
+            DatasetVersion.is_active == True,
+            DatasetVersion.source_type != SourceType.CLEAN,
+        )
+        .order_by(DatasetVersion.version_number.asc())
+    ).first()
+    if raw_version:
+        version = raw_version
+
     if not version.source_reference or version.source_reference == "PENDING":
         raise HTTPException(status_code=404, detail="Raw data file not ready")
 
@@ -260,13 +279,12 @@ def download_latest_raw_dataset(
     )
 
     from starlette.background import BackgroundTask
-    import os
     local_path = get_storage().download_to_temp(file_path)
     return FileResponse(
         path=local_path,
         filename=f"raw_data_latest.csv",
         media_type="text/csv",
-        background=BackgroundTask(os.remove, local_path)
+        background=BackgroundTask(_safe_cleanup_temp, local_path, file_path)
     )
 
 
@@ -283,7 +301,6 @@ def download_latest_cleaned_dataset(
     """
     Download the latest cleaned dataset as CSV.
     """
-    # Validate ownership
     try:
         dataset = dataset_service.get_dataset_by_id(
             session=session,
@@ -298,15 +315,32 @@ def download_latest_cleaned_dataset(
     except (ResourceNotFound, AuthorizationError) as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-    if not version.cleaned_reference:
-        raise HTTPException(status_code=400, detail="Dataset has not been cleaned yet")
+    from sqlmodel import select
+    from app.models.dataset_version import DatasetVersion, SourceType
 
-    # Get file path
+    # Try resolving cleaned path from latest version, or query for any active cleaned version
+    file_path = version.cleaned_reference or (version.source_reference if version.source_type == SourceType.CLEAN else None)
+
+    if not file_path:
+        cleaned_version = session.exec(
+            select(DatasetVersion)
+            .where(
+                DatasetVersion.dataset_id == dataset.id,
+                DatasetVersion.is_active == True,
+                (DatasetVersion.cleaned_reference != None) | (DatasetVersion.source_type == SourceType.CLEAN),
+            )
+            .order_by(DatasetVersion.version_number.desc())
+        ).first()
+
+        if cleaned_version:
+            version = cleaned_version
+            file_path = version.cleaned_reference or version.source_reference
+        else:
+            raise HTTPException(status_code=400, detail="Dataset has not been cleaned yet")
+
     from app.services.storage import get_storage
-    file_path = version.cleaned_reference
-
-    if not get_storage().exists(file_path):
-        raise HTTPException(status_code=404, detail="Cleaned data file not found")
+    if not file_path or not get_storage().exists(file_path):
+        raise HTTPException(status_code=404, detail="Cleaned data file not found on disk")
 
     record_audit_event(
         event_type="DATASET_DOWNLOADED",
@@ -322,13 +356,12 @@ def download_latest_cleaned_dataset(
     )
 
     from starlette.background import BackgroundTask
-    import os
     local_path = get_storage().download_to_temp(file_path)
     return FileResponse(
         path=local_path,
         filename=f"cleaned_data_latest.csv",
         media_type="text/csv",
-        background=BackgroundTask(os.remove, local_path)
+        background=BackgroundTask(_safe_cleanup_temp, local_path, file_path)
     )
 
 

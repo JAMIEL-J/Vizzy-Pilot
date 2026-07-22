@@ -56,31 +56,25 @@ export default function Downloads() {
             setDatasets(data);
 
             const metaMap: Record<string, { raw_size: number; cleaned_size: number | null; row_count: number }> = {};
-            const results = await Promise.allSettled(
-                data.map(async (ds) => {
-                    const [versionResult, metadataResult] = await Promise.allSettled([
-                        datasetService.getLatestVersion(ds.id),
-                        datasetService.getDatasetMetadata(ds.id),
-                    ]);
-                    return {
-                        id: ds.id,
-                        raw_size: metadataResult.status === "fulfilled" ? (metadataResult.value.raw_size || 0) : 0,
-                        cleaned_size: metadataResult.status === "fulfilled" ? (metadataResult.value.cleaned_size || null) : null,
-                        row_count: versionResult.status === "fulfilled" ? (versionResult.value.row_count || 0) : 0,
-                    };
-                })
-            );
-            if (controller.signal.aborted) return;
-
-            for (const r of results) {
-                if (r.status === "fulfilled") {
-                    metaMap[r.value.id] = {
-                        raw_size: r.value.raw_size,
-                        cleaned_size: r.value.cleaned_size,
-                        row_count: r.value.row_count,
-                    };
-                }
+            const chunkSize = 3;
+            for (let i = 0; i < data.length; i += chunkSize) {
+                if (controller.signal.aborted) return;
+                const chunk = data.slice(i, i + chunkSize);
+                await Promise.allSettled(
+                    chunk.map(async (ds) => {
+                        const [versionResult, metadataResult] = await Promise.allSettled([
+                            datasetService.getLatestVersion(ds.id),
+                            datasetService.getDatasetMetadata(ds.id),
+                        ]);
+                        metaMap[ds.id] = {
+                            raw_size: metadataResult.status === "fulfilled" ? (metadataResult.value.raw_size || 0) : 0,
+                            cleaned_size: metadataResult.status === "fulfilled" ? (metadataResult.value.cleaned_size || null) : null,
+                            row_count: versionResult.status === "fulfilled" ? (versionResult.value.row_count || 0) : 0,
+                        };
+                    })
+                );
             }
+            if (controller.signal.aborted) return;
             setMetadataMap(metaMap);
         } catch (error) {
             if (controller.signal.aborted) return;
@@ -95,8 +89,8 @@ export default function Downloads() {
     };
 
     const handleDownload = async (datasetId: string, type: "raw" | "cleaned", filename: string) => {
+        const toastId = toast.loading(`Downloading ${type} dataset...`);
         try {
-            const toastId = toast.loading(`Downloading ${type} dataset...`);
             const blob = type === "raw"
                 ? await datasetService.downloadRaw(datasetId)
                 : await datasetService.downloadCleaned(datasetId);
@@ -112,8 +106,23 @@ export default function Downloads() {
             toast.success(`Successfully downloaded ${filename}`, { id: toastId });
         } catch (error: any) {
             console.error(`Failed to download ${type} dataset:`, error);
-            const errorMessage = error.response?.data?.detail || `Failed to download ${type} dataset. It may not exist yet.`;
-            toast.error(errorMessage);
+            let errorMessage = `Failed to download ${type} dataset.`;
+            
+            if (error.response?.status === 429) {
+                errorMessage = "Rate limit exceeded (Too Many Requests). Please wait a few seconds before trying again.";
+            } else if (error.response?.data instanceof Blob) {
+                try {
+                    const text = await error.response.data.text();
+                    const json = JSON.parse(text);
+                    if (json.detail) errorMessage = json.detail;
+                } catch (_) {}
+            } else if (error.response?.data?.detail) {
+                errorMessage = error.response.data.detail;
+            } else if (error.message) {
+                errorMessage = error.message;
+            }
+            
+            toast.error(errorMessage, { id: toastId });
         }
     };
 
@@ -131,12 +140,14 @@ export default function Downloads() {
             const meta = metadataMap[ds.id] || { raw_size: 0, cleaned_size: null, row_count: 0 };
             const rawSize = formatFileSize(meta.raw_size);
             const cleanedSize = meta.cleaned_size !== null ? formatFileSize(meta.cleaned_size) : "Not Cleaned Yet";
+            const hasCleaned = meta.cleaned_size !== null && meta.cleaned_size > 0;
             return {
                 id: ds.id,
                 name: ds.name,
                 raw: rawSize,
                 cleaned: cleanedSize,
                 rows: meta.row_count,
+                hasCleaned,
                 version: (ds as any).current_version || "v1",
             };
         });
@@ -215,7 +226,13 @@ export default function Downloads() {
                                         </BtnSecondary>
                                         <button
                                             onClick={() => handleDownload(it.id, "cleaned", `${it.name}_cleaned.csv`)}
-                                            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1 text-[11.5px] font-semibold text-primary-foreground hover:opacity-90"
+                                            disabled={!it.hasCleaned}
+                                            title={it.hasCleaned ? "Download cleaned dataset" : "Dataset has not been cleaned yet"}
+                                            className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11.5px] font-semibold transition-all ${
+                                                it.hasCleaned
+                                                    ? "bg-primary text-primary-foreground hover:opacity-90 cursor-pointer shadow-sm"
+                                                    : "bg-surface-3 text-muted-foreground opacity-50 cursor-not-allowed border border-border"
+                                            }`}
                                         >
                                             <Sparkles className="h-3 w-3" />Cleaned
                                         </button>

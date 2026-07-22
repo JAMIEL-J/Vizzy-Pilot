@@ -412,37 +412,48 @@ export default function ChatInterface() {
         }
     };
 
-    const handleDeleteSession = async (e: React.MouseEvent, sessionId: string) => {
+    const [sessionToDelete, setSessionToDelete] = useState<{ id: string | null; isMultiple?: boolean } | null>(null);
+
+    const handleDeleteSession = (e: React.MouseEvent, sessionId: string) => {
         e.stopPropagation();
-        if (!confirm('Are you sure you want to delete this chat session?')) return;
+        setSessionToDelete({ id: sessionId, isMultiple: false });
+    };
+
+    const handleDeleteSelectedSessions = () => {
+        if (selectedSessionIds.length === 0) return;
+        setSessionToDelete({ id: null, isMultiple: true });
+    };
+
+    const confirmDeleteSession = async () => {
+        if (!sessionToDelete) return;
         try {
-            await chatService.deleteSession(sessionId);
-            setSessions(prev => prev.filter(s => s.id !== sessionId));
-            if (currentSessionId === sessionId) {
-                setCurrentSessionId(null);
-                setMessages([]);
-                setInitialSuggestions([]);
+            if (sessionToDelete.isMultiple) {
+                await Promise.all(selectedSessionIds.map(id => chatService.deleteSession(id)));
+                setSessions(prev => prev.filter(s => !selectedSessionIds.includes(s.id)));
+                if (currentSessionId && selectedSessionIds.includes(currentSessionId)) {
+                    setCurrentSessionId(null);
+                    setMessages([]);
+                    setInitialSuggestions([]);
+                }
+                setSelectedSessionIds([]);
+                setIsMultiSelectMode(false);
+                toast.success('Selected chat sessions deleted successfully', { position: 'top-center' });
+            } else if (sessionToDelete.id) {
+                const sid = sessionToDelete.id;
+                await chatService.deleteSession(sid);
+                setSessions(prev => prev.filter(s => s.id !== sid));
+                if (currentSessionId === sid) {
+                    setCurrentSessionId(null);
+                    setMessages([]);
+                    setInitialSuggestions([]);
+                }
+                toast.success('Chat session deleted successfully', { position: 'top-center' });
             }
         } catch (error) {
             console.error('Failed to delete session:', error);
-        }
-    };
-
-    const handleDeleteSelectedSessions = async () => {
-        if (selectedSessionIds.length === 0) return;
-        if (!confirm(`Are you sure you want to delete the ${selectedSessionIds.length} selected chat sessions?`)) return;
-        try {
-            await Promise.all(selectedSessionIds.map(id => chatService.deleteSession(id)));
-            setSessions(prev => prev.filter(s => !selectedSessionIds.includes(s.id)));
-            if (currentSessionId && selectedSessionIds.includes(currentSessionId)) {
-                setCurrentSessionId(null);
-                setMessages([]);
-                setInitialSuggestions([]);
-            }
-            setSelectedSessionIds([]);
-            setIsMultiSelectMode(false);
-        } catch (error) {
-            console.error('Failed to delete selected sessions:', error);
+            toast.error('Failed to delete chat session', { position: 'top-center' });
+        } finally {
+            setSessionToDelete(null);
         }
     };
 
@@ -1391,6 +1402,37 @@ export default function ChatInterface() {
                     </div>
                 )}
             </div>
+            {sessionToDelete && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/75 backdrop-blur-md p-4 animate-in fade-in duration-200">
+                    <div className="bg-bg-card dark:bg-black border border-border-main dark:border-neutral-800 rounded-2xl p-6 max-w-sm w-full shadow-2xl space-y-4 text-center">
+                        <div className="w-12 h-12 rounded-full bg-rose-500/10 text-rose-500 flex items-center justify-center mx-auto">
+                            <Trash2 className="w-6 h-6" />
+                        </div>
+                        <div>
+                            <h3 className="text-base font-bold text-themed-main dark:text-white">Delete Chat Session</h3>
+                            <p className="text-xs text-themed-muted dark:text-neutral-400 mt-2 leading-relaxed">
+                                {sessionToDelete.isMultiple
+                                    ? `Are you sure you want to delete the ${selectedSessionIds.length} selected chat sessions? This action cannot be undone.`
+                                    : 'Are you sure you want to delete this chat session? This action cannot be undone.'}
+                            </p>
+                        </div>
+                        <div className="flex items-center justify-center gap-3 pt-2">
+                            <button
+                                onClick={() => setSessionToDelete(null)}
+                                className="px-4 py-2 text-xs font-semibold text-themed-muted border border-border-main hover:bg-surface-2 rounded-xl transition-colors cursor-pointer"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={confirmDeleteSession}
+                                className="px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-md transition-colors cursor-pointer"
+                            >
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
             {renderArtifactViewer()}
         </div>
     );

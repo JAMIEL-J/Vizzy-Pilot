@@ -12,12 +12,25 @@ class LocalStorageBackend(StorageBackend):
         os.makedirs(self.base_dir, exist_ok=True)
 
     def _get_path(self, key: str) -> Path:
-        # Prevent path traversal
+        # Prevent path traversal while handling local keys, relative paths, and prefixed database paths
+        p = Path(key)
+        if p.exists():
+            return p.resolve()
+
+        # Handle keys stored in DB with leading data/uploads or uploads prefixes
+        norm_key = key.replace("\\", "/")
+        for prefix in [f"data/{self.base_dir.name}/", f"{self.base_dir.name}/", "data/"]:
+            if norm_key.startswith(prefix):
+                stripped = norm_key[len(prefix):]
+                candidate = (self.base_dir / stripped).resolve()
+                if candidate.exists():
+                    return candidate
+
         path = (self.base_dir / key).resolve()
         try:
             path.relative_to(self.base_dir)
         except ValueError:
-            raise ValueError("Invalid storage key")
+            raise ValueError(f"Invalid storage key: {key}")
         return path
 
     def save(self, key: str, data: Union[bytes, IO[bytes]]) -> str:

@@ -62,10 +62,14 @@ def _read_csv_with_encodings(source: Union[str, Path, BinaryIO], **kwargs: Any) 
     last_error = None
     local_path = None
     
-    if isinstance(source, str):
-        from app.services.storage import get_storage
-        local_path = get_storage().download_to_temp(source)
-        source_to_read = local_path
+    if isinstance(source, (str, Path)):
+        p = Path(source)
+        if p.is_file():
+            source_to_read = str(p)
+        else:
+            from app.services.storage import get_storage
+            local_path = get_storage().download_to_temp(str(source))
+            source_to_read = local_path
     else:
         source_to_read = source
 
