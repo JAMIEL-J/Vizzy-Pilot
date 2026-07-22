@@ -10,5 +10,6 @@ env
 *.log
 tmp/
 scratch/
+data/
 .git
 .gitignore
