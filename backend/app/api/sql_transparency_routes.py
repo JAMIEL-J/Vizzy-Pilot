@@ -16,7 +16,7 @@ from app.api.deps import DBSession, AuthenticatedUser
 from app.core.logger import get_logger
 from app.core.audit import record_audit_event
 from app.services.dataset_version_service import get_latest_version
-from app.services.analytics.duckdb_builder import get_or_build_duckdb
+from app.services.analytics.duckdb_builder import get_or_build_duckdb, get_duckdb_connection
 from app.services.security.sandbox import validate_sql, execute_sandboxed, QueryExecutionError
 
 import duckdb
@@ -85,11 +85,7 @@ class SQLValidateResponse(BaseModel):
 # Helpers
 # =============================================================================
 
-
-async def _get_duckdb_connection(dataset_id: UUID, version_id: UUID, csv_path: str) -> duckdb.DuckDBPyConnection:
-    """Get a read-only DuckDB connection for the dataset."""
-    duckdb_path = await get_or_build_duckdb(dataset_id, version_id, csv_path)
-    return duckdb.connect(str(duckdb_path), read_only=True)
+_get_duckdb_connection = get_duckdb_connection
 
 
 def _df_to_records_safe(df: pd.DataFrame, max_rows: int) -> tuple[list[dict[str, Any]], bool]:

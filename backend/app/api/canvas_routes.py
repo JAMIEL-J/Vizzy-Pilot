@@ -19,9 +19,9 @@ from app.api.deps import DBSession, AuthenticatedUser, RateLimitedUser
 from app.api.sql_transparency_routes import (
     SQLExecuteRequest,
     SQLExecuteResponse,
-    _get_duckdb_connection,
     _df_to_records_safe,
 )
+from app.services.analytics.duckdb_builder import get_duckdb_connection
 from app.core.logger import get_logger
 from app.models.dataset import Dataset
 from app.services.dataset_version_service import get_latest_version
@@ -264,7 +264,7 @@ async def execute_canvas_sql(
 
     conn = None
     try:
-        conn = await _get_duckdb_connection(dataset_id, latest_version.id, file_path)
+        conn = await get_duckdb_connection(dataset_id, latest_version.id, file_path)
 
         sql_to_run = request.sql
         filter_omitted = False
@@ -469,7 +469,7 @@ async def create_canvas_calculated_field(
     # 4. Dry-run validate the formula in the DuckDB sandbox
     conn = None
     try:
-        conn = await _get_duckdb_connection(dataset_id, latest_version.id, file_path)
+        conn = await get_duckdb_connection(dataset_id, latest_version.id, file_path)
         test_query = f'SELECT ({formula_sql}) AS "val" FROM data LIMIT 1'
         await execute_sandboxed(
             conn=conn,

@@ -181,6 +181,12 @@ async def get_or_build_duckdb(dataset_id: UUID, version_id: UUID, csv_path: str)
     return await build_duckdb_from_csv(dataset_id, version_id, csv_path)
 
 
+async def get_duckdb_connection(dataset_id: UUID, version_id: UUID, csv_path: str) -> duckdb.DuckDBPyConnection:
+    """Get a read-only DuckDB connection for a dataset version."""
+    duckdb_path = await get_or_build_duckdb(dataset_id, version_id, csv_path)
+    return duckdb.connect(str(duckdb_path), read_only=True)
+
+
 def duckdb_exists(dataset_id: UUID, version_id: UUID) -> bool:
     """Check if DuckDB file exists for this version."""
     from app.services.storage import get_storage

@@ -10,7 +10,6 @@ from app.api import (
     analysis_contract_routes,
     analysis_routes,
     audit_routes,
-    analysis_nl_routes,
     upload_routes,
     sql_ingestion_routes,
     sql_transparency_routes,
@@ -99,11 +98,6 @@ api_router.include_router(
     analysis_routes.router,
     prefix="/versions/{version_id}/analysis",
     tags=["Analysis"],
-)
-
-api_router.include_router(
-    analysis_nl_routes.router,
-    tags=["NL Analysis"],
 )
 
 api_router.include_router(
