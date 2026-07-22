@@ -439,12 +439,13 @@ async def _try_duckdb_analytics(
         duckdb_path = await get_or_build_duckdb(dataset_id, version_id, csv_path)
         bootstrap_ms = (datetime.now(timezone.utc) - bootstrap_started).total_seconds() * 1000
 
+        from app.services.storage import get_storage
         logger.info(
             "[DUCKDB ATTEMPT] dataset_id=%s version_id=%s path=%s exists=%s bootstrap_ms=%.1f",
             dataset_id,
             version_id,
             duckdb_path,
-            os.path.exists(str(duckdb_path)),
+            get_storage().exists(duckdb_path),
             bootstrap_ms,
         )
 

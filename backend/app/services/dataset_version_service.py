@@ -172,7 +172,8 @@ def _fetch_column_profiles_for_ui(
     profiles = {}
     duckdb_path = get_duckdb_path(dataset_id, version_id)
 
-    if not duckdb_path.exists():
+    from app.services.storage import get_storage
+    if not get_storage().exists(duckdb_path):
         return profiles
 
     try:

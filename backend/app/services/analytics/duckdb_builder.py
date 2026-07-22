@@ -183,7 +183,8 @@ async def get_or_build_duckdb(dataset_id: UUID, version_id: UUID, csv_path: str)
 
 def duckdb_exists(dataset_id: UUID, version_id: UUID) -> bool:
     """Check if DuckDB file exists for this version."""
-    return get_duckdb_path(dataset_id, version_id).exists()
+    from app.services.storage import get_storage
+    return get_storage().exists(get_duckdb_path(dataset_id, version_id))
 
 
 async def add_table_to_duckdb(

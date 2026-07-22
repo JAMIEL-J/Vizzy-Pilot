@@ -117,7 +117,8 @@ async def run_semantic_audit(
     conn = None
     duckdb_available = False
 
-    if duckdb_path.exists():
+    from app.services.storage import get_storage
+    if get_storage().exists(duckdb_path):
         try:
             conn = duckdb.connect(str(duckdb_path), read_only=True)
             duckdb_available = True
