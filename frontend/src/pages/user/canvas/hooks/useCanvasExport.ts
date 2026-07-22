@@ -29,7 +29,7 @@ export function useCanvasExport(params: UseCanvasExportParams): UseCanvasExportR
   const [isPresentMode, setIsPresentMode] = useState(false);
   const [isFullScreenCanvas, setIsFullScreenCanvas] = useState(false);
 
-  const isResponsive = isExporting;
+  const isResponsive = false;
 
   const handleExportVisuals = useCallback(async (format: 'png' | 'svg' | 'json' = 'png') => {
     if (!canvasContainerRef.current) return;
@@ -54,8 +54,9 @@ export function useCanvasExport(params: UseCanvasExportParams): UseCanvasExportR
         const exportWidth = element.scrollWidth;
         const exportHeight = Math.max(element.scrollHeight, 800);
 
+        const isDark = document.documentElement.classList.contains('dark');
         const options = { 
-          backgroundColor: '#111111',
+          backgroundColor: isDark ? '#111111' : '#ffffff',
           pixelRatio: 2,
           width: exportWidth,
           height: exportHeight,

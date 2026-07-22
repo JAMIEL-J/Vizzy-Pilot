@@ -1270,10 +1270,12 @@ export default function CanvasPage() {
             >
               {/* Scaled Wrapper to center the scaled absolute layout responsively */}
               <div 
-                className="flex items-start justify-start mx-auto"
+                className="flex items-start justify-start mx-auto min-w-full min-h-full"
                 style={{
-                  height: !isResponsive ? `${contentHeight * canvasScale}px` : 'auto',
-                  width: !isResponsive ? `${contentWidth * canvasScale}px` : '100%',
+                  height: !isResponsive ? Math.max(contentHeight * canvasScale, 600) : 'auto',
+                  width: !isResponsive ? Math.max(contentWidth * canvasScale, 800) : '100%',
+                  minHeight: '100%',
+                  minWidth: '100%',
                   overflow: 'visible'
                 }}
               >
@@ -1294,12 +1296,13 @@ export default function CanvasPage() {
                   className={`relative ${isResponsive ? 'transition-all duration-300' : ''} ${
                     isResponsive 
                       ? 'w-full bg-transparent border-0 shadow-none grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 auto-rows-max' 
-                      : 'bg-surface rounded-xl border border-dashed border-border-custom/80 shadow-md origin-top-left shrink-0'
+                      : 'bg-surface rounded-xl border border-dashed border-border-custom/80 shadow-md origin-top-left shrink-0 min-h-full min-w-full'
                   }`}
                   style={{
                     width: isResponsive ? '100%' : `${contentWidth}px`,
                     height: isResponsive ? 'auto' : `${contentHeight}px`,
-                    minHeight: isResponsive ? '100%' : `${contentHeight}px`,
+                    minHeight: isResponsive ? '100%' : '100%',
+                    minWidth: isResponsive ? '100%' : '100%',
                     backgroundImage: (showGridlines && !isResponsive) 
                       ? (isDark ? 'radial-gradient(rgba(255, 255, 255, 0.08) 1.2px, transparent 1.2px)' : 'radial-gradient(rgba(0, 0, 0, 0.04) 1.2px, transparent 1.2px)')
                       : undefined,

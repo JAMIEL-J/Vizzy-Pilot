@@ -1,6 +1,6 @@
 // CanvasSidebar.tsx — left control pane & field checklist — extracted from CanvasPage.tsx
 import React from 'react';
-import { LayoutGrid, ChevronLeft, Sliders, Maximize2, BarChart3, MapPin, BarChart4, TrendingUp, PieChart as PieIcon, Globe, Activity, CircleDot, Shuffle, FileSpreadsheet, Grid, Sparkles, Loader2, GripVertical, Check } from 'lucide-react';
+import { LayoutGrid, ChevronLeft, ChevronRight, Sliders, Maximize2, BarChart3, MapPin, BarChart4, TrendingUp, PieChart as PieIcon, Globe, Activity, CircleDot, Shuffle, FileSpreadsheet, Grid, Sparkles, Loader2, GripVertical, Check } from 'lucide-react';
 import type { FieldDef } from '../types';
 import { prettifyLabel } from '../../../../components/dashboard/dashboard-helpers';
 
@@ -35,10 +35,26 @@ export const CanvasSidebar: React.FC<CanvasSidebarProps> = ({
   onFieldRightClick,
   logs
 }) => {
-  if (isSidebarCollapsed) return null;
+  if (isSidebarCollapsed) {
+    return (
+      <div className="fixed left-0 top-1/2 -translate-y-1/2 z-[100]">
+        <button
+          type="button"
+          onClick={() => {
+            setIsSidebarCollapsed(false);
+            addLog("Sidebar expanded.");
+          }}
+          className="bg-surface border border-l-0 border-border-custom hover:bg-surface-2 p-1.5 py-3 rounded-r-xl shadow-lg transition-all cursor-pointer text-muted-custom hover:text-text-custom flex flex-col items-center justify-center"
+          title="Open Layout Control Pane"
+        >
+          <ChevronRight className="w-5 h-5" />
+        </button>
+      </div>
+    );
+  }
 
   return (
-    <div className="xl:col-span-3 bg-surface-2/30 p-5 space-y-6 text-left flex flex-col justify-between overflow-y-auto transition-all duration-300 xl:max-h-[calc(100vh-60px)]">
+    <div className="xl:col-span-3 bg-surface-2/30 p-5 space-y-6 text-left flex flex-col justify-between overflow-y-auto transition-all duration-300 xl:max-h-[calc(100vh-60px)] self-start sticky top-6 rounded-2xl border border-border-custom/50">
       <div className="space-y-6">
         
         {/* Sidebar toggle header */}
