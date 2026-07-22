@@ -29,16 +29,18 @@ class AuditEvent(BaseModel):
     user_agent: Optional[str] = None
 
 
+from collections import deque
+
 class AuditStore:
     """
     Append-only audit event store with file persistence.
     
-    Events are written to both in-memory list and a JSON lines file
-    so they survive restarts and can be shipped to a SIEM.
+    Events are written to a JSON lines file for permanent storage
+    and a bounded in-memory deque (max 1000 events) for recent queries.
     """
 
     def __init__(self, log_path: str = "data/audit.log") -> None:
-        self._events: List[AuditEvent] = []
+        self._events: deque[AuditEvent] = deque(maxlen=1000)
         self._lock = Lock()
         self._log_path = Path(log_path)
         self._ensure_log_dir()

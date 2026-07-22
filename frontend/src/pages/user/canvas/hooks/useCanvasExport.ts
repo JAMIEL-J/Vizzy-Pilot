@@ -1,8 +1,23 @@
 // useCanvasExport — PNG/SVG/JSON export, presentation mode — extracted from CanvasPage.tsx
 import { useState, useCallback } from 'react';
 import { toast } from 'react-hot-toast';
-import download from 'downloadjs';
 import type { CanvasWidget, HistoryFrame } from '../types';
+
+function triggerDownload(content: string | Blob, filename: string) {
+  const link = document.createElement('a');
+  if (typeof content === 'string') {
+    link.href = content;
+  } else {
+    link.href = URL.createObjectURL(content);
+  }
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  if (typeof content !== 'string') {
+    URL.revokeObjectURL(link.href);
+  }
+}
 
 interface UseCanvasExportParams {
   widgets: CanvasWidget[];
@@ -39,7 +54,7 @@ export function useCanvasExport(params: UseCanvasExportParams): UseCanvasExportR
       if (format === 'json') {
         const config = { widgets, past, future };
         const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
-        download(blob, 'vizzy-canvas-export.json');
+        triggerDownload(blob, 'vizzy-canvas-export.json');
         toast.success("Canvas exported successfully as JSON!", { id: 'export-toast' });
         addLog("Export success! Canvas saved as JSON config.");
         return;
@@ -78,7 +93,7 @@ export function useCanvasExport(params: UseCanvasExportParams): UseCanvasExportR
               finalUrl = parts[0] + ',' + encodeURIComponent(decodeURIComponent(parts[1]));
             }
           }
-          download(finalUrl, `vizzy-canvas-export.${format}`);
+          triggerDownload(finalUrl, `vizzy-canvas-export.${format}`);
           toast.success(`Canvas exported successfully as ${format.toUpperCase()}!`, { id: 'export-toast' });
           addLog(`Export success! Canvas saved as high-res ${format.toUpperCase()}.`);
         })
