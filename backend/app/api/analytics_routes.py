@@ -661,7 +661,9 @@ async def auto_render_dashboard(
 
             if reader is not None:
                 try:
-                    df = reader.sample_rows(50000)
+                    # Use up to 50k rows so chart recommendations get full dataset visibility
+                    actual_rows = reader.row_count()
+                    df = reader.sample_rows(500000) if actual_rows > 500000 else reader.execute_query("SELECT * FROM data")
                     res = generate_overview_dashboard_duckdb(
                         df=df,
                         reader=reader,
@@ -685,9 +687,9 @@ async def auto_render_dashboard(
                         target_values = [str(x) for x in reader.distinct_values(target_col, limit=100)]
                         target_values = _normalize_binary_target_values(target_col, target_values)
                     
-                    # Prepare raw data payload (use the sample)
-                    df_raw = df.copy()
-                    raw_data_payload = df_raw.replace([np.inf, -np.inf], np.nan).where(pd.notnull(df_raw), None).to_dict(orient="records")
+                    # Prepare raw data payload (fast 1,000-row sample vectorization for the UI grid)
+                    raw_df = df.head(1000)
+                    raw_data_payload = raw_df.replace([np.inf, -np.inf], np.nan).where(pd.notnull(raw_df), None).to_dict(orient="records")
                     
                     # Chart Configs for hybrid engine
                     chart_configs = {}
@@ -748,7 +750,7 @@ async def auto_render_dashboard(
             
             for encoding in encodings_to_try:
                 try:
-                    df = pd.read_csv(file_path, nrows=50000, encoding=encoding)
+                    df = pd.read_csv(file_path, nrows=500000, encoding=encoding)
                     logger.info("auto_render: successfully read CSV with encoding=%s for version %s", encoding, version_id)
                     break
                 except (UnicodeDecodeError, LookupError) as e:
@@ -761,9 +763,10 @@ async def auto_render_dashboard(
             if df is None:
                 # Final fallback: read with errors='ignore' to skip bad bytes
                 logger.warning("auto_render: all encodings failed for version %s, using errors='ignore'", version_id)
-                df = pd.read_csv(file_path, nrows=50000, encoding='utf-8', errors='ignore')
+                df = pd.read_csv(file_path, nrows=500000, encoding='utf-8', errors='ignore')
             
-            total_rows = version.row_count or len(df)
+            from app.services.ingestion_service import _count_csv_rows
+            total_rows = version.row_count if (version.row_count and version.row_count > 0) else _count_csv_rows(file_path)
             # 3. Domain detection & Classification
             domain, scores = detect_domain(df)
             confidence = get_domain_confidence(scores)
@@ -937,10 +940,38 @@ async def get_dashboard_analytics(  # pyright: ignore
             if latest_version.cleaned_reference
             else latest_version.source_reference
         )
-        df = safe_read_csv(file_path)
         
-        # Detect domain
-        domain, scores = detect_domain(df)
+        _ddb_exists = duckdb_exists(state.dataset_id, latest_version.id)
+        _ddb_path = get_duckdb_path(state.dataset_id, latest_version.id)
+        reader = None
+        if _ddb_exists:
+            from app.services.storage import get_storage
+            from contextlib import ExitStack
+            with ExitStack() as stack:
+                try:
+                    local_db_path = stack.enter_context(get_storage().duckdb_path(_ddb_path, read_only=True))
+                    reader = DuckDBReader(str(_ddb_path))
+                except Exception as e:
+                    logger.warning("recompute: DuckDBReader failed for %s: %s", _ddb_path, e)
+
+        from app.services.ingestion_service import _count_csv_rows
+        actual_total_rows = latest_version.row_count if (latest_version.row_count and latest_version.row_count > 0) else (reader.row_count() if reader else _count_csv_rows(file_path))
+
+        if reader is not None:
+            try:
+                # Use up to 50k rows so downstream fallback analytics and raw_data_payload have sufficient data
+                df = reader.sample_rows(500000) if actual_total_rows > 500000 else reader.execute_query("SELECT * FROM data")
+                domain, scores = detect_domain(df)
+                classification = filter_columns_duckdb(df, domain, reader)
+            finally:
+                try:
+                    reader.close()
+                except Exception:
+                    pass
+        else:
+            df = safe_read_csv(file_path, nrows=500000)
+            domain, scores = detect_domain(df)
+            classification = filter_columns(df, domain)
         
         # Apply manual domain override if provided
         if state.selected_domain and state.selected_domain.lower() != 'auto':
@@ -952,9 +983,7 @@ async def get_dashboard_analytics(  # pyright: ignore
                 print(f"Warning: Invalid domain override '{state.selected_domain}', falling back to detected: {domain}")
         
         confidence = get_domain_confidence(scores)
-        
-        # Classify columns
-        classification = filter_columns(df, domain)
+
         
         # Merge saved semantic mapping with runtime overrides
         effective_overrides = {}
@@ -1140,8 +1169,9 @@ async def get_dashboard_analytics(  # pyright: ignore
                 geo_filters[dim] = sorted([str(v) for v in unique_vals])
                 geo_filters_truncated[dim] = unique_count
         
-        # Generate KPIs from filtered data (values should reflect filters)
-        kpis = generate_kpis(df_filtered, domain, classification)
+        # Generate KPIs from full dataset using DuckDB when available
+        kpi_total_rows = reader.row_count() if reader else actual_total_rows
+        kpis = generate_kpis(df_filtered, domain, classification, reader=reader, total_rows=kpi_total_rows)
 
         # FIX: Chart STRUCTURE (which charts appear) is determined from the FULL dataset.
         # Only DATA values are recomputed from df_filtered.
@@ -1477,7 +1507,7 @@ async def get_dashboard_analytics(  # pyright: ignore
         dataset_name = dataset.name if dataset else latest_version.source_reference.split('/')[-1]
 
         # Prepare raw data payload (50k limit) with Stratified Sampling
-        max_raw_rows = 50000
+        max_raw_rows = 500000
         total_len = len(df)
         
         if total_len <= max_raw_rows:
@@ -1675,9 +1705,10 @@ async def get_dashboard_analytics(  # pyright: ignore
         if missing_columns:
             classification.excluded.extend(missing_columns)
 
+
         return DashboardAnalyticsResponse(
             dataset_name=dataset_name,
-            total_rows=len(df),
+            total_rows=actual_total_rows,
             domain=domain.value,
             domain_confidence=confidence,
             kpis=kpis,

@@ -82,6 +82,7 @@ class DuckDBReader:
         self._path = str(self._temp_path)
         self._conn = duckdb.connect(database=self._path, read_only=True)
         self._table: str = safe_identifier(table_name)
+        self._column_profiles: Optional[Dict[str, Dict[str, Any]]] = None
 
         logger.info(
             "DuckDBReader opened %s (table=%s)",
@@ -123,6 +124,7 @@ class DuckDBReader:
             table_name: Target table name
         """
         self._table = safe_identifier(table_name)
+        self._column_profiles = None
 
     # ── Schema introspection ────────────────────────────────
 
@@ -146,6 +148,56 @@ class DuckDBReader:
         """Return {column_name: column_type} for the current table."""
         df = self.describe_schema()
         return dict(zip(df["column_name"], df["column_type"]))
+
+    # ponytail: single-pass metadata profiling query cached per reader instance
+    def get_column_profiles(self) -> Dict[str, Dict[str, Any]]:
+        """Return single-pass DuckDB metadata and statistical profiling for all columns.
+        
+        Computes distinct_count, null_count, physical_type, null_ratio, and cardinality
+        for all columns in a single DuckDB SIMD aggregation query pass and caches the result.
+        """
+        if getattr(self, "_column_profiles", None) is not None:
+            return self._column_profiles
+
+        cols_types = self.column_types()
+        total_rows = self.row_count()
+        if not cols_types or total_rows == 0:
+            self._column_profiles = {}
+            return self._column_profiles
+
+        select_parts = []
+        col_list = list(cols_types.keys())
+        for i, col in enumerate(col_list):
+            safe_col = safe_identifier(col)
+            select_parts.append(f"COUNT({safe_col}) AS non_null_{i}")
+            select_parts.append(f"COUNT(DISTINCT {safe_col}) AS distinct_{i}")
+
+        sql = f"SELECT {', '.join(select_parts)} FROM {self._table}"
+        res = execute_df(self._conn, sql)
+        if res.empty:
+            self._column_profiles = {}
+            return self._column_profiles
+
+        row = res.iloc[0]
+        profiles = {}
+        for i, col in enumerate(col_list):
+            non_null = int(row[f"non_null_{i}"]) if pd.notna(row[f"non_null_{i}"]) else 0
+            distinct = int(row[f"distinct_{i}"]) if pd.notna(row[f"distinct_{i}"]) else 0
+            null_count = total_rows - non_null
+            null_ratio = float(null_count / total_rows) if total_rows > 0 else 0.0
+            cardinality = float(distinct / total_rows) if total_rows > 0 else 0.0
+            phys_type = cols_types.get(col, "VARCHAR")
+            profiles[col] = {
+                "distinct_count": distinct,
+                "unique_count": distinct,
+                "null_count": null_count,
+                "null_ratio": null_ratio,
+                "cardinality": cardinality,
+                "physical_type": phys_type,
+            }
+
+        self._column_profiles = profiles
+        return profiles
 
     # ── Row-level aggregates ────────────────────────────────
 

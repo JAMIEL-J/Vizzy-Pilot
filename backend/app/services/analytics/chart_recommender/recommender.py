@@ -415,6 +415,16 @@ def _generate_all_columns_charts(
     # Normalise to lowercase for case-insensitive matching
     curated_pairs_norm: Set[Tuple[str, str]] = {(m.lower(), d.lower()) for m, d in curated_pairs}
 
+    # ponytail: use pre-computed cardinality lookup over live pandas nunique scan
+    def _get_nuniq(c: str) -> int:
+        if column_profiles and c in column_profiles:
+            p = column_profiles[c]
+            return int(p.get("distinct_count", p.get("unique_count", 0)))
+        try:
+            return int(df[c].nunique(dropna=True))
+        except Exception:
+            return 0
+
     def _unique_title(base: str, max_attempts: int = 20) -> str:
         base = _clean_title(base)
         if base not in seen_titles and base not in curated_titles:
@@ -497,7 +507,7 @@ def _generate_all_columns_charts(
         if not data:
             return None
         fmt = _metric_format_type(metric) or 'number'
-        nunique = df[dim].nunique()
+        nunique = _get_nuniq(dim)
         title = _unique_title(f"{prefix} {_beautify_column_name(metric)} by {_beautify_column_name(dim)}")
         rec = ChartRecommendation(
             slot='', title=title,
@@ -579,7 +589,7 @@ def _generate_all_columns_charts(
             if (metric.lower(), d.lower()) in forbidden_pairs:
                 continue
             try:
-                n = df[d].nunique()
+                n = _get_nuniq(d)
             except Exception:
                 continue
             if strict:
@@ -647,7 +657,7 @@ def _generate_all_columns_charts(
                 continue
             
             try:
-                nunique = df[dim].nunique()
+                nunique = _get_nuniq(dim)
             except Exception:
                 continue
                 
@@ -704,7 +714,7 @@ def _generate_all_columns_charts(
         if dim in used_dims_global:
             continue
         try:
-            nunique = df[dim].nunique()
+            nunique = _get_nuniq(dim)
         except Exception:
             continue
         adaptive_limit = 200
@@ -847,7 +857,7 @@ def _generate_all_columns_charts(
         if col in used_dims_global or col in used_metrics_global:
             continue
         try:
-            n = df[col].nunique()
+            n = _get_nuniq(col)
         except Exception:
             continue
         if n < 2 or n > 100:
@@ -981,7 +991,10 @@ def recommend_charts(df: pd.DataFrame, domain: DomainType, classification: Colum
     }
     
     generator = generators.get(domain, _generate_generic_charts)
-    charts = generator(df, filtered_classification)
+    try:
+        charts = generator(df, filtered_classification, column_profiles=column_profiles)
+    except TypeError:
+        charts = generator(df, filtered_classification)
     
     # ========================================
     # PHASE 3: Analytical Templates (Deterministic)

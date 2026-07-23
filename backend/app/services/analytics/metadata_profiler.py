@@ -150,98 +150,69 @@ def _get_duckdb_physical_type_map(
         return {}
 
 
+# ponytail: single-pass batch metadata profiling via DuckDBReader
 def profile_dataset_duckdb(
     reader: "DuckDBReader",
     columns: List[str],
 ) -> Dict[str, Dict[str, Any]]:
     """
-    Profile dataset columns using DuckDB-accurate aggregations.
+    Profile dataset columns using single-pass DuckDB metadata profiling.
 
-    Returns the same metadata dict format as profile_dataset() but with
-    null_ratio, unique_count, and cardinality computed from the FULL
-    dataset via DuckDB instead of a pandas sample.
-
-    Uses DESCRIBE (catalog-level) for column type detection instead of
-    ANY_VALUE(TYPEOF(...)) to ensure deterministic, schema-based types.
+    Returns metadata dict for specified columns using pre-computed statistics
+    (null_ratio, distinct_count, cardinality) from DuckDBReader.get_column_profiles().
     """
-    from .duckdb_reader import DuckDBReader
     from .query_utils import safe_identifier, execute_df
 
     metadata: Dict[str, Dict[str, Any]] = {}
 
     try:
-        total_records = reader.row_count()
-    except Exception:
-        total_records = 0
+        profiles = reader.get_column_profiles()
+    except Exception as e:
+        logger.error(f"Failed to fetch DuckDB column profiles: {e}")
+        profiles = {}
 
-    if total_records == 0:
+    if not profiles:
         return metadata
 
     conn = reader._conn
     table_ref = reader._table or safe_identifier("data")
 
-    # --- P1 Fix: Get all column types via DESCRIBE (deterministic, catalog-level) ---
-    physical_type_map = _get_duckdb_physical_type_map(conn, table_ref)
-
     for col in columns:
-        safe_col = safe_identifier(col)
-
-        try:
-            # Compute null count and unique count from DuckDB
-            # (physical type is now from DESCRIBE, not TYPEOF)
-            row = execute_df(
-                conn,
-                f"""
-                SELECT
-                    COUNT(*)                                               AS total,
-                    COUNT({safe_col})                                      AS non_null,
-                    APPROX_COUNT_DISTINCT({safe_col})                             AS unique_count
-                FROM {table_ref}
-                """,
-            )
-            if row.empty:
-                continue
-            r = row.iloc[0]
-        except Exception:
+        prof = profiles.get(col)
+        if not prof:
             continue
 
-        null_count = total_records - int(r["non_null"])
-        null_ratio = null_count / total_records if total_records > 0 else 0.0
-        unique_count = int(r["unique_count"])
-        cardinality = unique_count / total_records if total_records > 0 else 0.0
+        null_ratio = float(prof.get("null_ratio", 0.0))
+        unique_count = int(prof.get("distinct_count", prof.get("unique_count", 0)))
+        cardinality = float(prof.get("cardinality", 0.0))
+        physical_type = str(prof.get("physical_type", "VARCHAR"))
 
-        # --- P1 Fix: Use DESCRIBE type map instead of ANY_VALUE(TYPEOF(...)) ---
-        raw_type = physical_type_map.get(col, "VARCHAR")
-        physical_type = str(raw_type)
-
-        # Detect logical type from DuckDB physical type + value sampling
-        logical_type = "categorical"
         duckdb_type_lower = physical_type.lower()
+        logical_type = "categorical"
 
         if any(t in duckdb_type_lower for t in ("int", "float", "double", "decimal", "numeric", "number")):
             logical_type = "numeric"
         elif any(t in duckdb_type_lower for t in ("date", "timestamp", "time")):
             logical_type = "temporal"
-        elif "bool" in duckdb_type_lower:
+        elif "bool" in duckdb_type_lower or unique_count == 2:
             logical_type = "boolean"
         else:
-            # For VARCHAR/string columns, check if boolean-like from DuckDB values
-            try:
-                sample = execute_df(
-                    conn,
-                    f"SELECT DISTINCT {safe_col} FROM {table_ref} WHERE {safe_col} IS NOT NULL LIMIT 10",
-                )
-                if not sample.empty:
-                    vals = {str(v).strip().lower() for v in sample.iloc[:, 0] if pd.notna(v)}
-                    if vals.issubset(BOOLEAN_WORDS) and len(vals) > 0:
-                        logical_type = "boolean"
-            except Exception:
-                pass
+            if unique_count <= 10:
+                safe_col = safe_identifier(col)
+                try:
+                    sample = execute_df(
+                        conn,
+                        f"SELECT DISTINCT {safe_col} FROM {table_ref} WHERE {safe_col} IS NOT NULL LIMIT 10",
+                    )
+                    if not sample.empty:
+                        vals = {str(v).strip().lower() for v in sample.iloc[:, 0] if pd.notna(v)}
+                        if vals.issubset(BOOLEAN_WORDS) and len(vals) > 0:
+                            logical_type = "boolean"
+                except Exception:
+                    pass
 
-        # Semantic tagging and format detection (same logic as pandas profiler)
         format_type, semantic_tags = _detect_semantics_and_format(col, logical_type, pd.Series(dtype="object"))
 
-        # ID detection with DuckDB-accurate cardinality
         if logical_type != "numeric" and cardinality > 0.95 and "identity:surrogate" not in semantic_tags:
             semantic_tags.append("identity:surrogate")
 
@@ -251,6 +222,7 @@ def profile_dataset_duckdb(
             "null_ratio": null_ratio,
             "cardinality": cardinality,
             "unique_count": unique_count,
+            "distinct_count": unique_count,
             "semantic_tags": semantic_tags,
             "format_type": format_type,
         }

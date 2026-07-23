@@ -14,6 +14,7 @@ import duckdb
 
 from app.core.storage import get_duckdb_path
 from app.services.analytics.db_engine import DBEngine
+from app.services.storage import get_storage
 
 logger = logging.getLogger(__name__)
 
@@ -61,8 +62,6 @@ def mark_duckdb_failed(dataset_id: UUID, version_id: UUID, error: str) -> None:
     }
     markers["failed"].write_text(json.dumps(payload), encoding="utf-8")
 
-
-from app.services.storage import get_storage
 
 def get_duckdb_build_status(dataset_id: UUID, version_id: UUID) -> Dict[str, Any]:
     """Return one of: building, ready, failed."""
@@ -137,7 +136,6 @@ async def build_duckdb_from_csv(
         # Create database engine pointing to persistent file
         db_engine = DBEngine(db_path=str(duckdb_path))
 
-        from app.services.storage import get_storage
         local_csv_path = get_storage().download_to_temp(csv_path)
 
         try:

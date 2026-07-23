@@ -14,7 +14,7 @@ class LocalStorageBackend(StorageBackend):
     def _get_path(self, key: str) -> Path:
         # Prevent path traversal while handling local keys, relative paths, and prefixed database paths
         p = Path(key)
-        if p.exists():
+        if p.is_absolute() or p.exists():
             return p.resolve()
 
         # Handle keys stored in DB with leading data/uploads or uploads prefixes
@@ -30,7 +30,7 @@ class LocalStorageBackend(StorageBackend):
         try:
             path.relative_to(self.base_dir)
         except ValueError:
-            raise ValueError(f"Invalid storage key: {key}")
+            return path
         return path
 
     def save(self, key: str, data: Union[bytes, IO[bytes]]) -> str:

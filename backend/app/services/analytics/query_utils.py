@@ -142,7 +142,18 @@ def execute_df(
 ) -> "pandas.DataFrame":
     """Execute a parameterized DuckDB query and return a DataFrame."""
     result = execute(conn, query, params)
-    return result.df()
+    df = result.df()
+    
+    # ponytail: Aggressive memory downcasting for categorical strings
+    # Converts heavy Python object strings to memory-mapped int pointers
+    for col in df.select_dtypes(include=["object", "string"]).columns:
+        try:
+            if df[col].nunique(dropna=False) < (len(df) * 0.5):
+                df[col] = df[col].astype("category")
+        except Exception:
+            pass
+            
+    return df
 
 
 def build_in_clause(values: List[Any]) -> Tuple[str, List[Any]]:

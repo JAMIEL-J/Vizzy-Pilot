@@ -24,18 +24,16 @@ export const buildAggExpr = (agg: string, colName: string, fieldsList: FieldDef[
       baseExpr = `${baseAgg}(${colObj.formula})`;
     }
   }
-  // 2. Handle dirty numeric string columns or text-like columns being aggregated numerically
+  // 2. Handle dirty numeric string columns ONLY when column is a VARCHAR/string type
   else if (
-    baseAgg !== 'COUNT' && (
-      (colObj && (
-        colObj.type.toLowerCase().includes('varchar') || 
-        colObj.type.toLowerCase().includes('string') || 
-        colObj.type.toLowerCase().includes('char')
-      )) ||
-      (!colObj)
+    baseAgg !== 'COUNT' && colObj && (
+      colObj.type.toLowerCase().includes('varchar') || 
+      colObj.type.toLowerCase().includes('string') || 
+      colObj.type.toLowerCase().includes('char') ||
+      colObj.type.toLowerCase().includes('text')
     )
   ) {
-    baseExpr = `${baseAgg}(TRY_CAST(NULLIF(REGEXP_REPLACE("${colName}", '^\\\\s*$', ''), '') AS DOUBLE))`;
+    baseExpr = `${baseAgg}(TRY_CAST(NULLIF(REGEXP_REPLACE("${colName}", '^\\s*$', ''), '') AS DOUBLE))`;
   }
 
   if (agg === 'PERCENT_CHANGE') {

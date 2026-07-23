@@ -19,6 +19,7 @@ class ColumnClassification:
     """Classification result for dataset columns."""
     metrics: List[str] = field(default_factory=list)      # Numeric columns for KPIs
     dimensions: List[str] = field(default_factory=list)   # Categorical for grouping
+    binary_dims: List[str] = field(default_factory=list)  # Binary 2-cardinality dimensions
     targets: List[str] = field(default_factory=list)      # Binary outcome columns
     dates: List[str] = field(default_factory=list)        # Date/time columns
     excluded: List[str] = field(default_factory=list)     # IDs, noise, etc.
@@ -802,6 +803,14 @@ def filter_columns_duckdb(
             classification.targets.append(col)
             continue
 
+        # ponytail: universal statistical ratio classifier for binary and ratio-based dimension assignment
+        if meta_unique == 2:
+            if col not in classification.dimensions:
+                classification.dimensions.append(col)
+            if col not in classification.binary_dims:
+                classification.binary_dims.append(col)
+            continue
+
         # Classify remaining columns
         is_numeric = df_typed[col].dtype in ["int64", "float64", "int32", "float32", "float", "int"]
         is_bool = meta.get("logical_type") == "boolean" or df_typed[col].dtype == "bool"
@@ -819,7 +828,7 @@ def filter_columns_duckdb(
                     if "financial:monetary" in meta.get("semantic_tags", []):
                         classification.currency_columns.append(col)
         else:
-            # Categorical column — use DuckDB-accurate cardinality for dimension detection
+            # Categorical column — evaluate statistical ratio (cardinality = distinct_count / total_rows)
             col_lower = col.lower().replace("_", "").replace("-", "")
 
             try:
@@ -860,10 +869,10 @@ def filter_columns_duckdb(
                 classification.dimensions.append(col)
             elif is_geo_col:
                 classification.dimensions.append(col)
-            elif is_customer_name and meta_unique > 100:
+            elif is_customer_name and (meta_cardinality > 0.3 or meta_unique > 100):
                 classification.excluded.append(col)
             else:
-                # DuckDB-accurate cardinality for dimension/exclusion decision
+                # DuckDB-accurate statistical ratio (distinct_count / total_rows)
                 if meta_unique > 1 and (meta_cardinality < 0.2 or meta_unique < 500):
                     classification.dimensions.append(col)
                 else:

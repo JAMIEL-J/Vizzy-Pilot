@@ -263,8 +263,21 @@ async def execute_canvas_sql(
         )
 
     conn = None
+    db_engine = None
     try:
-        conn = await get_duckdb_connection(dataset_id, latest_version.id, file_path)
+        try:
+            conn = await get_duckdb_connection(dataset_id, latest_version.id, file_path)
+        except Exception as conn_err:
+            logger.warning(f"execute_canvas_sql: DuckDB connection failed ({conn_err}), loading via DBEngine fallback")
+            from app.services.analytics.db_engine import DBEngine
+            from app.services.storage import get_storage
+            db_engine = DBEngine()
+            local_csv = get_storage().download_to_temp(file_path)
+            try:
+                await db_engine.load_csv("data", local_csv, storage_key=file_path)
+                conn = db_engine._read_con
+            finally:
+                get_storage().cleanup_temp(local_csv)
 
         sql_to_run = request.sql
         filter_omitted = False
@@ -344,7 +357,12 @@ async def execute_canvas_sql(
             detail="An error occurred while executing the query. Please check your SQL syntax.",
         )
     finally:
-        if conn is not None:
+        if db_engine is not None:
+            try:
+                db_engine.close()
+            except Exception as e:
+                logger.debug("Failed to close fallback DBEngine: %s", e)
+        elif conn is not None:
             try:
                 conn.close()
             except Exception as e:

@@ -33,7 +33,7 @@ from .titles import (
 
 logger = logging.getLogger(__name__)
 
-def _generate_churn_charts(df, classification):
+def _generate_churn_charts(df, classification, column_profiles: Optional[Dict[str, Dict[str, Any]]] = None):
     """
     Fully domain-agnostic churn dashboard — works for Telco, Bank, Movie, HR, SaaS.
 
@@ -45,6 +45,15 @@ def _generate_churn_charts(df, classification):
       - binary_dims: dimensions with exactly 2 values (demographic splits)
       - multi_dims: dimensions with 3-8 values (product/service groupings)
     """
+    # ponytail: pre-computed cardinality lookup avoids full dataframe nunique scanning
+    def _get_unique_count(col: str) -> int:
+        if column_profiles and col in column_profiles:
+            p = column_profiles[col]
+            return int(p.get("distinct_count", p.get("unique_count", 0)))
+        if col in df.columns:
+            return int(df[col].nunique(dropna=True))
+        return 0
+
     charts = []
     target_col = classification.targets[0] if classification.targets else None
 
@@ -59,7 +68,7 @@ def _generate_churn_charts(df, classification):
         for col in df.columns:
             col_clean = col.lower().replace('_', '').replace('-', '').replace(' ', '')
             if any(kw in col_clean for kw in churn_target_keywords):
-                if df[col].nunique() <= 5:
+                if _get_unique_count(col) <= 5:
                     target_col = col
                     logger.info('[CHURN TARGET FALLBACK] Using %r as target (discovered from data)', col)
                     break
@@ -143,14 +152,14 @@ def _generate_churn_charts(df, classification):
     )
 
     # Binary dimensions (exactly 2 unique values)
-    binary_dims = [d for d in pd_ if df[d].nunique() == 2 and d != target_col]
+    binary_dims = list(getattr(classification, "binary_dims", [])) or [d for d in pd_ if _get_unique_count(d) == 2 and d != target_col]
     # SeniorCitizen is often classified as a metric (0/1 int) — rescue it into binary_dims
     senior_col_match = next((c for c in pm + pd_ if _is_senior(c)), None)
     if senior_col_match and senior_col_match not in binary_dims:
         binary_dims.insert(0, senior_col_match)  # Highest priority in binary_dims
 
     # Multi-value dimensions (3-8 categories)
-    multi_dims = [d for d in pd_ if 2 < df[d].nunique() <= 8 and d != target_col]
+    multi_dims = [d for d in pd_ if 2 < _get_unique_count(d) <= 8 and d != target_col]
     def _find_payment_dimension(dim_candidates: List[str]) -> Optional[str]:
         """Resolve a payment-like categorical dimension across churn schemas."""
         # 1) Prefer canonical mapper output when available.
@@ -158,7 +167,7 @@ def _generate_churn_charts(df, classification):
         if getattr(classification, "mappings", None):
             mapped = classification.mappings.get("attr_payment")
         if mapped and mapped in df.columns and mapped in dim_candidates and mapped != target_col:
-            if df[mapped].nunique(dropna=True) >= 2:
+            if _get_unique_count(mapped) >= 2:
                 return mapped
 
         payment_keywords = [
@@ -175,7 +184,7 @@ def _generate_churn_charts(df, classification):
             for col in dim_candidates:
                 if col == target_col or col not in df.columns:
                     continue
-                nunique = df[col].nunique(dropna=True)
+                nunique = _get_unique_count(col)
                 if nunique < 2:
                     continue
                 # Keep chart interpretable; payment method should be categorical, not near-ID.
@@ -197,7 +206,7 @@ def _generate_churn_charts(df, classification):
             if col == target_col or col not in df.columns:
                 continue
             if any(token in col.lower() for token in fallback_tokens):
-                if df[col].nunique(dropna=True) >= 2:
+                if _get_unique_count(col) >= 2:
                     return col
 
         return None
